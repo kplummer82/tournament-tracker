@@ -1,0 +1,216 @@
+/* FullCalendar skin — matches tournament-tracker design system */
+
+/* ── Base / Container ─────────────────────────────────────────── */
+.fc {
+  font-family: var(--font-dm-sans, var(--font-body, sans-serif));
+  font-size: 13px;
+  color: var(--foreground);
+}
+
+.fc-view-harness {
+  background: var(--background);
+}
+
+/* ── Toolbar ──────────────────────────────────────────────────── */
+.fc .fc-toolbar {
+  padding: 12px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fc .fc-toolbar-title {
+  font-family: var(--font-barlow, var(--font-display, sans-serif));
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+}
+
+/* Toolbar buttons */
+.fc .fc-button {
+  background: transparent;
+  border: 1px solid hsl(var(--border));
+  color: var(--foreground);
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 5px 10px;
+  border-radius: 0;
+  box-shadow: none !important;
+  transition: background 100ms, color 100ms;
+}
+
+.fc .fc-button:hover:not(:disabled) {
+  background: hsl(var(--elevated, var(--muted)));
+  border-color: hsl(var(--border));
+  color: var(--foreground);
+}
+
+.fc .fc-button:disabled {
+  opacity: 0.4;
+}
+
+.fc .fc-button-primary:not(.fc-button-active) {
+  background: transparent;
+  border-color: hsl(var(--border));
+  color: var(--foreground);
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+  background: hsl(var(--primary));
+  border-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  box-shadow: none !important;
+}
+
+.fc .fc-button-group .fc-button {
+  border-radius: 0;
+}
+
+/* ── Day Grid (Month view) ────────────────────────────────────── */
+.fc .fc-daygrid-day {
+  background: var(--background);
+}
+
+.fc .fc-daygrid-day:hover {
+  background: hsl(var(--elevated, var(--muted)) / 0.5);
+  cursor: pointer;
+}
+
+.fc .fc-day-today {
+  background: hsl(var(--elevated, var(--muted)) / 0.7) !important;
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+  color: hsl(var(--primary));
+  font-weight: 700;
+}
+
+.fc .fc-daygrid-day-number {
+  font-family: var(--font-barlow, var(--font-display, sans-serif));
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--foreground);
+  padding: 4px 6px;
+}
+
+.fc .fc-col-header-cell {
+  background: hsl(var(--elevated, var(--muted)) / 0.6);
+  border-color: hsl(var(--border));
+}
+
+.fc .fc-col-header-cell-cushion {
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  padding: 6px 4px;
+  text-decoration: none !important;
+}
+
+/* Grid borders */
+.fc .fc-scrollgrid,
+.fc .fc-scrollgrid-section > td,
+.fc td,
+.fc th {
+  border-color: hsl(var(--border)) !important;
+}
+
+/* ── Events ───────────────────────────────────────────────────── */
+.fc .fc-event {
+  border-radius: 0;
+  border: none;
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 1px 4px;
+}
+
+.fc .fc-daygrid-event:hover,
+.fc .fc-list-event:hover td {
+  filter: brightness(1.15);
+}
+
+/* ── List view ────────────────────────────────────────────────── */
+.fc .fc-list {
+  border-color: hsl(var(--border));
+}
+
+.fc .fc-list-table {
+  border: none;
+}
+
+.fc .fc-list-day-cushion {
+  background: hsl(var(--elevated, var(--muted)) / 0.7) !important;
+  padding: 6px 16px;
+}
+
+.fc .fc-list-day-text,
+.fc .fc-list-day-side-text {
+  font-family: var(--font-barlow, var(--font-display, sans-serif));
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--foreground);
+  text-decoration: none !important;
+}
+
+.fc .fc-list-event td {
+  border-color: hsl(var(--border));
+  padding: 8px 16px;
+  background: var(--background);
+}
+
+.fc .fc-list-event:hover td {
+  background: hsl(var(--elevated, var(--muted)) / 0.5) !important;
+}
+
+.fc .fc-list-event-title a {
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+  text-decoration: none;
+}
+
+.fc .fc-list-event-time {
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 11px;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.fc .fc-list-empty {
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 13px;
+}
+
+/* ── Popover (month "+more") ──────────────────────────────────── */
+.fc .fc-popover {
+  background: var(--card);
+  border: 1px solid hsl(var(--border));
+  border-radius: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.fc .fc-popover-header {
+  background: hsl(var(--elevated, var(--muted)) / 0.8);
+  padding: 6px 12px;
+  font-family: var(--font-barlow, var(--font-display, sans-serif));
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
