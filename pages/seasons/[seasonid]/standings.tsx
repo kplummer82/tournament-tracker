@@ -19,6 +19,14 @@ type StandingsRow = {
   rank_final: number;
 };
 
+/** Derive W/L/T from the DB's win_pts (wins=1, ties=0.5) and games played */
+function derivedRecord(wins: number, games: number) {
+  const ties = Math.round((wins % 1) * 2);
+  const w = Math.floor(wins);
+  const l = games - w - ties;
+  return { w, l, t: ties };
+}
+
 const formatWLPct = (wltpct: unknown, games: number): string => {
   const n = Number(wltpct);
   if (!Number.isFinite(n) || games === 0) return "—";
@@ -41,6 +49,8 @@ function StandingsTable({
             <th className="p-3 pl-4 text-left label-section w-14">Rank</th>
             <th className="p-3 text-left label-section">Team</th>
             <th className="p-3 text-right label-section">W</th>
+            <th className="p-3 text-right label-section">L</th>
+            <th className="p-3 text-right label-section">T</th>
             <th className="p-3 text-right label-section">G</th>
             <th className="p-3 text-right label-section">Pct</th>
             <th className="p-3 text-right label-section">RS</th>
@@ -54,6 +64,7 @@ function StandingsTable({
             const advances = advancesToPlayoffs !== null && r.rank_final <= advancesToPlayoffs;
             const isTop = r.rank_final === 1;
             const diff = r.rundifferential;
+            const { w, l, t } = derivedRecord(r.wins, r.games);
             return (
               <tr
                 key={r.teamid}
@@ -94,7 +105,9 @@ function StandingsTable({
                 <td className="p-3 font-semibold text-foreground" style={{ fontFamily: "var(--font-body)" }}>
                   {r.team ?? "—"}
                 </td>
-                <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{r.wins}</td>
+                <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{w}</td>
+                <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{l}</td>
+                <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{t}</td>
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.games}</td>
                 <td className="p-3 text-right tabular-nums font-medium" style={{ fontFamily: "var(--font-body)" }}>
                   {formatWLPct(r.wltpct, r.games)}
@@ -141,6 +154,7 @@ function StandingsBody() {
   const [rows, setRows] = useState<StandingsRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [includeInProgress, setIncludeInProgress] = useState(false);
 
   const advancesToPlayoffs = season?.advances_to_playoffs ?? null;
 
@@ -150,7 +164,7 @@ function StandingsBody() {
     (async () => {
       setLoading(true); setErr(null);
       try {
-        const res = await fetch(`/api/seasons/${seasonId}/standings`, {
+        const res = await fetch(`/api/seasons/${seasonId}/standings?includeInProgress=${includeInProgress}`, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -167,7 +181,7 @@ function StandingsBody() {
       }
     })();
     return () => { cancelled = true; };
-  }, [seasonId]);
+  }, [seasonId, includeInProgress]);
 
   return (
     <div>
@@ -183,6 +197,17 @@ function StandingsBody() {
             </p>
           )}
         </div>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeInProgress}
+            onChange={(e) => setIncludeInProgress(e.target.checked)}
+            className="w-3.5 h-3.5 accent-primary cursor-pointer"
+          />
+          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+            Include In Progress
+          </span>
+        </label>
       </div>
 
       {loading ? (

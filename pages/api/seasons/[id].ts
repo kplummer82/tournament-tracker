@@ -19,7 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const rows = await sql`
         SELECT
           s.id, s.name, s.year, s.season_type, s.status,
-          s.maxrundiff, s.advances_to_playoffs,
+          s.maxrundiff, s.forfeit_run_diff, s.advances_to_playoffs,
           s.league_division_id,
           ld.name          AS division_name,
           ld.age_range     AS division_age_range,
@@ -44,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "PATCH") {
       const {
         name, year, season_type, status,
-        maxrundiff, advances_to_playoffs,
+        maxrundiff, forfeit_run_diff, advances_to_playoffs,
       } = req.body ?? {};
 
       if (season_type && !VALID_SEASON_TYPES.includes(season_type)) {
@@ -60,11 +60,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           year                = COALESCE(${year != null ? Number(year) : null}, year),
           season_type         = COALESCE(${season_type ?? null}, season_type),
           status              = COALESCE(${status ?? null}, status),
-          maxrundiff          = CASE WHEN ${maxrundiff !== undefined} THEN ${maxrundiff != null && maxrundiff !== "" ? Number(maxrundiff) : null} ELSE maxrundiff END,
+          maxrundiff           = CASE WHEN ${maxrundiff !== undefined} THEN ${maxrundiff != null && maxrundiff !== "" ? Number(maxrundiff) : null} ELSE maxrundiff END,
+          forfeit_run_diff     = CASE WHEN ${forfeit_run_diff !== undefined} THEN ${forfeit_run_diff != null && forfeit_run_diff !== "" ? Number(forfeit_run_diff) : null} ELSE forfeit_run_diff END,
           advances_to_playoffs = CASE WHEN ${advances_to_playoffs !== undefined} THEN ${advances_to_playoffs != null && advances_to_playoffs !== "" ? Number(advances_to_playoffs) : null} ELSE advances_to_playoffs END
         WHERE id = ${id}
         RETURNING id, league_division_id, name, year, season_type, status,
-          maxrundiff, advances_to_playoffs,
+          maxrundiff, forfeit_run_diff, advances_to_playoffs,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       if (!rows.length) return res.status(404).json({ error: "Not found" });

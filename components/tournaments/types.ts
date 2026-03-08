@@ -14,6 +14,7 @@ export type Tournament = {
   state: string | null;
   year: number | null;
   maxrundiff: number | null;
+  forfeit_run_diff: number | null;
   advances_per_group: number | null;
   num_pool_groups: number | null;
   divisionid: number | null;

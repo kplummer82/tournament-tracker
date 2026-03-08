@@ -2,7 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 
-type ApiTB = { id: number; code: string; description: string | null; sortDirection: "ASC" | "DESC" };
+type ApiTB = { id: number; code: string; displayName: string | null; description: string | null; sortDirection: "ASC" | "DESC" };
 type ApiSelected = { tiebreakerId: number; priority: number };
 
 function parseTournamentId(req: NextApiRequest): number | null {
@@ -24,6 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         SELECT
           tb.id,
           tb.tiebreaker            AS code,
+          tb.display_name          AS display_name,
           tb.tiebreakerdescription AS description,
           COALESCE(tb."SortDirection",'DESC')::text AS sortdirection
         FROM tiebreakers tb
@@ -40,6 +41,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const available: ApiTB[] = availRows.map((r) => ({
         id: Number(r.id),
         code: String(r.code),
+        displayName: r.display_name ?? null,
         description: r.description ?? null,
         sortDirection: String(r.sortdirection).toUpperCase() === "ASC" ? "ASC" : "DESC",
       }));

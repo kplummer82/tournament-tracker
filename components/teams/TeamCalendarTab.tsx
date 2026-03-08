@@ -5,7 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
 import listPlugin from "@fullcalendar/list";
-import type { EventClickArg, DateClickArg } from "@fullcalendar/core";
+import type { EventClickArg } from "@fullcalendar/core";
+import type { DateClickArg } from "@fullcalendar/interaction";
+import interactionPlugin from "@fullcalendar/interaction";
 import { Plus, X, Pencil, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -545,6 +547,20 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
             </div>
           )}
 
+          {/* Manage Game link — season/tournament only */}
+          {row.source !== "scrimmage" && (
+            <div className={row.context_id ? "" : "pt-1"}>
+              <Link
+                href={`/games/${row.source}/${row.id}?team=${teamId}`}
+                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                onClick={onClose}
+              >
+                <ExternalLink className="h-3 w-3" />
+                Manage Game
+              </Link>
+            </div>
+          )}
+
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
@@ -613,17 +629,38 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
   }, [teamId, version]);
 
   // Transform DB rows → FullCalendar events
-  const calendarEvents = games.map((g) => ({
-    id: g.uid,
-    title: `${g.home_team} vs ${g.away_team}`,
-    start: g.gamedate
-      ? g.gametime
-        ? `${g.gamedate}T${g.gametime}`
-        : g.gamedate
-      : undefined,
-    color: SOURCE_COLORS[g.source],
-    extendedProps: { row: g },
-  }));
+  const myTeamId = Number(teamId);
+  const calendarEvents = games.map((g) => {
+    const isFinal = g.gamestatus_label?.toLowerCase() === "final";
+    const hasScore = g.homescore != null && g.awayscore != null;
+
+    // Determine outcome from this team's perspective
+    let outcome: "W" | "L" | "T" | null = null;
+    let outcomeColor = "";
+    if (isFinal && hasScore) {
+      const isHome = g.home === myTeamId;
+      const myScore  = isHome ? g.homescore! : g.awayscore!;
+      const oppScore = isHome ? g.awayscore! : g.homescore!;
+      if (myScore > oppScore)       { outcome = "W"; outcomeColor = "#4ade80"; }
+      else if (myScore < oppScore)  { outcome = "L"; outcomeColor = "#f87171"; }
+      else                          { outcome = "T"; outcomeColor = "#9ca3af"; }
+    }
+
+    const scoreLabel = hasScore ? `${g.homescore}–${g.awayscore}` : null;
+    const badge = isFinal ? scoreLabel : (g.gamestatus_label ?? null);
+
+    return {
+      id: g.uid,
+      title: `${g.home_team} vs ${g.away_team}`,
+      start: g.gamedate
+        ? g.gametime
+          ? `${g.gamedate}T${g.gametime}`
+          : g.gamedate
+        : undefined,
+      color: SOURCE_COLORS[g.source],
+      extendedProps: { row: g, badge, isFinal, outcome, outcomeColor, scoreLabel },
+    };
+  });
 
   const handleDateClick = (info: DateClickArg) => {
     setAddDate(info.dateStr);
@@ -676,7 +713,7 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
       ) : (
         <div className="fc-wrapper border border-border">
           <FullCalendar
-            plugins={[dayGridPlugin, listPlugin]}
+            plugins={[dayGridPlugin, listPlugin, interactionPlugin]}
             initialView="listYear"
             headerToolbar={{
               left: "prev,next today",
@@ -693,6 +730,83 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
             eventClick={handleEventClick}
             height="auto"
             noEventsContent="No games scheduled yet."
+            eventContent={(arg) => {
+              const badge: string | null = arg.event.extendedProps.badge;
+              const isFinal: boolean = arg.event.extendedProps.isFinal;
+              const outcome: "W" | "L" | "T" | null = arg.event.extendedProps.outcome;
+              const outcomeColor: string = arg.event.extendedProps.outcomeColor;
+              const scoreLabel: string | null = arg.event.extendedProps.scoreLabel;
+              const isList = arg.view.type.startsWith("list");
+
+              if (isList) {
+                return (
+                  <div style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: "12px", minWidth: 0 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 1 }}>
+                      {arg.event.title}
+                    </span>
+                    {isFinal && outcome ? (
+                      // Win / Loss / Tie outcome chip + score
+                      <span style={{ display: "flex", alignItems: "center", gap: "5px", flexShrink: 0 }}>
+                        <span style={{
+                          background: outcomeColor + "28",
+                          border: `1px solid ${outcomeColor}55`,
+                          color: outcomeColor,
+                          fontSize: "9px",
+                          fontWeight: 800,
+                          letterSpacing: "0.08em",
+                          padding: "1px 5px",
+                          fontFamily: "var(--font-body)",
+                          lineHeight: "14px",
+                        }}>
+                          {outcome}
+                        </span>
+                        {scoreLabel && (
+                          <span style={{
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            color: outcomeColor,
+                            fontFamily: "var(--font-display)",
+                            letterSpacing: "-0.01em",
+                            whiteSpace: "nowrap",
+                          }}>
+                            {scoreLabel}
+                          </span>
+                        )}
+                      </span>
+                    ) : badge ? (
+                      // Non-final status label
+                      <span style={{
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        color: "var(--muted-foreground)",
+                        fontFamily: "var(--font-body)",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}>
+                        {badge}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              }
+
+              // dayGrid month view — replicate FC's default structure
+              const monthSuffix = isFinal && outcome
+                ? ` · ${outcome} ${scoreLabel ?? ""}`.trimEnd()
+                : badge ? ` · ${badge}` : "";
+              return (
+                <>
+                  {arg.timeText && (
+                    <span className="fc-event-time">{arg.timeText}</span>
+                  )}
+                  <span className="fc-event-title">
+                    {arg.event.title}{monthSuffix}
+                  </span>
+                </>
+              );
+            }}
           />
         </div>
       )}

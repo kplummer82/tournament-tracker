@@ -1,6 +1,7 @@
 -- Season standings with lexicographic tiebreaking (no ORDER BY in function).
 -- Mirrors fn_pool_standings_lexi_noorder but queries season_games + season_teams.
 -- Only 'regular' game_type rows are counted (playoff games are excluded).
+-- Forfeit game statuses: 6 = Home Team Forfeit (away wins), 7 = Away Team Forfeit (home wins).
 -- Source of truth: run this in Neon to create/update the function.
 
 CREATE OR REPLACE FUNCTION public.fn_season_standings_lexi_noorder(
@@ -34,30 +35,46 @@ BEGIN
      Per-call scratch table.
      Named _sg_work (not "games") to avoid collision with
      fn_pool_standings_lexi_noorder's temp table in the same session.
+     winner_side: NULL = normal game, 'home' = home wins (away forfeited),
+                  'away' = away wins (home forfeited).
   ------------------------------------------------------------------- */
   CREATE TEMP TABLE IF NOT EXISTS _sg_work (
-    gameid    int,
-    home      int,
-    away      int,
-    homescore int,
-    awayscore int,
-    game_type text
+    gameid       int,
+    home         int,
+    away         int,
+    homescore    int,
+    awayscore    int,
+    game_type    text,
+    winner_side  text   -- NULL | 'home' | 'away'
   ) ON COMMIT DROP;
 
   TRUNCATE _sg_work;
 
   /* ----------------------------------------------------------
-     Load real regular-season games for this season
+     Load real regular-season games for this season.
+     gamestatusid = 4  → Final (normal scored game)
+     gamestatusid = 6  → Home Team Forfeit (winner_side = 'away')
+     gamestatusid = 7  → Away Team Forfeit (winner_side = 'home')
+     Scheduled, delayed, in-progress, and rained-out games are
+     excluded from standings.
   ----------------------------------------------------------- */
-  INSERT INTO _sg_work (gameid, home, away, homescore, awayscore, game_type)
-  SELECT sg.id, sg.home, sg.away, sg.homescore, sg.awayscore, sg.game_type
+  INSERT INTO _sg_work (gameid, home, away, homescore, awayscore, game_type, winner_side)
+  SELECT
+    sg.id,
+    sg.home,
+    sg.away,
+    sg.homescore,
+    sg.awayscore,
+    sg.game_type,
+    CASE sg.gamestatusid
+      WHEN 6 THEN 'away'   -- Home Team Forfeit → away wins
+      WHEN 7 THEN 'home'   -- Away Team Forfeit → home wins
+      ELSE NULL
+    END
   FROM season_games sg
   WHERE sg.season_id = p_season_id
     AND sg.game_type = 'regular'
-    AND (
-      p_include_in_progress
-      OR (sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL)
-    );
+    AND sg.gamestatusid IN (4, 6, 7);
 
   /* ----------------------------------------------------------
      Optional: modeled outcomes (JSON array of objects)
@@ -65,14 +82,15 @@ BEGIN
      { "home": <int>, "away": <int>, "homescore": <int>, "awayscore": <int> }
   ----------------------------------------------------------- */
   IF p_simulate AND p_simulated IS NOT NULL AND jsonb_typeof(p_simulated) = 'array' THEN
-    INSERT INTO _sg_work (gameid, home, away, homescore, awayscore, game_type)
+    INSERT INTO _sg_work (gameid, home, away, homescore, awayscore, game_type, winner_side)
     SELECT
       -ROW_NUMBER() OVER () AS gameid,
       s.home,
       s.away,
       COALESCE(s.homescore, 0),
       COALESCE(s.awayscore, 0),
-      'regular'
+      'regular',
+      NULL
     FROM jsonb_to_recordset(p_simulated) AS s(
       home      int,
       away      int,
@@ -119,15 +137,29 @@ BEGIN
       ta.name         AS awayteam,
       tg.homescore,
       tg.awayscore,
-      CASE  WHEN tg.homescore IS NULL OR tg.awayscore IS NULL THEN 0
-            WHEN tg.homescore > tg.awayscore THEN 1
-            WHEN tg.homescore < tg.awayscore THEN 0
-            ELSE 0.5 END AS homewins,
-      CASE  WHEN tg.homescore IS NULL OR tg.awayscore IS NULL THEN 0
-            WHEN (tg.homescore - tg.awayscore) > s.maxrundiff THEN s.maxrundiff
-            WHEN (tg.homescore - tg.awayscore) < -s.maxrundiff THEN -s.maxrundiff
-            ELSE (tg.homescore - tg.awayscore) END AS homerundiff,
-      tg.awayscore AS homerunsagainst
+      tg.winner_side,
+      /* Wins: forfeit overrides score-based logic */
+      CASE
+        WHEN tg.winner_side = 'home' THEN 1
+        WHEN tg.winner_side = 'away' THEN 0
+        WHEN tg.homescore IS NULL OR tg.awayscore IS NULL THEN 0
+        WHEN tg.homescore > tg.awayscore THEN 1
+        WHEN tg.homescore < tg.awayscore THEN 0
+        ELSE 0.5
+      END AS homewins,
+      /* Run diff: forfeits use forfeit_run_diff; normal games capped at maxrundiff */
+      CASE
+        WHEN tg.winner_side = 'home' THEN  COALESCE(s.forfeit_run_diff, 0)
+        WHEN tg.winner_side = 'away' THEN -COALESCE(s.forfeit_run_diff, 0)
+        WHEN tg.homescore IS NULL OR tg.awayscore IS NULL THEN 0
+        WHEN (tg.homescore - tg.awayscore) >  s.maxrundiff THEN  s.maxrundiff
+        WHEN (tg.homescore - tg.awayscore) < -s.maxrundiff THEN -s.maxrundiff
+        ELSE (tg.homescore - tg.awayscore)
+      END AS homerundiff,
+      /* Runs scored: forfeits always 0 */
+      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.homescore END AS home_runs_for,
+      /* Runs against: forfeits always 0 */
+      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.awayscore END AS homerunsagainst
     FROM seasons s
     JOIN _sg_work tg ON tg.game_type = 'regular'
     LEFT JOIN season_teams sthome ON sthome.team_id = tg.home AND sthome.season_id = s.id
@@ -135,7 +167,9 @@ BEGIN
     LEFT JOIN teams th ON th.teamid = sthome.team_id
     LEFT JOIN teams ta ON ta.teamid = staway.team_id
     WHERE s.id = p_season_id
-      AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
+      AND (p_include_in_progress
+           OR tg.winner_side IS NOT NULL
+           OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
   ),
 
   /* 1b) Per-game rows (away perspective) */
@@ -150,15 +184,29 @@ BEGIN
       ta.name         AS awayteam,
       tg.homescore,
       tg.awayscore,
-      CASE  WHEN tg.awayscore IS NULL OR tg.homescore IS NULL THEN 0
-            WHEN tg.awayscore > tg.homescore THEN 1
-            WHEN tg.awayscore < tg.homescore THEN 0
-            ELSE 0.5 END AS awaywins,
-      CASE  WHEN tg.awayscore IS NULL OR tg.homescore IS NULL THEN 0
-            WHEN (tg.awayscore - tg.homescore) > s.maxrundiff THEN s.maxrundiff
-            WHEN (tg.awayscore - tg.homescore) < -s.maxrundiff THEN -s.maxrundiff
-            ELSE (tg.awayscore - tg.homescore) END AS awayrundiff,
-      tg.homescore AS awayrunsagainst
+      tg.winner_side,
+      /* Wins: forfeit overrides score-based logic */
+      CASE
+        WHEN tg.winner_side = 'away' THEN 1
+        WHEN tg.winner_side = 'home' THEN 0
+        WHEN tg.awayscore IS NULL OR tg.homescore IS NULL THEN 0
+        WHEN tg.awayscore > tg.homescore THEN 1
+        WHEN tg.awayscore < tg.homescore THEN 0
+        ELSE 0.5
+      END AS awaywins,
+      /* Run diff: forfeits use forfeit_run_diff; normal games capped at maxrundiff */
+      CASE
+        WHEN tg.winner_side = 'away' THEN  COALESCE(s.forfeit_run_diff, 0)
+        WHEN tg.winner_side = 'home' THEN -COALESCE(s.forfeit_run_diff, 0)
+        WHEN tg.awayscore IS NULL OR tg.homescore IS NULL THEN 0
+        WHEN (tg.awayscore - tg.homescore) >  s.maxrundiff THEN  s.maxrundiff
+        WHEN (tg.awayscore - tg.homescore) < -s.maxrundiff THEN -s.maxrundiff
+        ELSE (tg.awayscore - tg.homescore)
+      END AS awayrundiff,
+      /* Runs scored: forfeits always 0 */
+      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.awayscore END AS away_runs_for,
+      /* Runs against: forfeits always 0 */
+      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.homescore END AS awayrunsagainst
     FROM seasons s
     JOIN _sg_work tg ON tg.game_type = 'regular'
     LEFT JOIN season_teams sthome ON sthome.team_id = tg.home AND sthome.season_id = s.id
@@ -166,7 +214,9 @@ BEGIN
     LEFT JOIN teams th ON th.teamid = sthome.team_id
     LEFT JOIN teams ta ON ta.teamid = staway.team_id
     WHERE s.id = p_season_id
-      AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
+      AND (p_include_in_progress
+           OR tg.winner_side IS NOT NULL
+           OR (tg.awayscore IS NOT NULL AND tg.homescore IS NOT NULL))
   ),
 
   per_team_union AS (
@@ -175,7 +225,7 @@ BEGIN
       h.seasonname,
       h.hometeamid      AS teamid,
       h.hometeam        AS team,
-      h.homescore       AS runs_for,
+      h.home_runs_for   AS runs_for,
       h.homewins        AS win_pts,
       h.homerundiff     AS run_diff,
       h.homerunsagainst AS runs_against
@@ -186,7 +236,7 @@ BEGIN
       a.seasonname,
       a.awayteamid      AS teamid,
       a.awayteam        AS team,
-      a.awayscore       AS runs_for,
+      a.away_runs_for   AS runs_for,
       a.awaywins        AS win_pts,
       a.awayrundiff     AS run_diff,
       a.awayrunsagainst AS runs_against
@@ -293,19 +343,30 @@ BEGIN
           CASE
             WHEN c.code IN ('head_to_head_strict','head_to_head_permissive') THEN (
               WITH g AS (
-                SELECT tg.home, tg.away, tg.homescore, tg.awayscore
+                /* Include both scored games and forfeit games */
+                SELECT tg.home, tg.away, tg.homescore, tg.awayscore, tg.winner_side
                 FROM _sg_work tg
                 WHERE tg.game_type = 'regular'
-                  AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
-                  AND tg.homescore IS NOT NULL
-                  AND tg.awayscore IS NOT NULL
+                  AND (tg.winner_side IS NOT NULL
+                       OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
               ),
               h2h AS (
                 SELECT
                   CASE WHEN m.teamid = g.home THEN g.away
                        WHEN m.teamid = g.away THEN g.home END AS opp,
-                  CASE WHEN m.teamid = g.home THEN (g.homescore - g.awayscore)
-                       WHEN m.teamid = g.away THEN (g.awayscore - g.homescore) END AS score_delta
+                  /* score_delta: +1 win, -1 loss (forfeit uses winner_side; normal uses score diff) */
+                  CASE
+                    WHEN m.teamid = g.home THEN
+                      CASE WHEN g.winner_side = 'home' THEN  1
+                           WHEN g.winner_side = 'away' THEN -1
+                           ELSE (g.homescore - g.awayscore)
+                      END
+                    WHEN m.teamid = g.away THEN
+                      CASE WHEN g.winner_side = 'away' THEN  1
+                           WHEN g.winner_side = 'home' THEN -1
+                           ELSE (g.awayscore - g.homescore)
+                      END
+                  END AS score_delta
                 FROM g
                 WHERE (g.home = m.teamid AND g.away = ANY(r.members))
                    OR (g.away = m.teamid AND g.home = ANY(r.members))
@@ -333,21 +394,30 @@ BEGIN
             )
             WHEN c.code IN ('head_to_head_rundiff_strict','head_to_head_rundiff_permissive') THEN (
               WITH g AS (
-                SELECT tg.home, tg.away, tg.homescore, tg.awayscore
+                /* Include both scored games and forfeit games */
+                SELECT tg.home, tg.away, tg.homescore, tg.awayscore, tg.winner_side
                 FROM _sg_work tg
                 WHERE tg.game_type = 'regular'
-                  AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
-                  AND tg.homescore IS NOT NULL
-                  AND tg.awayscore IS NOT NULL
+                  AND (tg.winner_side IS NOT NULL
+                       OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
               ),
-              seas AS (SELECT s.maxrundiff AS cap FROM seasons s WHERE s.id = r.seasonid),
+              seas AS (
+                SELECT s.maxrundiff AS cap, COALESCE(s.forfeit_run_diff, 0) AS frd
+                FROM seasons s WHERE s.id = r.seasonid
+              ),
               rf AS (
                 SELECT
                   CASE
-                    WHEN m.teamid = g.home AND g.away = ANY(r.members)
-                      THEN GREATEST(LEAST(g.homescore - g.awayscore, (SELECT cap FROM seas)), -(SELECT cap FROM seas))
-                    WHEN m.teamid = g.away AND g.home = ANY(r.members)
-                      THEN GREATEST(LEAST(g.awayscore - g.homescore, (SELECT cap FROM seas)), -(SELECT cap FROM seas))
+                    WHEN m.teamid = g.home AND g.away = ANY(r.members) THEN
+                      CASE WHEN g.winner_side = 'home' THEN  (SELECT frd FROM seas)
+                           WHEN g.winner_side = 'away' THEN -(SELECT frd FROM seas)
+                           ELSE GREATEST(LEAST(g.homescore - g.awayscore, (SELECT cap FROM seas)), -(SELECT cap FROM seas))
+                      END
+                    WHEN m.teamid = g.away AND g.home = ANY(r.members) THEN
+                      CASE WHEN g.winner_side = 'away' THEN  (SELECT frd FROM seas)
+                           WHEN g.winner_side = 'home' THEN -(SELECT frd FROM seas)
+                           ELSE GREATEST(LEAST(g.awayscore - g.homescore, (SELECT cap FROM seas)), -(SELECT cap FROM seas))
+                      END
                   END AS rd,
                   CASE WHEN m.teamid = g.home THEN g.away
                        WHEN m.teamid = g.away THEN g.home END AS opp
@@ -387,12 +457,8 @@ BEGIN
           v1.teamid,
           v1.val,
           1 + COUNT(v2.teamid) FILTER (
-              WHERE v1.val IS NOT NULL
-                AND v2.val IS NOT NULL
-                AND (
-                     (c.sort_dir = 'DESC' AND v2.val > v1.val)
-                  OR (c.sort_dir = 'ASC'  AND v2.val < v1.val)
-                )
+              WHERE (c.sort_dir = 'DESC' AND COALESCE(v2.val, 0) > COALESCE(v1.val, 0))
+                 OR (c.sort_dir = 'ASC'  AND COALESCE(v2.val, 0) < COALESCE(v1.val, 0))
             ) AS rnk
         FROM member_vals v1
         LEFT JOIN member_vals v2 ON TRUE

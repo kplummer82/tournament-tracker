@@ -111,6 +111,18 @@ function OverviewForm() {
               placeholder="e.g. 10"
             />
           </Field>
+          <Field label="Forfeit run differential">
+            <input
+              className={INPUT}
+              type="number"
+              min={0}
+              value={t.forfeit_run_diff ?? ""}
+              onChange={(e) =>
+                setT((p) => (p ? { ...p, forfeit_run_diff: e.target.value === "" ? null : Number(e.target.value) } : p))
+              }
+              placeholder="e.g. 7 (leave blank for 0)"
+            />
+          </Field>
           <Field label="Pool groups">
             <input
               className={INPUT}

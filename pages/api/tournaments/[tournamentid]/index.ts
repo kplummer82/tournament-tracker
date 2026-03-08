@@ -12,6 +12,7 @@ type Row = {
   state: string | null;
   year: number | null;
   maxrundiff: number | null;
+  forfeit_run_diff: number | null;
   advances_per_group: number | null;
   num_pool_groups: number | null;
 
@@ -47,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             v.visibility   AS tournamentvisibility,           -- back-compat
             v.divisionid, v.sportid, v.statusid, v.visibilityid,
             v.created_at,
+            t.forfeit_run_diff,
             t.advances_per_group,
             t.num_pool_groups
           FROM public.tournaments_api v
@@ -62,6 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         name, city, state, year, maxrundiff,
         sportid, statusid, visibilityid, divisionid,
+        forfeit_run_diff,
         advances_per_group,
         num_pool_groups,
       } = (req.body ?? {}) as Partial<Row>;
@@ -84,6 +87,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `;
 
       // advances_per_group and num_pool_groups live only on the base table (not the view).
+      if (forfeit_run_diff !== undefined) {
+        await sql/*sql*/`
+          UPDATE public.tournaments
+          SET forfeit_run_diff = ${forfeit_run_diff ?? null}
+          WHERE tournamentid = ${id};
+        `;
+      }
       if (advances_per_group !== undefined) {
         await sql/*sql*/`
           UPDATE public.tournaments
@@ -109,6 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             v.visibility AS tournamentvisibility,
             v.divisionid, v.sportid, v.statusid, v.visibilityid,
             v.created_at,
+            t.forfeit_run_diff,
             t.advances_per_group,
             t.num_pool_groups
           FROM public.tournaments_api v

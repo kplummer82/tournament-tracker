@@ -17,50 +17,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (req.method === "GET") {
-      const { game_type } = req.query;
-      let rows;
-      if (game_type === "playoff") {
-        rows = await sql`
-          SELECT
-            sg.id,
-            sg.gamedate,
-            to_char(sg.gametime, 'HH24:MI') AS gametime,
-            sg.home,   ht.name AS home_team,
-            sg.away,   at.name AS away_team,
-            sg.homescore,
-            sg.awayscore,
-            sg.game_type,
-            sg.gamestatusid,
-            gs.gamestatus AS gamestatus_label
-          FROM season_games sg
-          JOIN teams ht ON ht.teamid = sg.home
-          JOIN teams at ON at.teamid = sg.away
-          LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
-          WHERE sg.season_id = ${seasonId} AND sg.game_type = 'playoff'
-          ORDER BY sg.gamedate NULLS LAST, sg.gametime NULLS LAST, sg.id
-        `;
-      } else {
-        // Default: regular season games
-        rows = await sql`
-          SELECT
-            sg.id,
-            sg.gamedate,
-            to_char(sg.gametime, 'HH24:MI') AS gametime,
-            sg.home,   ht.name AS home_team,
-            sg.away,   at.name AS away_team,
-            sg.homescore,
-            sg.awayscore,
-            sg.game_type,
-            sg.gamestatusid,
-            gs.gamestatus AS gamestatus_label
-          FROM season_games sg
-          JOIN teams ht ON ht.teamid = sg.home
-          JOIN teams at ON at.teamid = sg.away
-          LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
-          WHERE sg.season_id = ${seasonId} AND sg.game_type = 'regular'
-          ORDER BY sg.gamedate NULLS LAST, sg.gametime NULLS LAST, sg.id
-        `;
-      }
+      const { game_type, bracket_id } = req.query;
+
+      // Build WHERE conditions
+      const typeFilter =
+        game_type === "playoff" ? sql`AND sg.game_type = 'playoff'`
+        : game_type === "all" ? sql``
+        : sql`AND sg.game_type = 'regular'`;
+
+      const bracketFilter = bracket_id
+        ? sql`AND sg.bracket_id = ${Number(bracket_id)}`
+        : sql``;
+
+      const rows = await sql`
+        SELECT
+          sg.id,
+          sg.gamedate,
+          to_char(sg.gametime, 'HH24:MI') AS gametime,
+          sg.home,   ht.name AS home_team,
+          sg.away,   at.name AS away_team,
+          sg.homescore,
+          sg.awayscore,
+          sg.game_type,
+          sg.gamestatusid,
+          gs.gamestatus AS gamestatus_label,
+          sg.location,
+          sg.field,
+          sg.bracket_id,
+          sg.bracket_game_id,
+          sb.name AS bracket_name
+        FROM season_games sg
+        LEFT JOIN teams ht ON ht.teamid = sg.home
+        LEFT JOIN teams at ON at.teamid = sg.away
+        LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
+        LEFT JOIN season_brackets sb ON sb.id = sg.bracket_id
+        WHERE sg.season_id = ${seasonId}
+          ${typeFilter}
+          ${bracketFilter}
+        ORDER BY sg.gamedate NULLS LAST, sg.gametime NULLS LAST, sg.id
+      `;
       return res.status(200).json({ games: rows });
     }
 
@@ -69,27 +64,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         home, away, gamedate, gametime,
         homescore = null, awayscore = null,
         gamestatusid, game_type = "regular",
+        location = null, field = null,
+        bracket_id = null, bracket_game_id = null,
       } = req.body ?? {};
 
-      if (!home || !away || !gamedate || !gametime) {
-        return res.status(400).json({ error: "home, away, gamedate, gametime are required" });
+      // For playoff bracket games, home/away can be null (TBD)
+      const isPlayoff = game_type === "playoff";
+      if (!isPlayoff && (!home || !away)) {
+        return res.status(400).json({ error: "home and away are required for regular games" });
       }
 
       const inserted = await sql`
         INSERT INTO season_games (
           season_id, gamedate, gametime, home, away,
-          homescore, awayscore, game_type, gamestatusid
+          homescore, awayscore, game_type, gamestatusid,
+          location, field, bracket_id, bracket_game_id
         )
         VALUES (
           ${seasonId},
-          ${String(gamedate).slice(0, 10)}::date,
-          ${normalizeTime(String(gametime))}::time,
-          ${Number(home)},
-          ${Number(away)},
+          ${gamedate ? String(gamedate).slice(0, 10) : null}::date,
+          ${gametime ? normalizeTime(String(gametime)) : null}::time,
+          ${home ? Number(home) : null},
+          ${away ? Number(away) : null},
           ${homescore != null && homescore !== "" ? Number(homescore) : null},
           ${awayscore != null && awayscore !== "" ? Number(awayscore) : null},
-          ${game_type === "playoff" ? "playoff" : "regular"},
-          ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null}
+          ${isPlayoff ? "playoff" : "regular"},
+          ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null},
+          ${location || null},
+          ${field || null},
+          ${bracket_id ? Number(bracket_id) : null},
+          ${bracket_game_id || null}
         )
         RETURNING id
       `;
@@ -101,6 +105,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         id, home, away, gamedate, gametime,
         homescore = null, awayscore = null, gamestatusid,
+        location, field,
       } = req.body ?? {};
 
       if (!id) return res.status(400).json({ error: "id is required" });
@@ -116,7 +121,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           away        = ${Number(away)},
           homescore   = ${homescore != null && homescore !== "" ? Number(homescore) : null},
           awayscore   = ${awayscore != null && awayscore !== "" ? Number(awayscore) : null},
-          gamestatusid = ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null}
+          gamestatusid = ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null},
+          location    = ${location !== undefined ? (location || null) : null},
+          field       = ${field !== undefined ? (field || null) : null}
         WHERE id = ${Number(id)} AND season_id = ${seasonId}
         RETURNING id
       `;

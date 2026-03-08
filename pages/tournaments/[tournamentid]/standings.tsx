@@ -131,6 +131,7 @@ function StandingsBody() {
   const [rows, setRows] = useState<StandingsRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [includeInProgress, setIncludeInProgress] = useState(false);
 
   const advancesPerGroup = t?.advances_per_group ?? null;
 
@@ -140,7 +141,7 @@ function StandingsBody() {
     (async () => {
       setLoading(true); setErr(null);
       try {
-        const res = await fetch(`/api/tournaments/${tid}/standings`, {
+        const res = await fetch(`/api/tournaments/${tid}/standings?includeInProgress=${includeInProgress}`, {
           method: "GET",
           headers: { Accept: "application/json" },
           cache: "no-store",
@@ -161,7 +162,7 @@ function StandingsBody() {
       }
     })();
     return () => { cancelled = true; };
-  }, [tid]);
+  }, [tid, includeInProgress]);
 
   // Determine if pool groups are in use
   const hasGroups = rows.some((r) => r.pool_group != null);
@@ -192,6 +193,17 @@ function StandingsBody() {
             </p>
           )}
         </div>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeInProgress}
+            onChange={(e) => setIncludeInProgress(e.target.checked)}
+            className="w-3.5 h-3.5 accent-primary cursor-pointer"
+          />
+          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+            Include In Progress
+          </span>
+        </label>
       </div>
 
       {loading ? (

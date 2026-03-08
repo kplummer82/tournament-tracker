@@ -1,10 +1,14 @@
-/* FullCalendar skin — matches tournament-tracker design system */
+/* FullCalendar skin — matches tournament-tracker design system
+   NOTE: All CSS custom properties are plain hex values (#rrggbb),
+   so they must be used as var(--name) directly — never inside hsl().
+   ──────────────────────────────────────────────────────────────── */
 
 /* ── Base / Container ─────────────────────────────────────────── */
 .fc {
   font-family: var(--font-dm-sans, var(--font-body, sans-serif));
   font-size: 13px;
   color: var(--foreground);
+  background: var(--background);
 }
 
 .fc-view-harness {
@@ -32,7 +36,7 @@
 /* Toolbar buttons */
 .fc .fc-button {
   background: transparent;
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   color: var(--foreground);
   font-family: var(--font-dm-sans, sans-serif);
   font-size: 10px;
@@ -46,8 +50,8 @@
 }
 
 .fc .fc-button:hover:not(:disabled) {
-  background: hsl(var(--elevated, var(--muted)));
-  border-color: hsl(var(--border));
+  background: var(--elevated);
+  border-color: var(--border);
   color: var(--foreground);
 }
 
@@ -57,15 +61,15 @@
 
 .fc .fc-button-primary:not(.fc-button-active) {
   background: transparent;
-  border-color: hsl(var(--border));
+  border-color: var(--border);
   color: var(--foreground);
 }
 
 .fc .fc-button-primary:not(:disabled).fc-button-active,
 .fc .fc-button-primary:not(:disabled):active {
-  background: hsl(var(--primary));
-  border-color: hsl(var(--primary));
-  color: hsl(var(--primary-foreground));
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
   box-shadow: none !important;
 }
 
@@ -79,16 +83,16 @@
 }
 
 .fc .fc-daygrid-day:hover {
-  background: hsl(var(--elevated, var(--muted)) / 0.5);
+  background: var(--card);
   cursor: pointer;
 }
 
 .fc .fc-day-today {
-  background: hsl(var(--elevated, var(--muted)) / 0.7) !important;
+  background: var(--card) !important;
 }
 
 .fc .fc-day-today .fc-daygrid-day-number {
-  color: hsl(var(--primary));
+  color: var(--primary);
   font-weight: 700;
 }
 
@@ -98,11 +102,12 @@
   font-weight: 600;
   color: var(--foreground);
   padding: 4px 6px;
+  text-decoration: none !important;
 }
 
 .fc .fc-col-header-cell {
-  background: hsl(var(--elevated, var(--muted)) / 0.6);
-  border-color: hsl(var(--border));
+  background: var(--elevated);
+  border-color: var(--border);
 }
 
 .fc .fc-col-header-cell-cushion {
@@ -121,7 +126,7 @@
 .fc .fc-scrollgrid-section > td,
 .fc td,
 .fc th {
-  border-color: hsl(var(--border)) !important;
+  border-color: var(--border) !important;
 }
 
 /* ── Events ───────────────────────────────────────────────────── */
@@ -135,23 +140,38 @@
   padding: 1px 4px;
 }
 
-.fc .fc-daygrid-event:hover,
-.fc .fc-list-event:hover td {
+.fc .fc-daygrid-event:hover {
   filter: brightness(1.15);
 }
 
 /* ── List view ────────────────────────────────────────────────── */
+
+/* Outer container */
 .fc .fc-list {
-  border-color: hsl(var(--border));
+  border-color: var(--border);
+  background: var(--background);
 }
 
 .fc .fc-list-table {
+  background: var(--background);
   border: none;
 }
 
+/* ── List day header row ──
+   Target every layer: the <tr>, the <td>, the cushion div,
+   and FullCalendar's own .fc-cell-shaded helper class.
+   All must be dark; text must be explicit foreground color.
+   ─────────────────────────────────────────────────────── */
+.fc .fc-list-day,
+.fc .fc-list-day td {
+  background: var(--elevated) !important;
+  border-color: var(--border) !important;
+}
+
+.fc .fc-cell-shaded,
 .fc .fc-list-day-cushion {
-  background: hsl(var(--elevated, var(--muted)) / 0.7) !important;
-  padding: 6px 16px;
+  background: var(--elevated) !important;
+  padding: 7px 16px !important;
 }
 
 .fc .fc-list-day-text,
@@ -160,38 +180,58 @@
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--foreground);
+  letter-spacing: 0.07em;
+  color: var(--foreground) !important;
   text-decoration: none !important;
 }
 
+.fc .fc-list-day-text:hover,
+.fc .fc-list-day-side-text:hover {
+  color: var(--primary) !important;
+  text-decoration: none !important;
+}
+
+/* ── List event rows ─────────────────────────────────── */
 .fc .fc-list-event td {
-  border-color: hsl(var(--border));
-  padding: 8px 16px;
-  background: var(--background);
+  background: var(--background) !important;
+  border-color: var(--border) !important;
+  padding: 9px 16px;
+  color: var(--foreground);
 }
 
 .fc .fc-list-event:hover td {
-  background: hsl(var(--elevated, var(--muted)) / 0.5) !important;
+  background: var(--card) !important;
+}
+
+.fc .fc-list-event-time {
+  font-family: var(--font-dm-sans, sans-serif);
+  font-size: 11px;
+  color: var(--muted-foreground) !important;
+  white-space: nowrap;
+  width: 80px;
+}
+
+.fc .fc-list-event-dot {
+  border-radius: 50%;
+  border-width: 5px;
 }
 
 .fc .fc-list-event-title a {
   font-family: var(--font-dm-sans, sans-serif);
   font-size: 13px;
   font-weight: 500;
-  color: var(--foreground);
-  text-decoration: none;
+  color: var(--foreground) !important;
+  text-decoration: none !important;
 }
 
-.fc .fc-list-event-time {
-  font-family: var(--font-dm-sans, sans-serif);
-  font-size: 11px;
-  color: var(--muted-foreground);
-  white-space: nowrap;
+.fc .fc-list-event-title a:hover {
+  color: var(--primary) !important;
 }
 
-.fc .fc-list-empty {
-  background: var(--background);
+/* ── List empty state ────────────────────────────────── */
+.fc .fc-list-empty,
+.fc .fc-list-empty-cushion {
+  background: var(--background) !important;
   color: var(--muted-foreground);
   font-family: var(--font-dm-sans, sans-serif);
   font-size: 13px;
@@ -200,17 +240,23 @@
 /* ── Popover (month "+more") ──────────────────────────────────── */
 .fc .fc-popover {
   background: var(--card);
-  border: 1px solid hsl(var(--border));
+  border: 1px solid var(--border);
   border-radius: 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .fc .fc-popover-header {
-  background: hsl(var(--elevated, var(--muted)) / 0.8);
+  background: var(--elevated);
   padding: 6px 12px;
   font-family: var(--font-barlow, var(--font-display, sans-serif));
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  color: var(--foreground);
+}
+
+.fc .fc-popover-body {
+  background: var(--card);
+  padding: 4px;
 }

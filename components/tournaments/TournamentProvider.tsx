@@ -78,6 +78,7 @@ export default function TournamentProvider({ children }: { children: React.React
           state: t.state,
           year: t.year,
           maxrundiff: t.maxrundiff,
+          forfeit_run_diff: t.forfeit_run_diff ?? null,
           advances_per_group: t.advances_per_group ?? null,
           num_pool_groups: t.num_pool_groups ?? null,
           divisionid: t.divisionid,

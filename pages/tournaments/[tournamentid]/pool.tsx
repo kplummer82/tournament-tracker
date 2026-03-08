@@ -4,7 +4,7 @@ import Link from "next/link";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Swords } from "lucide-react";
+import { Plus, Pencil, Swords, ExternalLink } from "lucide-react";
 import AddGameModal from "@/components/AddGameModal";
 import PoolGameDeleteButton from "@/components/PoolGameDeleteButton";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
@@ -170,6 +170,13 @@ function PoolBody() {
           </td>
           <td className="p-3">
             <div className="flex items-center justify-end gap-1">
+              <Link
+                href={`/games/tournament/${g.id}`}
+                className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                title="Manage game"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </Link>
               <Button
                 variant="ghost"
                 size="icon"

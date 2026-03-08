@@ -2,23 +2,30 @@
 import { useCallback, useEffect, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
-import { Plus, Pencil, Trash2, Swords, X } from "lucide-react";
+import Link from "next/link";
+import { Plus, Pencil, Trash2, Swords, X, ExternalLink } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
 // Games API returns: { id, gamedate, gametime, home (id), home_team (name), away (id), away_team (name), ... }
 type GameRow = {
   id: number;
-  home: number;          // home team id
-  away: number;          // away team id
-  home_team: string;     // home team name
-  away_team: string;     // away team name
+  home: number | null;
+  away: number | null;
+  home_team: string | null;
+  away_team: string | null;
   gamedate: string | null;
   gametime: string | null;
   homescore: number | null;
   awayscore: number | null;
   gamestatus_label: string | null;
   gamestatusid: number | null;
+  location: string | null;
+  field: string | null;
+  game_type: string;
+  bracket_id: number | null;
+  bracket_game_id: string | null;
+  bracket_name: string | null;
 };
 
 // Teams API returns: { teams: [{ id, name }] }
@@ -39,12 +46,19 @@ type GameForm = {
   homescore: string;
   awayscore: string;
   gamestatusid: string;
+  location: string;
+  field: string;
 };
 
 const BLANK_FORM: GameForm = {
   gamedate: "", gametime: "", home: "", away: "",
   homescore: "", awayscore: "", gamestatusid: "",
+  location: "", field: "",
 };
+
+// Forfeit game status IDs
+const HOME_TEAM_FORFEIT_ID = 6; // home forfeited → away wins
+const AWAY_TEAM_FORFEIT_ID = 7; // away forfeited → home wins
 
 function ScoreCell({ score, isWinner }: { score: number | null; isWinner?: boolean }) {
   if (score == null) return <span className="text-muted-foreground/40">—</span>;
@@ -129,10 +143,25 @@ function GameFormPanel({
         </select>
         <input
           className={INPUT}
+          type="text"
+          value={form.location}
+          onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))}
+          placeholder="Location"
+        />
+        <input
+          className={INPUT}
+          type="text"
+          value={form.field}
+          onChange={(e) => setForm((p) => ({ ...p, field: e.target.value }))}
+          placeholder="Field"
+        />
+        <input
+          className={INPUT}
           type="number"
           value={form.homescore}
           onChange={(e) => setForm((p) => ({ ...p, homescore: e.target.value }))}
           placeholder="Home score"
+          disabled={form.gamestatusid === String(HOME_TEAM_FORFEIT_ID) || form.gamestatusid === String(AWAY_TEAM_FORFEIT_ID)}
         />
         <input
           className={INPUT}
@@ -140,6 +169,7 @@ function GameFormPanel({
           value={form.awayscore}
           onChange={(e) => setForm((p) => ({ ...p, awayscore: e.target.value }))}
           placeholder="Away score"
+          disabled={form.gamestatusid === String(HOME_TEAM_FORFEIT_ID) || form.gamestatusid === String(AWAY_TEAM_FORFEIT_ID)}
         />
         <select
           className={INPUT}
@@ -172,9 +202,13 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
     homescore: form.homescore !== "" ? Number(form.homescore) : null,
     awayscore: form.awayscore !== "" ? Number(form.awayscore) : null,
     gamestatusid: form.gamestatusid !== "" ? Number(form.gamestatusid) : null,
+    location: form.location || null,
+    field: form.field || null,
     ...extra,
   };
 }
+
+type GameFilter = "all" | "regular" | "playoff";
 
 function ScheduleBody() {
   const { seasonId } = useSeason();
@@ -184,6 +218,7 @@ function ScheduleBody() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [filter, setFilter] = useState<GameFilter>("all");
 
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<GameForm>(BLANK_FORM);
@@ -202,19 +237,20 @@ function ScheduleBody() {
       setLoading(true); setErr(null);
       try {
         const [gamesRes, teamsRes, statusRes] = await Promise.all([
-          fetch(`/api/seasons/${seasonId}/games?game_type=regular`),
+          fetch(`/api/seasons/${seasonId}/games?game_type=all`),
           fetch(`/api/seasons/${seasonId}/teams`),
-          fetch(`/api/gamestatuses`),
+          fetch(`/api/gamestatusoptions`),
         ]);
         const gamesData = gamesRes.ok ? await gamesRes.json() : { games: [] };
         // Teams: { teams: [...] }
         const teamsData = teamsRes.ok ? await teamsRes.json() : { teams: [] };
-        // Statuses: { statuses: [...] }
+        // Statuses: { statuses: [{ id, gamestatus, gamestatusdescription }] }
         const statusData = statusRes.ok ? await statusRes.json() : { statuses: [] };
         if (!cancelled) {
           setRows(Array.isArray(gamesData?.games) ? gamesData.games : []);
           setTeams(Array.isArray(teamsData?.teams) ? teamsData.teams : []);
-          setStatuses(Array.isArray(statusData?.statuses) ? statusData.statuses : []);
+          const rawStatuses: { id: number; gamestatus: string }[] = Array.isArray(statusData?.statuses) ? statusData.statuses : [];
+          setStatuses(rawStatuses.map((s) => ({ id: s.id, name: s.gamestatus })));
         }
       } catch (e: unknown) {
         if (!cancelled) setErr((e as Error).message || "Failed to load schedule");
@@ -261,11 +297,13 @@ function ScheduleBody() {
     setEditForm({
       gamedate: g.gamedate ? g.gamedate.slice(0, 10) : "",
       gametime: g.gametime ? g.gametime.slice(0, 5) : "",
-      home: String(g.home),
-      away: String(g.away),
+      home: g.home != null ? String(g.home) : "",
+      away: g.away != null ? String(g.away) : "",
       homescore: g.homescore != null ? String(g.homescore) : "",
       awayscore: g.awayscore != null ? String(g.awayscore) : "",
       gamestatusid: g.gamestatusid != null ? String(g.gamestatusid) : "",
+      location: g.location ?? "",
+      field: g.field ?? "",
     });
     setEditErr(null);
   };
@@ -311,6 +349,8 @@ function ScheduleBody() {
       const hasScore = g.homescore != null && g.awayscore != null;
       const homeWon = hasScore && g.homescore! > g.awayscore!;
       const awayWon = hasScore && g.awayscore! > g.homescore!;
+      const isForfeit = g.gamestatusid === HOME_TEAM_FORFEIT_ID || g.gamestatusid === AWAY_TEAM_FORFEIT_ID;
+      const forfeitWinner = g.gamestatusid === HOME_TEAM_FORFEIT_ID ? "away" : g.gamestatusid === AWAY_TEAM_FORFEIT_ID ? "home" : null;
       const isEditing = editId === g.id;
       return (
         <>
@@ -333,29 +373,68 @@ function ScheduleBody() {
           )}
           <tr key={g.id} className={cn("border-b border-border/50 last:border-0 hover:bg-elevated transition-colors duration-100", isEditing && "bg-elevated/50")}>
             <td className="p-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
-              {g.gamedate ? formatMMDDYY(g.gamedate) : "—"}
+              <div>{g.gamedate ? formatMMDDYY(g.gamedate) : "—"}</div>
+              {(g.location || g.field) && (
+                <div className="text-[10px] text-muted-foreground/60 mt-0.5 truncate max-w-[140px]">
+                  {[g.location, g.field].filter(Boolean).join(" · ")}
+                </div>
+              )}
             </td>
             <td className="p-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
               {g.gametime ? formatHHMMAMPM(g.gamedate ?? "", g.gametime) : "—"}
             </td>
-            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.home_team}</td>
-            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.away_team}</td>
+            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</td>
+            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</td>
             <td className="p-3">
-              <span className="inline-flex items-baseline gap-2">
-                <ScoreCell score={g.homescore} isWinner={homeWon} />
-                {hasScore && <span className="text-muted-foreground/30 text-xs">–</span>}
-                <ScoreCell score={g.awayscore} isWinner={awayWon} />
-              </span>
-            </td>
-            <td className="p-3">
-              {g.gamestatus_label && (
-                <span className="badge" style={{ background: "#5a5a5a18", color: "#8a8a8a", borderColor: "#5a5a5a30" }}>
-                  {g.gamestatus_label}
+              {isForfeit ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className={cn("text-sm font-semibold", forfeitWinner === "home" ? "text-primary" : "text-foreground/40")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                    title={forfeitWinner === "home" ? "Won by forfeit" : "Lost by forfeit"}
+                  >
+                    {g.home_team ?? "Home"}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider">F</span>
+                  <span
+                    className={cn("text-sm font-semibold", forfeitWinner === "away" ? "text-primary" : "text-foreground/40")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                    title={forfeitWinner === "away" ? "Won by forfeit" : "Lost by forfeit"}
+                  >
+                    {g.away_team ?? "Away"}
+                  </span>
+                </span>
+              ) : (
+                <span className="inline-flex items-baseline gap-2">
+                  <ScoreCell score={g.homescore} isWinner={homeWon} />
+                  {hasScore && <span className="text-muted-foreground/30 text-xs">–</span>}
+                  <ScoreCell score={g.awayscore} isWinner={awayWon} />
                 </span>
               )}
             </td>
             <td className="p-3">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {g.game_type === "playoff" && (
+                  <span className="badge" style={{ background: "#7c3aed18", color: "#7c3aed", borderColor: "#7c3aed30" }}>
+                    {g.bracket_name ?? "Playoff"}
+                  </span>
+                )}
+                {g.gamestatus_label && (
+                  <span className="badge" style={{ background: "#5a5a5a18", color: "#8a8a8a", borderColor: "#5a5a5a30" }}>
+                    {g.gamestatus_label}
+                  </span>
+                )}
+              </div>
+            </td>
+            <td className="p-3">
               <div className="flex items-center justify-end gap-1">
+                <Link
+                  href={`/games/season/${g.id}`}
+                  className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                  title="Manage game"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
                 <button
                   type="button"
                   onClick={() => openEdit(g)}
@@ -379,6 +458,10 @@ function ScheduleBody() {
       );
     });
 
+  const filteredRows = filter === "all" ? rows : rows.filter((g) => g.game_type === filter);
+  const regularCount = rows.filter((g) => g.game_type === "regular").length;
+  const playoffCount = rows.filter((g) => g.game_type === "playoff").length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
@@ -388,7 +471,7 @@ function ScheduleBody() {
           </h2>
           {!loading && !err && (
             <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "var(--font-body)" }}>
-              {rows.length} regular season game{rows.length !== 1 ? "s" : ""}
+              {regularCount} regular{playoffCount > 0 ? ` · ${playoffCount} playoff` : ""} game{rows.length !== 1 ? "s" : ""}
             </p>
           )}
         </div>
@@ -402,6 +485,28 @@ function ScheduleBody() {
           Add Game
         </button>
       </div>
+
+      {/* Game type filter */}
+      {!loading && !err && playoffCount > 0 && (
+        <div className="flex items-center gap-1 mb-4">
+          {(["all", "regular", "playoff"] as GameFilter[]).map((f) => (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                filter === f
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-border text-muted-foreground hover:border-primary/60"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {f === "all" ? `All (${rows.length})` : f === "regular" ? `Regular (${regularCount})` : `Playoff (${playoffCount})`}
+            </button>
+          ))}
+        </div>
+      )}
 
       {showAdd && (
         <GameFormPanel
@@ -425,14 +530,16 @@ function ScheduleBody() {
         </div>
       ) : err ? (
         <div className="border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">{err}</div>
-      ) : rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border/60">
           <Swords className="h-8 w-8 text-muted-foreground/30 mb-3" />
           <p className="text-sm font-medium text-foreground mb-1" style={{ fontFamily: "var(--font-display)", textTransform: "uppercase" }}>
-            No Games Yet
+            {rows.length === 0 ? "No Games Yet" : "No Matching Games"}
           </p>
           <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            Add regular season games to track scores and standings.
+            {rows.length === 0
+              ? "Add regular season games to track scores and standings."
+              : "Try changing the filter above."}
           </p>
         </div>
       ) : (
@@ -445,7 +552,7 @@ function ScheduleBody() {
                 ))}
               </tr>
             </thead>
-            <tbody>{renderRows(rows)}</tbody>
+            <tbody>{renderRows(filteredRows)}</tbody>
           </table>
         </div>
       )}

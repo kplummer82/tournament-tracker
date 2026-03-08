@@ -37,10 +37,9 @@ BEGIN
   FROM tournamentgames tg
   WHERE tg.tournamentid = p_tournament_id
     AND tg.poolorbracket = 'Pool'
-    AND (
-      p_include_in_progress
-      OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL)
-    );
+    AND tg.homescore IS NOT NULL
+    AND tg.awayscore IS NOT NULL
+    AND (p_include_in_progress OR COALESCE(tg.gamestatusid, 4) IN (4, 6, 7));
 
   /* ----------------------------------------------------------
      Optional: modeled outcomes (JSON array of objects)

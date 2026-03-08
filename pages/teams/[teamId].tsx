@@ -5,32 +5,22 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Music, Plus, X } from "lucide-react";
+import { Music, Pencil, Plus, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 import TeamCalendarTab from "@/components/teams/TeamCalendarTab";
 
 type TabKey = "overview" | "roster" | "calendar";
+
+type Draft = {
+  jersey_number: string;
+  first_name: string;
+  last_name: string;
+  role: "player" | "staff" | "";
+};
+
+const BLANK_DRAFT: Draft = { jersey_number: "", first_name: "", last_name: "", role: "" };
 
 /* ─── iTunes search ──────────────────────────────────────────── */
 type ItunesTrack = {
@@ -81,7 +71,6 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
       setResults(tracks);
       setDropdownOpen(tracks.length > 0);
     } catch {
-      // API unavailable — silently stay as free-form
       setResults([]);
       setDropdownOpen(false);
     } finally {
@@ -104,7 +93,6 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
     setSelected(true);
     setDropdownOpen(false);
     onChange(label, t.trackId);
-    // commit immediately on pick
     setTimeout(onBlurCommit, 0);
   };
 
@@ -116,7 +104,6 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
     setTimeout(onBlurCommit, 0);
   };
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
@@ -190,24 +177,33 @@ type ParentEdit = {
   walkup_song_itunes_id: number | null;
 };
 
+/* ─── Shared field styles ────────────────────────────────────── */
+const fieldCls = "px-2 py-1.5 text-sm bg-input-bg border border-border focus:outline-none focus:border-primary transition-colors duration-100";
+const actionBtnCls = "px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.07em] transition-colors duration-100";
+
 /* ─── RosterTab ──────────────────────────────────────────────── */
 function RosterTab({ teamId }: { teamId: string }) {
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [version, setVersion] = useState(0);
   const [parentView, setParentView] = useState(false);
-
-  // per-player edits for parent view (keyed by roster id)
   const [parentEdits, setParentEdits] = useState<Record<number, ParentEdit>>({});
 
-  const [first_name, setFirstName] = useState("");
-  const [last_name, setLastName] = useState("");
-  const [role, setRole] = useState<"player" | "staff" | "">("");
-  const [jersey_number, setJerseyNumber] = useState<string>("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  // Inline add form
+  const [addOpen, setAddOpen] = useState(false);
+  const [newDraft, setNewDraft] = useState<Draft>(BLANK_DRAFT);
+  const [newSaving, setNewSaving] = useState(false);
+  const [newErr, setNewErr] = useState<string | null>(null);
+  const jerseyRef = useRef<HTMLInputElement>(null);
+
+  // Inline edit
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState<Draft | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+
+  // Delete confirm
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!teamId) return;
@@ -222,7 +218,6 @@ function RosterTab({ teamId }: { teamId: string }) {
         const rows: RosterRow[] = Array.isArray(data?.roster) ? data.roster : [];
         if (!cancelled) {
           setRoster(rows);
-          // Seed parent edit state from fetched data
           const edits: Record<number, ParentEdit> = {};
           rows.forEach((r) => {
             edits[r.id] = {
@@ -243,36 +238,7 @@ function RosterTab({ teamId }: { teamId: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [teamId, version]);
-
-  const handleAdd = async () => {
-    setSubmitError(null);
-    const first = first_name.trim();
-    if (!first) { setSubmitError("First name is required."); return; }
-    if (role !== "player" && role !== "staff") { setSubmitError("Please choose Player or Staff."); return; }
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/teams/${teamId}/roster`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          first_name: first,
-          last_name: last_name.trim() || null,
-          role,
-          jersey_number: jersey_number === "" ? null : parseInt(jersey_number, 10),
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
-      setVersion((v) => v + 1);
-      setAddOpen(false);
-      setFirstName(""); setLastName(""); setRole(""); setJerseyNumber("");
-    } catch (e) {
-      setSubmitError(e instanceof Error ? e.message : "Failed to add.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  }, [teamId]);
 
   const patchRosterEntry = async (rosterId: number, patch: Partial<ParentEdit>) => {
     try {
@@ -282,7 +248,7 @@ function RosterTab({ teamId }: { teamId: string }) {
         body: JSON.stringify(patch),
       });
     } catch {
-      // silent fail — local optimistic state already updated
+      // silent fail — optimistic update already applied
     }
   };
 
@@ -293,8 +259,224 @@ function RosterTab({ teamId }: { teamId: string }) {
     }));
   };
 
+  const openAdd = () => {
+    if (addOpen) {
+      jerseyRef.current?.focus();
+      return;
+    }
+    setAddOpen(true);
+    setTimeout(() => jerseyRef.current?.focus(), 50);
+  };
+
+  const saveNew = async () => {
+    setNewErr(null);
+    const first = newDraft.first_name.trim();
+    if (!first) { setNewErr("First name is required."); return; }
+    if (newDraft.role !== "player" && newDraft.role !== "staff") { setNewErr("Role is required."); return; }
+    setNewSaving(true);
+    try {
+      const res = await fetch(`/api/teams/${teamId}/roster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: first,
+          last_name: newDraft.last_name.trim() || null,
+          role: newDraft.role,
+          jersey_number: newDraft.jersey_number === "" ? null : parseInt(newDraft.jersey_number, 10),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setRoster((prev) => [...prev, data]);
+      setParentEdits((prev) => ({
+        ...prev,
+        [data.id]: {
+          hat_monogram: data.hat_monogram ?? "",
+          walkup_song: data.walkup_song ?? "",
+          walkup_song_itunes_id: data.walkup_song_itunes_id ?? null,
+        },
+      }));
+      setNewDraft(BLANK_DRAFT);
+      setTimeout(() => jerseyRef.current?.focus(), 0);
+    } catch (e) {
+      setNewErr(e instanceof Error ? e.message : "Failed to add.");
+    } finally {
+      setNewSaving(false);
+    }
+  };
+
+  const startEdit = (r: RosterRow) => {
+    setEditingId(r.id);
+    setEditDraft({
+      jersey_number: r.jersey_number != null ? String(r.jersey_number) : "",
+      first_name: r.first_name,
+      last_name: r.last_name ?? "",
+      role: r.role === "player" ? "player" : "staff",
+    });
+    setEditErr(null);
+    setConfirmDeleteId(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditDraft(null);
+    setEditErr(null);
+  };
+
+  const saveEdit = async () => {
+    if (editingId == null || !editDraft) return;
+    setEditErr(null);
+    const first = editDraft.first_name.trim();
+    if (!first) { setEditErr("First name is required."); return; }
+    if (editDraft.role !== "player" && editDraft.role !== "staff") { setEditErr("Role is required."); return; }
+    setEditSaving(true);
+    try {
+      const res = await fetch(`/api/teams/${teamId}/roster/${editingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: first,
+          last_name: editDraft.last_name.trim() || null,
+          role: editDraft.role,
+          jersey_number: editDraft.jersey_number === "" ? null : parseInt(editDraft.jersey_number, 10),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
+      setRoster((prev) => prev.map((r) => r.id === editingId ? data : r));
+      setEditingId(null);
+      setEditDraft(null);
+    } catch (e) {
+      setEditErr(e instanceof Error ? e.message : "Failed to save.");
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteEntry = async (id: number) => {
+    try {
+      const res = await fetch(`/api/teams/${teamId}/roster/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string })?.error || `HTTP ${res.status}`);
+      }
+      setRoster((prev) => prev.filter((r) => r.id !== id));
+      if (editingId === id) { setEditingId(null); setEditDraft(null); }
+    } catch (e) {
+      console.error("[roster DELETE]", e);
+    } finally {
+      setConfirmDeleteId(null);
+    }
+  };
+
   const players = roster.filter((r) => r.role === "player");
   const staff = roster.filter((r) => r.role === "staff");
+
+  // Edit row — spans all columns with a flex form
+  const renderEditRow = (key: number, totalCols: number) => (
+    <tr key={key} className="bg-elevated/60 border-t border-primary/30">
+      <td colSpan={totalCols} className="p-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            placeholder="#"
+            value={editDraft?.jersey_number ?? ""}
+            onChange={(e) => setEditDraft((d) => d ? { ...d, jersey_number: e.target.value } : d)}
+            className={cn(fieldCls, "w-14")}
+            style={{ fontFamily: "var(--font-body)" }}
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+          />
+          <input
+            type="text"
+            placeholder="First name *"
+            value={editDraft?.first_name ?? ""}
+            onChange={(e) => setEditDraft((d) => d ? { ...d, first_name: e.target.value } : d)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); }}
+            className={cn(fieldCls, "w-32")}
+            style={{ fontFamily: "var(--font-body)" }}
+          />
+          <input
+            type="text"
+            placeholder="Last name"
+            value={editDraft?.last_name ?? ""}
+            onChange={(e) => setEditDraft((d) => d ? { ...d, last_name: e.target.value } : d)}
+            onKeyDown={(e) => { if (e.key === "Enter") saveEdit(); }}
+            className={cn(fieldCls, "w-32")}
+            style={{ fontFamily: "var(--font-body)" }}
+          />
+          <select
+            value={editDraft?.role ?? ""}
+            onChange={(e) => setEditDraft((d) => d ? { ...d, role: e.target.value as Draft["role"] } : d)}
+            className={cn(fieldCls, "w-28 cursor-pointer")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <option value="">Role *</option>
+            <option value="player">Player</option>
+            <option value="staff">Staff</option>
+          </select>
+          <button
+            type="button"
+            onClick={saveEdit}
+            disabled={editSaving}
+            className={cn(actionBtnCls, "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {editSaving ? "Saving…" : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className={cn(actionBtnCls, "border border-border text-muted-foreground hover:text-foreground")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Cancel
+          </button>
+          {editErr && (
+            <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editErr}</span>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+
+  // Action buttons for display rows
+  const renderActions = (r: RosterRow) => (
+    <div className="flex items-center justify-end gap-1">
+      <button
+        type="button"
+        title="Edit"
+        onClick={() => startEdit(r)}
+        className="p-1 text-muted-foreground hover:text-foreground transition-colors duration-75"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      {confirmDeleteId === r.id ? (
+        <button
+          type="button"
+          onClick={() => deleteEntry(r.id)}
+          className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive border border-destructive/40 hover:bg-destructive/10 transition-colors duration-75"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          Delete?
+        </button>
+      ) : (
+        <button
+          type="button"
+          title="Delete"
+          onClick={() => setConfirmDeleteId(r.id)}
+          className="p-1 text-muted-foreground hover:text-destructive transition-colors duration-75"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+
+  const thCls = "text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium";
+  const playerCols = parentView ? 5 : 3; // jersey + name + [hat + walkup] + actions
+  const staffCols = 2; // name + actions
 
   return (
     <Card>
@@ -337,58 +519,15 @@ function RosterTab({ teamId }: { teamId: string }) {
             </button>
 
             {/* Add person */}
-            <Dialog open={addOpen} onOpenChange={setAddOpen}>
-              <DialogTrigger asChild>
-                <button
-                  className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
-                  style={{ fontFamily: "var(--font-body)" }}
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add person
-                </button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md rounded-none">
-                <DialogHeader>
-                  <DialogTitle style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "18px", textTransform: "uppercase", letterSpacing: "-0.01em" }}>
-                    Add to roster
-                  </DialogTitle>
-                  <DialogDescription style={{ fontFamily: "var(--font-body)", fontSize: "13px" }}>
-                    First name and role are required. Last name and jersey are optional.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-2">
-                  <div className="grid gap-2">
-                    <Label htmlFor="roster-first" className="label-section">First name *</Label>
-                    <Input id="roster-first" value={first_name} onChange={(e) => setFirstName(e.target.value)} placeholder="First name" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="roster-last" className="label-section">Last name</Label>
-                    <Input id="roster-last" value={last_name} onChange={(e) => setLastName(e.target.value)} placeholder="Last name (optional)" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label className="label-section">Role *</Label>
-                    <Select value={role} onValueChange={(v) => setRole(v as "player" | "staff")}>
-                      <SelectTrigger><SelectValue placeholder="Player or Staff" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="player">Player</SelectItem>
-                        <SelectItem value="staff">Staff</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="roster-jersey" className="label-section">Jersey #</Label>
-                    <Input id="roster-jersey" type="number" min={0} value={jersey_number} onChange={(e) => setJerseyNumber(e.target.value)} placeholder="Optional" />
-                  </div>
-                  {submitError && <p className="text-sm text-destructive">{submitError}</p>}
-                </div>
-                <DialogFooter>
-                  <Button variant="secondary" onClick={() => setAddOpen(false)}>Cancel</Button>
-                  <Button onClick={handleAdd} disabled={submitting}>
-                    {submitting ? "Adding…" : "Add"}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
+            <button
+              type="button"
+              onClick={openAdd}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add person
+            </button>
           </div>
         </div>
 
@@ -403,10 +542,14 @@ function RosterTab({ teamId }: { teamId: string }) {
           <p className="text-sm text-muted-foreground">Loading roster…</p>
         ) : err ? (
           <p className="text-sm text-destructive">{err}</p>
-        ) : roster.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No one on the roster yet. Add players or staff above.</p>
         ) : (
           <div className="space-y-6">
+            {/* Empty state */}
+            {roster.length === 0 && !addOpen && (
+              <p className="text-sm text-muted-foreground">No one on the roster yet. Add players or staff above.</p>
+            )}
+
+            {/* Players table */}
             {players.length > 0 && (
               <div>
                 <p
@@ -419,57 +562,43 @@ function RosterTab({ teamId }: { teamId: string }) {
                   <table className="w-full text-sm">
                     <thead className="bg-elevated">
                       <tr>
-                        <th
-                          className="text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium w-12"
-                          style={{ fontFamily: "var(--font-body)" }}
-                        >
-                          #
-                        </th>
-                        <th
-                          className="text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium"
-                          style={{ fontFamily: "var(--font-body)" }}
-                        >
-                          Name
-                        </th>
+                        <th className={cn(thCls, "w-12")} style={{ fontFamily: "var(--font-body)" }}>#</th>
+                        <th className={thCls} style={{ fontFamily: "var(--font-body)" }}>Name</th>
                         {parentView && (
                           <>
-                            <th
-                              className="text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium w-64"
-                              style={{ fontFamily: "var(--font-body)" }}
-                            >
-                              Hat Monogram
-                            </th>
-                            <th
-                              className="text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium min-w-[160px]"
-                              style={{ fontFamily: "var(--font-body)" }}
-                            >
-                              Walk-up Song
-                            </th>
+                            <th className={cn(thCls, "w-64")} style={{ fontFamily: "var(--font-body)" }}>Hat Monogram</th>
+                            <th className={cn(thCls, "min-w-[160px]")} style={{ fontFamily: "var(--font-body)" }}>Walk-up Song</th>
                           </>
                         )}
+                        <th className={cn(thCls, "text-right")} style={{ fontFamily: "var(--font-body)" }}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {players.map((r) => {
+                        if (editingId === r.id) return renderEditRow(r.id, playerCols);
                         const edit = parentEdits[r.id] ?? {
                           hat_monogram: r.hat_monogram ?? "",
                           walkup_song: r.walkup_song ?? "",
                           walkup_song_itunes_id: r.walkup_song_itunes_id ?? null,
                         };
                         return (
-                          <tr key={r.id} className="border-t border-border hover:bg-elevated/40 transition-colors duration-75">
+                          <tr
+                            key={r.id}
+                            className="border-t border-border hover:bg-elevated/40 transition-colors duration-75"
+                          >
                             <td
                               className="p-3 tabular-nums"
                               style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px" }}
                             >
-                              {r.jersey_number != null ? r.jersey_number : <span className="text-muted-foreground/40 text-sm">—</span>}
+                              {r.jersey_number != null
+                                ? r.jersey_number
+                                : <span className="text-muted-foreground/40 text-sm">—</span>}
                             </td>
-                            <td className="p-3 font-medium">
+                            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
                               {[r.first_name, r.last_name].filter(Boolean).join(" ")}
                             </td>
                             {parentView && (
                               <>
-                                {/* Hat Monogram */}
                                 <td className="p-2">
                                   <input
                                     type="text"
@@ -490,7 +619,6 @@ function RosterTab({ teamId }: { teamId: string }) {
                                     style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
                                   />
                                 </td>
-                                {/* Walk-up Song */}
                                 <td className="p-2">
                                   <WalkupSongInput
                                     value={edit.walkup_song}
@@ -511,6 +639,7 @@ function RosterTab({ teamId }: { teamId: string }) {
                                 </td>
                               </>
                             )}
+                            <td className="p-3">{renderActions(r)}</td>
                           </tr>
                         );
                       })}
@@ -520,6 +649,7 @@ function RosterTab({ teamId }: { teamId: string }) {
               </div>
             )}
 
+            {/* Staff table */}
             {staff.length > 0 && (
               <div>
                 <p
@@ -528,13 +658,107 @@ function RosterTab({ teamId }: { teamId: string }) {
                 >
                   Staff
                 </p>
-                <ul className="border border-border divide-y divide-border">
-                  {staff.map((r) => (
-                    <li key={r.id} className="px-3 py-2 text-sm hover:bg-elevated/40 transition-colors duration-75">
-                      {[r.first_name, r.last_name].filter(Boolean).join(" ") || r.first_name}
-                    </li>
-                  ))}
-                </ul>
+                <div className="overflow-x-auto border border-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-elevated">
+                      <tr>
+                        <th className={thCls} style={{ fontFamily: "var(--font-body)" }}>Name</th>
+                        <th className={cn(thCls, "text-right")} style={{ fontFamily: "var(--font-body)" }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staff.map((r) => {
+                        if (editingId === r.id) return renderEditRow(r.id, staffCols);
+                        return (
+                          <tr
+                            key={r.id}
+                            className="border-t border-border hover:bg-elevated/40 transition-colors duration-75"
+                          >
+                            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
+                              {[r.first_name, r.last_name].filter(Boolean).join(" ")}
+                            </td>
+                            <td className="p-3">{renderActions(r)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Inline add form */}
+            {addOpen && (
+              <div className="border border-primary/30 bg-elevated/30">
+                <div className="flex items-center justify-between px-3 pt-3 pb-2">
+                  <p
+                    className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    New person
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setAddOpen(false)}
+                    className="text-muted-foreground hover:text-foreground transition-colors duration-75"
+                    title="Close"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                  <input
+                    ref={jerseyRef}
+                    type="number"
+                    min={0}
+                    placeholder="# (jersey)"
+                    value={newDraft.jersey_number}
+                    onChange={(e) => setNewDraft((d) => ({ ...d, jersey_number: e.target.value }))}
+                    className={cn(fieldCls, "w-24")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="First name *"
+                    value={newDraft.first_name}
+                    onChange={(e) => setNewDraft((d) => ({ ...d, first_name: e.target.value }))}
+                    className={cn(fieldCls, "w-32")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  />
+                  <input
+                    type="text"
+                    placeholder="Last name"
+                    value={newDraft.last_name}
+                    onChange={(e) => setNewDraft((d) => ({ ...d, last_name: e.target.value }))}
+                    className={cn(fieldCls, "w-32")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  />
+                  <select
+                    value={newDraft.role}
+                    onChange={(e) => setNewDraft((d) => ({ ...d, role: e.target.value as Draft["role"] }))}
+                    className={cn(fieldCls, "w-28 cursor-pointer")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    <option value="">Role *</option>
+                    <option value="player">Player</option>
+                    <option value="staff">Staff</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={saveNew}
+                    disabled={newSaving}
+                    className={cn(actionBtnCls, "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {newSaving ? "Saving…" : "Save"}
+                  </button>
+                  {newErr && (
+                    <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{newErr}</span>
+                  )}
+                </div>
+                <p className="px-3 pb-2 text-[10px] text-muted-foreground/60" style={{ fontFamily: "var(--font-body)" }}>
+                  Tab through fields → Save. After saving, the form resets so you can add the next person.
+                </p>
               </div>
             )}
           </div>

@@ -28,7 +28,7 @@ import {
 
 /* ---------- types ---------- */
 type SortDir = "ASC" | "DESC";
-type Tiebreaker = { id: number; code: string; description?: string | null; sortDirection: SortDir };
+type Tiebreaker = { id: number; code: string; displayName?: string | null; description?: string | null; sortDirection: SortDir };
 type SelectedTB = { tiebreakerId: number; priority: number };
 
 /* ---------- small helpers ---------- */
@@ -41,47 +41,49 @@ function DirBadge({ dir }: { dir: SortDir }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
         dir === "ASC" ? "bg-primary/20 text-primary" : "bg-accent/20 text-accent"
       )}
     >
-      {dir === "ASC" ? "ASC (low→high)" : "DESC (high→low)"}
+      {dir === "ASC" ? (
+        <><ArrowDown className="w-3 h-3" /> Lower is better</>
+      ) : (
+        <><ArrowUp className="w-3 h-3" /> Higher is better</>
+      )}
     </span>
   );
 }
 
 function TBLabel({ tb }: { tb: Tiebreaker }) {
+  const name = tb.displayName || tb.code;
   const hasDesc = !!tb.description?.trim();
-  const label = (
-    <div className="flex items-center gap-2 min-w-0">
-      <span className="font-medium text-foreground truncate">{tb.code}</span>
-      {hasDesc && (
-        <Info className="w-4 h-4 shrink-0 text-muted-foreground" aria-hidden />
-      )}
-    </div>
-  );
 
-  if (!hasDesc) return label;
+  if (!hasDesc) {
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="font-medium text-foreground truncate">{name}</span>
+      </div>
+    );
+  }
 
-  // Tooltip on both the label and the info icon (as a single trigger)
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <div className="inline-flex items-center gap-2 min-w-0 cursor-help" title={tb.description || ""}>
-          <span className="font-medium text-foreground truncate">{tb.code}</span>
+          <span className="font-medium text-foreground truncate">{name}</span>
           <Info className="w-4 h-4 shrink-0 text-muted-foreground" />
         </div>
       </TooltipTrigger>
-        <TooltipContent
-          side="top"
-          align="start"
-          sideOffset={6}
-          className="max-w-sm leading-snug z-50
-                    bg-card text-card-foreground border border-border shadow-md
-                    dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-700"
-        >
-          <p className="text-sm">{tb.description}</p>
-        </TooltipContent>
+      <TooltipContent
+        side="top"
+        align="start"
+        sideOffset={6}
+        className="max-w-sm leading-snug z-50
+                  bg-card text-card-foreground border border-border shadow-md
+                  dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-700"
+      >
+        <p className="text-sm">{tb.description}</p>
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -100,15 +102,19 @@ function SelectableRow({
       type="button"
       onClick={() => onToggle(tb.id)}
       className={cn(
-        "w-full text-left px-3 py-2 rounded-lg border flex items-center gap-3",
-        selected ? "border-primary bg-primary/20" : "border-border hover:bg-muted"
+        "w-full text-left px-3 py-2.5 rounded-lg border transition-colors",
+        selected ? "border-primary/60 bg-primary/10" : "border-border hover:bg-muted/60"
       )}
     >
-      <input type="checkbox" checked={selected} readOnly className="accent-indigo-600" />
-      <div className="flex-1 min-w-0">
-        <TBLabel tb={tb} />
+      <div className="flex items-start gap-2.5">
+        <input type="checkbox" checked={selected} readOnly className="mt-1 shrink-0 accent-indigo-500" />
+        <div className="flex-1 min-w-0">
+          <TBLabel tb={tb} />
+          <div className="mt-1.5">
+            <DirBadge dir={tb.sortDirection} />
+          </div>
+        </div>
       </div>
-      <DirBadge dir={tb.sortDirection} />
     </button>
   );
 }
@@ -135,38 +141,37 @@ function SortableSelectedItem({
     opacity: isDragging ? 0.8 : 1,
   };
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-2">
+    <div ref={setNodeRef} style={style} className="flex items-stretch gap-1.5">
       <div
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing shrink-0 p-2 rounded-md border border-border bg-card"
+        className="cursor-grab active:cursor-grabbing shrink-0 flex items-center px-1.5 rounded-md border border-border bg-card hover:bg-muted"
         title="Drag to reorder"
       >
         <GripVertical className="w-4 h-4 text-muted-foreground" />
       </div>
+      <span className="flex items-center justify-center w-7 shrink-0 text-xs font-bold text-muted-foreground">
+        #{priority}
+      </span>
       <button
         type="button"
         onClick={() => onToggle(tb.id)}
         className={cn(
-          "flex-1 text-left px-3 py-2 rounded-lg border",
-          active ? "border-indigo-500 bg-indigo-50" : "border-gray-200 hover:bg-gray-50"
+          "flex-1 min-w-0 text-left px-3 py-2 rounded-lg border transition-colors",
+          active ? "border-indigo-500/60 bg-indigo-500/10" : "border-border hover:bg-muted/50"
         )}
       >
-        <div className="flex items-center gap-3">
-          <input type="checkbox" checked={active} readOnly className="accent-indigo-600" />
-          <div className="flex-1 min-w-0">
-            <TBLabel tb={tb} />
-          </div>
+        <TBLabel tb={tb} />
+        <div className="mt-1.5">
           <DirBadge dir={tb.sortDirection} />
-          <span className="text-xs text-muted-foreground ml-1">#{priority}</span>
         </div>
       </button>
-      <div className="flex flex-col gap-1">
-        <button title="Move up" onClick={onMoveUp} className="p-2 rounded-md border border-border hover:bg-muted">
-          <ArrowUp className="w-4 h-4" />
+      <div className="flex flex-col gap-1 shrink-0">
+        <button title="Move up" onClick={onMoveUp} className="p-1.5 rounded-md border border-border hover:bg-muted">
+          <ArrowUp className="w-3.5 h-3.5" />
         </button>
-        <button title="Move down" onClick={onMoveDown} className="p-2 rounded-md border border-border hover:bg-muted">
-          <ArrowDown className="w-4 h-4" />
+        <button title="Move down" onClick={onMoveDown} className="p-1.5 rounded-md border border-border hover:bg-muted">
+          <ArrowDown className="w-3.5 h-3.5" />
         </button>
       </div>
     </div>
@@ -323,7 +328,7 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
               <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm">{error}</div>
             )}
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-6 items-start">
               {/* Available list */}
               <div className="flex-1">
                 <div className="mb-2 flex items-center justify-between">
@@ -335,7 +340,7 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
                     <PlusCircle className="w-4 h-4" /> Add all
                   </button>
                 </div>
-                <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+                <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
                   {availFiltered.length === 0 && <div className="text-sm text-muted-foreground">No more items</div>}
                   {availFiltered.map((tb) => (
                     <SelectableRow key={tb.id} tb={tb} selected={availSel.has(tb.id)} onToggle={toggleAvail} />
@@ -344,17 +349,17 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
               </div>
 
               {/* Middle controls */}
-              <div className="flex flex-col justify-center items-center gap-2">
+              <div className="flex flex-col justify-center items-center gap-2 py-4">
                 <button
                   onClick={addSelected}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-muted"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
                 >
                   <ArrowRight className="w-4 h-4" />
                   Add selected
                 </button>
                 <button
                   onClick={removeSelected}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-muted"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
                 >
                   <ArrowLeft className="w-4 h-4" />
                   Remove selected
@@ -375,7 +380,7 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
 
                 <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                   <SortableContext items={selectedSortableIds} strategy={rectSortingStrategy}>
-                    <div className="space-y-2 max-h-[420px] overflow-auto pr-1">
+                    <div className="space-y-2 max-h-[560px] overflow-auto pr-2">
                       {selected.length === 0 && <div className="text-sm text-muted-foreground">Nothing selected yet</div>}
                       {selected
                         .slice()

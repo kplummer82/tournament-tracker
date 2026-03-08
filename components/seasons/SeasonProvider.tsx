@@ -8,6 +8,7 @@ export type Season = {
   season_type: "spring" | "summer" | "fall" | "winter";
   status: "draft" | "active" | "playoffs" | "completed" | "archived";
   maxrundiff: number | null;
+  forfeit_run_diff: number | null;
   advances_to_playoffs: number | null;
   league_division_id: number;
   division_name: string;
@@ -88,6 +89,7 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
           season_type: season.season_type,
           status: season.status,
           maxrundiff: season.maxrundiff,
+          forfeit_run_diff: season.forfeit_run_diff,
           advances_to_playoffs: season.advances_to_playoffs,
         }),
       });

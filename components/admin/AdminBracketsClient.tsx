@@ -19,10 +19,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import BracketPreview from "@/components/bracket/BracketPreview";
 import { singleEliminationPreset } from "@/components/bracket/types";
 import type { BracketStructure } from "@/components/bracket/types";
 import { getBracketTypeLabel } from "@/lib/bracket-types";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, LayoutTemplate } from "lucide-react";
 
 type BracketTemplateRow = {
   id: number;
@@ -50,6 +51,8 @@ export default function AdminBracketsClient() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [editStructureTemplate, setEditStructureTemplate] = useState<BracketTemplateRow | null>(null);
+  const [editingStructure, setEditingStructure] = useState<BracketStructure | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const fetchTemplates = useCallback(async () => {
@@ -165,6 +168,31 @@ export default function AdminBracketsClient() {
     }
   };
 
+  const handleSaveStructure = async (id: number) => {
+    if (!editingStructure) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/bracket-templates/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ structure: editingStructure }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+      setEditStructureTemplate(null);
+      setEditingStructure(null);
+      await fetchTemplates();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save structure");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) return <p className="text-muted-foreground">Loading system brackets…</p>;
   if (error && templates.length === 0) return <p className="text-destructive">{error}</p>;
 
@@ -273,6 +301,19 @@ export default function AdminBracketsClient() {
                         type="button"
                         variant="ghost"
                         size="sm"
+                        className="gap-1"
+                        onClick={() => {
+                          setEditStructureTemplate(t);
+                          setEditingStructure(t.structure as BracketStructure);
+                        }}
+                      >
+                        <LayoutTemplate className="h-3.5 w-3.5" />
+                        Structure
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
                         className="gap-1 text-destructive hover:text-destructive"
                         onClick={() => setDeleteId(t.id)}
                       >
@@ -350,6 +391,50 @@ export default function AdminBracketsClient() {
                 onClick={() => handleDelete(deleteId)}
               >
                 {submitting ? "Deleting…" : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {editStructureTemplate && (
+        <Dialog
+          open={editStructureTemplate !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setEditStructureTemplate(null);
+              setEditingStructure(null);
+            }
+          }}
+        >
+          <DialogContent size="xl" className="flex flex-col" style={{ height: "85vh" }}>
+            <DialogHeader>
+              <DialogTitle>Edit Structure — {editStructureTemplate.name}</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <BracketPreview
+                structure={editingStructure}
+                editable
+                onStructureChange={setEditingStructure}
+              />
+            </div>
+            <DialogFooter className="shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditStructureTemplate(null);
+                  setEditingStructure(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={submitting}
+                onClick={() => handleSaveStructure(editStructureTemplate.id)}
+              >
+                {submitting ? "Saving…" : "Save Structure"}
               </Button>
             </DialogFooter>
           </DialogContent>

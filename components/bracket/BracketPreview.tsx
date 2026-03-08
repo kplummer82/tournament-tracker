@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { DndContext, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/core";
+import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from "@dnd-kit/core";
 import { GripVertical, Plus, Trash2, ArrowLeftRight, Maximize2, X, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -54,6 +54,14 @@ function fitTransform(totalW: number, totalH: number, vpW: number, vpH: number):
   return { scale, x: (vpW - totalW * scale) / 2, y: (vpH - totalH * scale) / 2 };
 }
 
+export type BracketGameDetails = {
+  gamedate?: string | null;
+  gametime?: string | null;
+  location?: string | null;
+  homescore?: number | null;
+  awayscore?: number | null;
+};
+
 type BracketPreviewProps = {
   structure: BracketStructure | null;
   /** Optional: seed index -> display name (e.g. team name). If not provided, show seed numbers only. */
@@ -61,6 +69,10 @@ type BracketPreviewProps = {
   /** When true and onStructureChange is set, first-round seeds are editable (dropdowns) and first-round games are draggable. */
   editable?: boolean;
   onStructureChange?: (structure: BracketStructure) => void;
+  /** Callback when a game box is clicked (for scheduling). Only fires when editable is false. */
+  onGameClick?: (bracketGameId: string) => void;
+  /** Optional game scheduling details to display on bracket boxes, keyed by bracket_game_id. */
+  gameDetails?: Record<string, BracketGameDetails>;
 };
 
 /** Center Y (px) for game at round r, game index k (0-based). First round has slots 0..N-1 with centers at (k+0.5)*SLOT_HEIGHT. */
@@ -127,6 +139,8 @@ function GameSlot({
   homeSlotIndex,
   innerOnly,
   onToggleBye,
+  onGameClick,
+  gameDetails,
 }: {
   game: BracketGame;
   roundIndex: number;
@@ -145,18 +159,24 @@ function GameSlot({
   homeSlotIndex?: 0 | 1 | null;
   /** When true, render only inner content (for use inside DraggableFirstRoundSlot). */
   innerOnly?: boolean;
+  onGameClick?: (bracketGameId: string) => void;
+  gameDetails?: BracketGameDetails;
 }) {
   const isFirstRound = roundIndex === 0;
   const isByeGame = isFirstRound && (game.seeds?.length ?? 0) === 1;
   const slot1 =
     isFirstRound && game.seeds?.[0]
-      ? seedLabels?.[game.seeds[0]] ?? `Seed ${game.seeds[0]}`
+      ? seedLabels?.[game.seeds[0]]
+        ? `${seedLabels[game.seeds[0]]} (#${game.seeds[0]})`
+        : `Seed ${game.seeds[0]}`
       : game.feedsFrom?.[0]
         ? `Winner ${game.feedsFrom[0]}`
         : "—";
   const slot2 =
     isFirstRound && game.seeds?.[1]
-      ? seedLabels?.[game.seeds[1]] ?? `Seed ${game.seeds[1]}`
+      ? seedLabels?.[game.seeds[1]]
+        ? `${seedLabels[game.seeds[1]]} (#${game.seeds[1]})`
+        : `Seed ${game.seeds[1]}`
       : game.feedsFrom?.[1]
         ? `Winner ${game.feedsFrom[1]}`
         : "—";
@@ -290,6 +310,9 @@ function GameSlot({
               {homeSlotIndex === 0 ? "H" : homeSlotIndex === 1 ? "V" : ""}
             </span>
             <span className="text-sm font-medium leading-snug break-words min-w-0 flex-1">{slot1}</span>
+            {gameDetails?.homescore != null && (
+              <span className="text-xs font-semibold tabular-nums text-foreground/70 shrink-0">{gameDetails.homescore}</span>
+            )}
           </div>
           <div className="text-xs text-muted-foreground leading-snug shrink-0">vs</div>
           <div className="flex items-center gap-1 min-w-0">
@@ -300,20 +323,32 @@ function GameSlot({
               {homeSlotIndex === 1 ? "H" : homeSlotIndex === 0 ? "V" : ""}
             </span>
             <span className="text-sm font-medium leading-snug break-words min-w-0 flex-1">{slot2}</span>
+            {gameDetails?.awayscore != null && (
+              <span className="text-xs font-semibold tabular-nums text-foreground/70 shrink-0">{gameDetails.awayscore}</span>
+            )}
           </div>
+          {gameDetails && (gameDetails.gamedate || gameDetails.gametime) && (
+            <div className="text-[9px] text-muted-foreground/60 mt-0.5 truncate">
+              {[gameDetails.gamedate, gameDetails.gametime].filter(Boolean).join(" ")}
+            </div>
+          )}
         </>
       )}
     </>
   );
 
   if (innerOnly) return content;
+
+  const isClickable = !editable && !isByeGame && onGameClick != null;
+
   return (
     <div
       className={cn(
         "absolute rounded-lg p-3 box-border flex flex-col justify-center min-h-0",
         isByeGame
           ? "border border-dashed border-border/60 bg-muted/10"
-          : "border border-border bg-muted/30"
+          : "border border-border bg-muted/30",
+        isClickable && "cursor-pointer hover:border-primary/60 hover:bg-muted/50 transition-colors"
       )}
       style={{
         width: BOX_WIDTH,
@@ -322,6 +357,10 @@ function GameSlot({
         top: topPx,
       }}
       title={isByeGame ? `${slot1} (BYE)` : isEditableFirstRound ? undefined : `${slot1} vs ${slot2}`}
+      onClick={isClickable ? () => onGameClick(game.id) : undefined}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+      onKeyDown={isClickable ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onGameClick!(game.id); } } : undefined}
     >
       {content}
     </div>
@@ -402,6 +441,8 @@ export default function BracketPreview({
   seedLabels,
   editable,
   onStructureChange,
+  onGameClick,
+  gameDetails,
 }: BracketPreviewProps) {
   // Compute dimensions early so hooks can depend on them (hooks must run unconditionally)
   const rounds = (structure?.rounds ?? []) as BracketRound[];
@@ -591,11 +632,11 @@ export default function BracketPreview({
     onStructureChange(addGameToRound(structure, roundIndex, feedsFromIdA, feedsFromIdB));
   };
 
-  const handleDragStart = (event: { active: { id: string } }) => {
+  const handleDragStart = (event: DragStartEvent) => {
     setActiveDragId(String(event.active.id));
   };
 
-  const handleDragEnd = (event: { active: { id: string }; over: { id: string } | null }) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     setActiveDragId(null);
     if (!onStructureChange || !editable) return;
     const { active, over } = event;
@@ -720,6 +761,8 @@ export default function BracketPreview({
             numTeams={roundIndex === 0 ? structure.numTeams : undefined}
             prevRoundGames={roundIndex >= 1 ? structure.rounds[roundIndex - 1]?.games : undefined}
             homeSlotIndex={homeSlotIndex}
+            onGameClick={onGameClick}
+            gameDetails={gameDetails?.[game.id]}
           />
         );
       })

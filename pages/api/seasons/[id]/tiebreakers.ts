@@ -17,6 +17,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         SELECT
           tb.id,
           tb.tiebreaker              AS code,
+          tb.display_name            AS display_name,
           tb.tiebreakerdescription   AS description,
           COALESCE(tb."SortDirection",'DESC')::text AS sortdirection
         FROM tiebreakers tb
@@ -33,6 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const available = availRows.map((r: any) => ({
         id: Number(r.id),
         code: String(r.code),
+        displayName: r.display_name ?? null,
         description: r.description ?? null,
         sortDirection: String(r.sortdirection).toUpperCase() === "ASC" ? "ASC" : "DESC",
       }));

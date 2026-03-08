@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { syncBracketGames } from "@/lib/bracket-games";
+import type { BracketStructure } from "@/components/bracket/types";
 
 function parseIds(req: NextApiRequest) {
   const seasonId = parseInt(String(Array.isArray(req.query.id) ? req.query.id[0] : req.query.id), 10);
@@ -57,6 +59,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Update bracket updated_at
       await sql`UPDATE season_brackets SET updated_at = now() WHERE id = ${bracketId}`;
 
+      // Sync bracket games: load structure and generate/update game records
+      const [bracketData] = await sql`
+        SELECT structure FROM season_brackets WHERE id = ${bracketId}
+      `;
+      let syncResult = null;
+      if (bracketData?.structure && assignments.length > 0) {
+        syncResult = await syncBracketGames(
+          seasonId,
+          bracketId,
+          bracketData.structure as BracketStructure,
+          assignments
+        );
+      }
+
       const rows = await sql`
         SELECT sba.seed_index, sba.team_id, t.name AS team_name
         FROM season_bracket_assignments sba
@@ -72,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           teamId: Number(a.team_id),
           teamName: a.team_name ?? null,
         })),
+        games: syncResult,
       });
     }
 

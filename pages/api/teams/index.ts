@@ -85,7 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `;
 
       // --- total
-      const totalResult = await sql(
+      const totalResult = await sql.query(
         `
         SELECT COUNT(*)::text AS count
         FROM teams t
@@ -102,7 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // --- page rows
       const pageParams = [...params, _pageSize, offset];
-      const pageResult = await sql(
+      const pageResult = await sql.query(
         `
         SELECT
           t.teamid          AS id,
@@ -168,7 +168,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let divId: number | undefined = divisionId ? Number(divisionId) : undefined;
 
       if (!isLeagueTeam && !divId && divisionLabel) {
-        const look = await sql(
+        const look = await sql.query(
           `SELECT id FROM divisions WHERE division ILIKE $1 LIMIT 1;`,
           [String(divisionLabel)]
         );
@@ -180,7 +180,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         divId = found[0].id;
       }
 
-      const insertRes = await sql(
+      // Duplicate check: no two teams may share the same name in the same division-season
+      if (isLeagueTeam) {
+        const dupeCheck = await sql.query(
+          `SELECT teamid FROM teams
+           WHERE league_division_id = $1 AND season = $2 AND year = $3 AND LOWER(name) = LOWER($4)
+           LIMIT 1;`,
+          [Number(leagueDivisionId), season, Number(year), String(name)]
+        );
+        if (normalizeRows(dupeCheck).length > 0) {
+          res.status(409).json({ error: `A team named "${name}" already exists in this division and season.` });
+          return;
+        }
+      } else if (divId != null) {
+        const dupeCheck = await sql.query(
+          `SELECT teamid FROM teams
+           WHERE division = $1 AND season = $2 AND year = $3 AND LOWER(name) = LOWER($4)
+           LIMIT 1;`,
+          [divId, season, Number(year), String(name)]
+        );
+        if (normalizeRows(dupeCheck).length > 0) {
+          res.status(409).json({ error: `A team named "${name}" already exists in this division and season.` });
+          return;
+        }
+      }
+
+      const insertRes = await sql.query(
         `
         INSERT INTO teams (name, division, season, year, sportid, league_id, league_division_id)
         VALUES ($1, $2, $3, $4, $5, $6, $7)

@@ -1,5 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { advanceWinner } from "@/lib/bracket-games";
+
+const FORFEIT_STATUS_IDS = new Set([6, 7]); // Home Team Forfeit, Away Team Forfeit
+
+function normalizeTime(t: string): string {
+  return String(t).length === 5 ? `${t}:00` : String(t);
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const seasonId = parseInt(String(Array.isArray(req.query.id) ? req.query.id[0] : req.query.id), 10);
@@ -20,19 +27,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ ok: true });
     }
 
-    // PATCH: update scores and/or status (use PUT on /games for full date/team edits)
+    // PATCH: update scores, status, and/or scheduling fields
     if (req.method === "PATCH") {
-      const { homescore, awayscore, gamestatusid } = req.body ?? {};
+      const body = req.body ?? {};
+
+      // Build SET clauses dynamically for provided fields
+      const sets: ReturnType<typeof sql>[] = [];
+      if ("homescore" in body) sets.push(sql`homescore = ${body.homescore != null && body.homescore !== "" ? Number(body.homescore) : null}`);
+      if ("awayscore" in body) sets.push(sql`awayscore = ${body.awayscore != null && body.awayscore !== "" ? Number(body.awayscore) : null}`);
+      if ("gamestatusid" in body) sets.push(sql`gamestatusid = ${body.gamestatusid != null && body.gamestatusid !== "" ? Number(body.gamestatusid) : null}`);
+      if ("gamedate" in body) sets.push(sql`gamedate = ${body.gamedate ? String(body.gamedate).slice(0, 10) : null}::date`);
+      if ("gametime" in body) sets.push(sql`gametime = ${body.gametime ? normalizeTime(String(body.gametime)) : null}::time`);
+      if ("location" in body) sets.push(sql`location = ${body.location || null}`);
+      if ("field" in body) sets.push(sql`field = ${body.field || null}`);
+
+      if (!sets.length) return res.status(400).json({ error: "No fields to update" });
+
+      // Join SET clauses with commas
+      let setClause = sets[0];
+      for (let i = 1; i < sets.length; i++) {
+        setClause = sql`${setClause}, ${sets[i]}`;
+      }
 
       const rows = await sql`
-        UPDATE season_games SET
-          homescore    = ${homescore != null && homescore !== "" ? Number(homescore) : null},
-          awayscore    = ${awayscore != null && awayscore !== "" ? Number(awayscore) : null},
-          gamestatusid = ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null}
+        UPDATE season_games SET ${setClause}
         WHERE id = ${gameId} AND season_id = ${seasonId}
-        RETURNING id
+        RETURNING id, bracket_id, bracket_game_id
       `;
       if (!rows.length) return res.status(404).json({ error: "Game not found" });
+
+      // If this is a bracket game and scores or forfeit status were updated, advance the winner
+      const row = rows[0];
+      const isForfeitUpdate = "gamestatusid" in body && FORFEIT_STATUS_IDS.has(Number(body.gamestatusid));
+      if (row.bracket_id && row.bracket_game_id && ("homescore" in body || "awayscore" in body || isForfeitUpdate)) {
+        try {
+          await advanceWinner(seasonId, gameId, row.bracket_id, row.bracket_game_id);
+        } catch (advErr) {
+          console.error("[advanceWinner] error (non-fatal)", advErr);
+        }
+      }
+
       return res.status(200).json({ ok: true });
     }
 

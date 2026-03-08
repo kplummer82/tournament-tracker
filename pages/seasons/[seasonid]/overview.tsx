@@ -108,6 +108,20 @@ function OverviewForm() {
               placeholder="e.g. 10 (leave blank for none)"
             />
           </Field>
+          <Field label="Forfeit run differential">
+            <input
+              className={INPUT}
+              type="number"
+              min={0}
+              value={season.forfeit_run_diff ?? ""}
+              onChange={(e) =>
+                setSeason((p) =>
+                  p ? { ...p, forfeit_run_diff: e.target.value === "" ? null : Number(e.target.value) } : p
+                )
+              }
+              placeholder="e.g. 7 (leave blank for 0)"
+            />
+          </Field>
           <Field label="Teams advance to playoffs">
             <input
               className={INPUT}

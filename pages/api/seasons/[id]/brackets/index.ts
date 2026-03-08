@@ -32,13 +32,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const { name, sort_order, template_id } = req.body ?? {};
       if (!name?.trim()) return res.status(400).json({ error: "name is required" });
 
+      const tid = template_id != null && template_id !== "" ? Number(template_id) : null;
+
+      // Copy structure from template at creation time so season brackets are
+      // fully decoupled from the template (edits/deletes to the template won't affect them).
+      let templateStructure: object | null = null;
+      if (tid) {
+        const tmpl = await sql`
+          SELECT structure FROM public.bracket_templates WHERE id = ${tid}
+        `;
+        if (tmpl.length > 0) templateStructure = (tmpl[0] as { structure: object }).structure ?? null;
+      }
+
       const inserted = await sql`
-        INSERT INTO season_brackets (season_id, name, sort_order, template_id)
+        INSERT INTO season_brackets (season_id, name, sort_order, template_id, structure)
         VALUES (
           ${seasonId},
           ${name.trim()},
           ${Number(sort_order) || 0},
-          ${template_id != null && template_id !== "" ? Number(template_id) : null}
+          ${tid},
+          ${templateStructure ? JSON.stringify(templateStructure) : null}::jsonb
         )
         RETURNING id, season_id, name, sort_order, template_id,
           to_char(updated_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS updated_at

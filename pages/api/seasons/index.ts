@@ -15,7 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         rows = await sql`
           SELECT
             s.id, s.name, s.year, s.season_type, s.status,
-            s.maxrundiff, s.advances_to_playoffs,
+            s.maxrundiff, s.forfeit_run_diff, s.advances_to_playoffs,
             s.league_division_id,
             ld.name AS division_name,
             l.id    AS league_id,
@@ -33,7 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         rows = await sql`
           SELECT
             s.id, s.name, s.year, s.season_type, s.status,
-            s.maxrundiff, s.advances_to_playoffs,
+            s.maxrundiff, s.forfeit_run_diff, s.advances_to_playoffs,
             s.league_division_id,
             ld.name AS division_name,
             l.id    AS league_id,
@@ -54,7 +54,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "POST") {
       const {
         league_division_id, name, year, season_type, status,
-        maxrundiff, advances_to_playoffs,
+        maxrundiff, forfeit_run_diff, advances_to_playoffs,
       } = req.body ?? {};
 
       if (!league_division_id) return res.status(400).json({ error: "league_division_id is required" });
@@ -69,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const inserted = await sql`
         INSERT INTO seasons (
           league_division_id, name, year, season_type, status,
-          maxrundiff, advances_to_playoffs
+          maxrundiff, forfeit_run_diff, advances_to_playoffs
         )
         VALUES (
           ${Number(league_division_id)},
@@ -78,10 +78,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${season_type},
           ${statusVal},
           ${maxrundiff != null && maxrundiff !== "" ? Number(maxrundiff) : null},
+          ${forfeit_run_diff != null && forfeit_run_diff !== "" ? Number(forfeit_run_diff) : null},
           ${advances_to_playoffs != null && advances_to_playoffs !== "" ? Number(advances_to_playoffs) : null}
         )
         RETURNING id, league_division_id, name, year, season_type, status,
-          maxrundiff, advances_to_playoffs,
+          maxrundiff, forfeit_run_diff, advances_to_playoffs,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       return res.status(201).json(inserted[0]);

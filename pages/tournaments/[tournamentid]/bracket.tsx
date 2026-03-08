@@ -29,6 +29,7 @@ function BracketBody() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [bracketSaved, setBracketSaved] = useState(false);
   const [pickerExpanded, setPickerExpanded] = useState(false);
+  const [includeInProgress, setIncludeInProgress] = useState(false);
 
   const loadBracket = useCallback(async () => {
     if (!tid) return;
@@ -75,12 +76,12 @@ function BracketBody() {
   const loadStandings = useCallback(async () => {
     if (!tid) return;
     try {
-      const res = await fetch(`/api/tournaments/${tid}/standings`, { cache: "no-store" });
+      const res = await fetch(`/api/tournaments/${tid}/standings?includeInProgress=${includeInProgress}`, { cache: "no-store" });
       if (!res.ok) return;
       const data = await res.json();
       setStandingsRows(Array.isArray(data?.standings) ? data.standings : []);
     } catch { setStandingsRows([]); }
-  }, [tid]);
+  }, [tid, includeInProgress]);
 
   const loadGames = useCallback(async () => {
     if (!tid) return;
@@ -216,6 +217,17 @@ function BracketBody() {
             Select a bracket template and assign teams to seeds.
           </p>
         </div>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={includeInProgress}
+            onChange={(e) => setIncludeInProgress(e.target.checked)}
+            className="w-3.5 h-3.5 accent-primary cursor-pointer"
+          />
+          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+            Include In Progress
+          </span>
+        </label>
       </div>
 
       {bracketError && (

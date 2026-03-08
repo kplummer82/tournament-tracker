@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 
 type Team = {
   id: number;
@@ -74,7 +75,7 @@ export default function TournamentTeamsPage() {
 
   return (
     <div style={{ padding: 24, maxWidth: 1200, margin: '0 auto' }}>
-      <a href="/tournaments" style={{ textDecoration: 'none' }}>← Back to All Tournaments</a>
+      <Link href="/tournaments" style={{ textDecoration: 'none' }}>← Back to All Tournaments</Link>
       <h1 style={{ marginTop: 12, marginBottom: 16 }}>Tournament Teams</h1>
 
       {header}
