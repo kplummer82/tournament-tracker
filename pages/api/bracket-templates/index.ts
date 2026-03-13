@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { isValidBracketType } from "@/lib/bracket-types";
-import { getSessionForRequest } from "@/lib/auth/server";
+import { requireAdmin } from "@/lib/auth/requireSession";
 
 export type BracketTemplateRow = {
   id: number;
@@ -91,9 +91,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // System templates (is_library true, created_by null) may only be created by admins
       if (isLibrary) {
-        const session = await getSessionForRequest(req);
-        if (!session?.user) return res.status(401).json({ error: "Unauthorized" });
-        if (session.user.role !== "admin") return res.status(403).json({ error: "Only admins can create system brackets." });
+        const session = await requireAdmin(req, res);
+        if (!session) return;
       }
 
       const inserted = (await sql`

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { isValidBracketType } from "@/lib/bracket-types";
-import { getSessionForRequest } from "@/lib/auth/server";
+import { requireAdmin } from "@/lib/auth/requireSession";
 
 export type BracketTemplateRow = {
   id: number;
@@ -45,9 +45,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (existing.length === 0) return res.status(404).json({ error: "Not found" });
       const row = existing[0];
       if (row.created_by === null) {
-        const session = await getSessionForRequest(req);
-        if (!session?.user) return res.status(401).json({ error: "Unauthorized" });
-        if (session.user.role !== "admin") return res.status(403).json({ error: "Only admins can edit system brackets." });
+        const session = await requireAdmin(req, res);
+        if (!session) return;
       }
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body ?? {};
       const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : row.name;
@@ -95,9 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       `) as { id: number; created_by: number | null }[];
       if (existing.length === 0) return res.status(404).json({ error: "Not found" });
       if (existing[0].created_by === null) {
-        const session = await getSessionForRequest(req);
-        if (!session?.user) return res.status(401).json({ error: "Unauthorized" });
-        if (session.user.role !== "admin") return res.status(403).json({ error: "Only admins can delete system brackets." });
+        const session = await requireAdmin(req, res);
+        if (!session) return;
       }
       const result = await sql`DELETE FROM public.bracket_templates WHERE id = ${id} RETURNING id`;
       if (result.length === 0) return res.status(404).json({ error: "Not found" });
