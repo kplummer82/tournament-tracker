@@ -5,10 +5,7 @@ import AdminBracketsClient from "@/components/admin/AdminBracketsClient";
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const session = await getSessionForRequest(context.req);
-  if (!session?.user) {
-    return { redirect: { destination: "/login", permanent: false } };
-  }
-  if (session.user.role !== "admin") {
+  if (!session?.user || session.user.role !== "admin") {
     return { redirect: { destination: "/", permanent: false } };
   }
   return { props: {} };

@@ -15,6 +15,9 @@ export default function AdminUsersClient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [approvalRequired, setApprovalRequired] = useState(false);
+  const [approvalLoading, setApprovalLoading] = useState(true);
+  const [approvalToggling, setApprovalToggling] = useState(false);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -35,9 +38,44 @@ export default function AdminUsersClient() {
     }
   };
 
+  const fetchSettings = async () => {
+    try {
+      const res = await fetch("/api/admin/settings", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setApprovalRequired(data.settings?.require_user_approval ?? false);
+      }
+    } catch {
+      // ignore — default to false
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchUsers();
+    fetchSettings();
   }, []);
+
+  const toggleApproval = async () => {
+    setApprovalToggling(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ require_user_approval: !approvalRequired }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApprovalRequired(data.settings?.require_user_approval ?? false);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setApprovalToggling(false);
+    }
+  };
 
   const setRole = async (userId: string, role: "admin" | "user") => {
     setUpdatingId(userId);
@@ -60,66 +98,145 @@ export default function AdminUsersClient() {
     }
   };
 
+  // Sort: pending users first, then by email
+  const sortedUsers = [...users].sort((a, b) => {
+    const aPending = !a.role || (a.role !== "user" && a.role !== "admin");
+    const bPending = !b.role || (b.role !== "user" && b.role !== "admin");
+    if (aPending && !bPending) return -1;
+    if (!aPending && bPending) return 1;
+    return (a.email ?? "").localeCompare(b.email ?? "");
+  });
+
+  const pendingCount = users.filter(
+    (u) => !u.role || (u.role !== "user" && u.role !== "admin")
+  ).length;
+
   if (loading) {
     return <p className="text-muted-foreground">Loading users…</p>;
   }
   if (error) {
     return <p className="text-destructive">{error}</p>;
   }
-  if (users.length === 0) {
-    return <p className="text-muted-foreground">No users found.</p>;
-  }
 
   return (
-    <div className="rounded-xl border border-border bg-muted/20 overflow-hidden">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/40">
-            <th className="text-left p-3 font-medium">Email</th>
-            <th className="text-left p-3 font-medium">Name</th>
-            <th className="text-left p-3 font-medium">Role</th>
-            <th className="text-left p-3 font-medium">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map((u) => {
-            const isAdmin = u.role === "admin";
-            const isUpdating = updatingId === u.id;
-            return (
-              <tr key={u.id} className="border-b border-border/50 hover:bg-muted/20">
-                <td className="p-3">{u.email}</td>
-                <td className="p-3">{u.name ?? "—"}</td>
-                <td className="p-3">
-                  <span className={isAdmin ? "text-primary font-medium" : "text-muted-foreground"}>
-                    {isAdmin ? "Admin" : "User"}
-                  </span>
-                </td>
-                <td className="p-3">
-                  {isAdmin ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isUpdating}
-                      onClick={() => setRole(u.id, "user")}
-                    >
-                      {isUpdating ? "Updating…" : "Remove admin"}
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="default"
-                      size="sm"
-                      disabled={isUpdating}
-                      onClick={() => setRole(u.id, "admin")}
-                    >
-                      {isUpdating ? "Updating…" : "Make admin"}
-                    </Button>
-                  )}
-                </td>
+    <div className="space-y-4">
+      {/* Approval mode toggle */}
+      {!approvalLoading && (
+        <div className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-4 py-3">
+          <div>
+            <p className="text-sm font-medium">Require approval for new users</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {approvalRequired
+                ? "New sign-ups must be approved before they can access the app."
+                : "New sign-ups get immediate access."}
+            </p>
+          </div>
+          <button
+            onClick={toggleApproval}
+            disabled={approvalToggling}
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 ${
+              approvalRequired ? "bg-primary" : "bg-muted-foreground/30"
+            }`}
+            role="switch"
+            aria-checked={approvalRequired}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-sm transform transition-transform duration-200 ${
+                approvalRequired ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+      )}
+
+      {/* Pending users badge */}
+      {approvalRequired && pendingCount > 0 && (
+        <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
+          <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold">
+            {pendingCount}
+          </span>
+          <span className="text-sm text-amber-700 dark:text-amber-400">
+            {pendingCount === 1 ? "user is" : "users are"} pending approval
+          </span>
+        </div>
+      )}
+
+      {/* Users table */}
+      {users.length === 0 ? (
+        <p className="text-muted-foreground">No users found.</p>
+      ) : (
+        <div className="rounded-xl border border-border bg-muted/20 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/40">
+                <th className="text-left p-3 font-medium">Email</th>
+                <th className="text-left p-3 font-medium">Name</th>
+                <th className="text-left p-3 font-medium">Role</th>
+                <th className="text-left p-3 font-medium">Actions</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {sortedUsers.map((u) => {
+                const isAdmin = u.role === "admin";
+                const isUser = u.role === "user";
+                const isPending = !u.role || (!isAdmin && !isUser);
+                const isUpdating = updatingId === u.id;
+                return (
+                  <tr key={u.id} className="border-b border-border/50 hover:bg-muted/20">
+                    <td className="p-3">{u.email}</td>
+                    <td className="p-3">{u.name ?? "—"}</td>
+                    <td className="p-3">
+                      {isAdmin ? (
+                        <span className="text-primary font-medium">Admin</span>
+                      ) : isPending ? (
+                        <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
+                          <span className="h-2 w-2 rounded-full bg-amber-500" />
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">User</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
+                        {isPending && (
+                          <Button
+                            variant="default"
+                            size="sm"
+                            disabled={isUpdating}
+                            onClick={() => setRole(u.id, "user")}
+                          >
+                            {isUpdating ? "Approving…" : "Approve"}
+                          </Button>
+                        )}
+                        {isAdmin ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={isUpdating}
+                            onClick={() => setRole(u.id, "user")}
+                          >
+                            {isUpdating ? "Updating…" : "Remove admin"}
+                          </Button>
+                        ) : (
+                          <Button
+                            variant={isPending ? "outline" : "default"}
+                            size="sm"
+                            disabled={isUpdating}
+                            onClick={() => setRole(u.id, "admin")}
+                          >
+                            {isUpdating ? "Updating…" : "Make admin"}
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

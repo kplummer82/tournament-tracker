@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getSessionForRequest } from "@/lib/auth/server";
+import { requireAdmin } from "@/lib/auth/requireSession";
 
 function getOrigin(req: NextApiRequest): string {
   const proto = req.headers["x-forwarded-proto"] ?? "http";
@@ -15,13 +15,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: "Method Not Allowed" });
   }
 
-  const session = await getSessionForRequest(req);
-  if (!session?.user) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  if (session.user.role !== "admin") {
-    return res.status(403).json({ error: "Forbidden" });
-  }
+  const session = await requireAdmin(req, res);
+  if (!session) return;
 
   const userId = req.query.userId;
   const id = Array.isArray(userId) ? userId[0] : userId;
