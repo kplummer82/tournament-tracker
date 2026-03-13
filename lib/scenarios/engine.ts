@@ -1,0 +1,317 @@
+/**
+ * Scenario analysis engine.
+ * Two-layer approach:
+ *   1. Possibility check (best-case heuristic)
+ *   2. Monte Carlo simulation (Layer 1: win/loss only → Layer 2: with scores if ambiguous)
+ *
+ * `max_simulations` is a total budget across all layers — each call to the standings
+ * function counts as 1 simulation.
+ */
+
+import { sql } from "@/lib/db";
+import {
+  type RemainingGame,
+  type SimulatedOutcome,
+  type StandingsRow,
+  generateWinLossOutcomes,
+  generateScoredOutcomes,
+  generateBestCaseOutcomes,
+  meetsSeedTarget,
+  isAmbiguous,
+} from "./simulate";
+
+type SeedMode = "exact" | "or_better";
+
+type ProgressCallback = (simRun: number) => void;
+
+export type EngineResult = {
+  isPossible: boolean;
+  probability: number | null; // 0-100, null if impossible
+  simulationsRun: number;
+};
+
+/** Call the standings function with simulated outcomes. */
+async function callStandings(
+  seasonId: number,
+  simulated: { home: number; away: number; homescore: number; awayscore: number }[]
+): Promise<StandingsRow[]> {
+  const json = JSON.stringify(simulated);
+  const rows = await sql`
+    SELECT teamid, team, wins, games, wltpct, runsscored, runsagainst,
+           rundifferential, rank_final, lexi_key, details
+    FROM public.fn_season_standings_lexi_noorder(
+      ${seasonId}, false, true, ${json}::jsonb
+    )
+  `;
+  // Neon returns numeric/bigint as strings — coerce to numbers
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    teamid: Number(r.teamid),
+    team: r.team as string | null,
+    wins: Number(r.wins),
+    games: Number(r.games),
+    wltpct: Number(r.wltpct),
+    runsscored: Number(r.runsscored),
+    runsagainst: Number(r.runsagainst),
+    rundifferential: Number(r.rundifferential),
+    rank_final: Number(r.rank_final),
+    lexi_key: Number(r.lexi_key),
+    details: r.details as Record<string, unknown> | null,
+  }));
+}
+
+/** Get remaining (incomplete) regular-season games. */
+async function getRemainingGames(seasonId: number): Promise<RemainingGame[]> {
+  const rows = await sql`
+    SELECT id, home, away
+    FROM season_games
+    WHERE season_id = ${seasonId}
+      AND game_type = 'regular'
+      AND gamestatusid NOT IN (4, 6, 7)
+  `;
+  return rows as unknown as RemainingGame[];
+}
+
+/** Get season settings. */
+async function getSeasonSettings(seasonId: number): Promise<{ maxRunDiff: number | null }> {
+  const rows = await sql`SELECT maxrundiff FROM seasons WHERE id = ${seasonId}`;
+  return { maxRunDiff: rows[0]?.maxrundiff ?? null };
+}
+
+/** Read max_simulations from app_settings. */
+async function getMaxSimulations(): Promise<number> {
+  const rows = await sql`SELECT value FROM app_settings WHERE key = 'max_simulations'`;
+  return rows.length ? parseInt(rows[0].value, 10) : 10000;
+}
+
+/** Run N async tasks with a concurrency limit. */
+async function pooled<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number
+): Promise<T[]> {
+  const results: T[] = new Array(tasks.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < tasks.length) {
+      const idx = nextIndex++;
+      results[idx] = await tasks[idx]();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
+}
+
+/** Call the tournament pool standings function with simulated outcomes. */
+async function callTournamentStandings(
+  tournamentId: number,
+  simulated: { home: number; away: number; homescore: number; awayscore: number }[]
+): Promise<StandingsRow[]> {
+  const json = JSON.stringify(simulated);
+  const rows = await sql`
+    SELECT teamid, team, wins, games, wltpct, runsscored, runsagainst,
+           rundifferential, rank_final, lexi_key, details
+    FROM public.fn_pool_standings_lexi_noorder(
+      ${tournamentId}, false, true, ${json}::jsonb
+    )
+  `;
+  return (rows as Record<string, unknown>[]).map((r) => ({
+    teamid: Number(r.teamid),
+    team: r.team as string | null,
+    wins: Number(r.wins),
+    games: Number(r.games),
+    wltpct: Number(r.wltpct),
+    runsscored: Number(r.runsscored),
+    runsagainst: Number(r.runsagainst),
+    rundifferential: Number(r.rundifferential),
+    rank_final: Number(r.rank_final),
+    lexi_key: Number(r.lexi_key),
+    details: r.details as Record<string, unknown> | null,
+  }));
+}
+
+/** Get remaining (incomplete) pool-play games for a tournament. */
+async function getRemainingTournamentGames(tournamentId: number): Promise<RemainingGame[]> {
+  const rows = await sql`
+    SELECT id, home, away
+    FROM tournamentgames
+    WHERE tournamentid = ${tournamentId}
+      AND poolorbracket = 'Pool'
+      AND (gamestatusid IS NULL OR gamestatusid NOT IN (4, 6, 7))
+  `;
+  return rows as unknown as RemainingGame[];
+}
+
+/** Get tournament settings. */
+async function getTournamentSettings(tournamentId: number): Promise<{ maxRunDiff: number | null }> {
+  const rows = await sql`SELECT maxrundiff FROM tournaments WHERE tournamentid = ${tournamentId}`;
+  return { maxRunDiff: rows[0]?.maxrundiff ?? null };
+}
+
+/**
+ * Core Monte Carlo analysis — shared between season and tournament modes.
+ */
+async function runMonteCarloAnalysis(
+  remainingGames: RemainingGame[],
+  teamId: number,
+  targetSeed: number,
+  seedMode: SeedMode,
+  maxRunDiff: number | null,
+  callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  let budget = await getMaxSimulations();
+  let simulationsRun = 0;
+
+  // --- No remaining games: check current standings ---
+  if (remainingGames.length === 0) {
+    const standings = await callStandingsFn([]);
+    simulationsRun++;
+    onProgress?.(simulationsRun);
+    const met = meetsSeedTarget(standings, teamId, targetSeed, seedMode);
+    return { isPossible: met, probability: met ? 100 : 0, simulationsRun };
+  }
+
+  // --- Step 1: Possibility check (best-case heuristic) ---
+  let isPossible = false;
+  const POSSIBILITY_ATTEMPTS = Math.min(50, budget);
+
+  for (let i = 0; i < POSSIBILITY_ATTEMPTS && !isPossible; i++) {
+    const outcomes = generateBestCaseOutcomes(remainingGames, teamId, maxRunDiff);
+    const standings = await callStandingsFn(outcomes);
+    simulationsRun++;
+    if (meetsSeedTarget(standings, teamId, targetSeed, seedMode)) {
+      isPossible = true;
+    }
+  }
+  budget -= simulationsRun;
+  onProgress?.(simulationsRun);
+
+  if (!isPossible) {
+    return { isPossible: false, probability: null, simulationsRun };
+  }
+
+  // --- Step 2: Monte Carlo Layer 1 (win/loss only, 50/50) ---
+  const layer1Budget = Math.floor(budget * 0.7);
+  let achieves = 0;
+  let ambiguousCount = 0;
+  let layer1Total = 0;
+
+  const BATCH_SIZE = 20;
+  const PROGRESS_INTERVAL = 500;
+
+  for (let offset = 0; offset < layer1Budget; offset += BATCH_SIZE) {
+    const batchCount = Math.min(BATCH_SIZE, layer1Budget - offset);
+    const tasks = Array.from({ length: batchCount }, () => async () => {
+      const outcomes = generateWinLossOutcomes(remainingGames);
+      const standings = await callStandingsFn(outcomes);
+      const met = meetsSeedTarget(standings, teamId, targetSeed, seedMode);
+      const amb = isAmbiguous(standings, teamId, targetSeed, seedMode);
+      return { met, amb };
+    });
+
+    const results = await pooled(tasks, BATCH_SIZE);
+    for (const { met, amb } of results) {
+      layer1Total++;
+      simulationsRun++;
+      if (met) achieves++;
+      if (amb) ambiguousCount++;
+    }
+
+    if (simulationsRun % PROGRESS_INTERVAL < BATCH_SIZE) {
+      onProgress?.(simulationsRun);
+    }
+
+    // Early termination: if after 1000+ sims, result is clearly 0% or 100% with no ambiguity
+    if (layer1Total >= 1000 && ambiguousCount === 0) {
+      const pct = (achieves / layer1Total) * 100;
+      if (pct === 0 || pct === 100) {
+        onProgress?.(simulationsRun);
+        return { isPossible: true, probability: pct, simulationsRun };
+      }
+    }
+  }
+
+  onProgress?.(simulationsRun);
+
+  // --- If no ambiguous cases, we have a firm answer ---
+  if (ambiguousCount === 0) {
+    const probability = (achieves / layer1Total) * 100;
+    return {
+      isPossible: true,
+      probability: Math.round(probability * 10000) / 10000,
+      simulationsRun,
+    };
+  }
+
+  // --- Step 3: Monte Carlo Layer 2 (with scores, for ambiguous cases) ---
+  const layer2Budget = budget - layer1Budget;
+  let layer2Achieves = 0;
+  let layer2Total = 0;
+
+  for (let offset = 0; offset < layer2Budget; offset += BATCH_SIZE) {
+    const batchCount = Math.min(BATCH_SIZE, layer2Budget - offset);
+    const tasks = Array.from({ length: batchCount }, () => async () => {
+      const outcomes = generateScoredOutcomes(remainingGames, maxRunDiff);
+      const standings = await callStandingsFn(outcomes);
+      return meetsSeedTarget(standings, teamId, targetSeed, seedMode);
+    });
+
+    const results = await pooled(tasks, BATCH_SIZE);
+    for (const met of results) {
+      layer2Total++;
+      simulationsRun++;
+      if (met) layer2Achieves++;
+    }
+
+    if (simulationsRun % PROGRESS_INTERVAL < BATCH_SIZE) {
+      onProgress?.(simulationsRun);
+    }
+  }
+
+  onProgress?.(simulationsRun);
+
+  const finalProbability = layer2Total > 0
+    ? (layer2Achieves / layer2Total) * 100
+    : (achieves / layer1Total) * 100;
+
+  return {
+    isPossible: true,
+    probability: Math.round(finalProbability * 10000) / 10000,
+    simulationsRun,
+  };
+}
+
+/**
+ * Main entry point: run the full scenario analysis for "Can team X achieve seed #Y?"
+ * Season mode — analyzes remaining regular-season games.
+ */
+export async function runScenarioAnalysis(
+  seasonId: number,
+  teamId: number,
+  targetSeed: number,
+  seedMode: SeedMode,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const remainingGames = await getRemainingGames(seasonId);
+  const { maxRunDiff } = await getSeasonSettings(seasonId);
+  const callFn = (simulated: SimulatedOutcome[]) => callStandings(seasonId, simulated);
+  return runMonteCarloAnalysis(remainingGames, teamId, targetSeed, seedMode, maxRunDiff, callFn, onProgress);
+}
+
+/**
+ * Tournament mode — analyzes remaining pool-play games for bracket seeds.
+ */
+export async function runTournamentScenarioAnalysis(
+  tournamentId: number,
+  teamId: number,
+  targetSeed: number,
+  seedMode: SeedMode,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const remainingGames = await getRemainingTournamentGames(tournamentId);
+  const { maxRunDiff } = await getTournamentSettings(tournamentId);
+  const callFn = (simulated: SimulatedOutcome[]) => callTournamentStandings(tournamentId, simulated);
+  return runMonteCarloAnalysis(remainingGames, teamId, targetSeed, seedMode, maxRunDiff, callFn, onProgress);
+}
