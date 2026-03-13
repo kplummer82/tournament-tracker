@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
@@ -14,14 +14,17 @@ const QUOTES = [
   "The scoreboard doesn't lie.",
   "Victory is the intersection of preparation and opportunity.",
 ];
-const QUOTE = QUOTES[Math.floor(Math.random() * QUOTES.length)];
-
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [quote, setQuote] = useState(QUOTES[0]);
+
+  useEffect(() => {
+    setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+  }, []);
 
   const registered = router.query.registered === "1";
 
@@ -32,7 +35,13 @@ export default function LoginPage() {
     try {
       const res = await authClient.signIn.email({ email, password });
       if (res.error) { setError(res.error.message ?? "Sign in failed"); return; }
-      router.push("/?fromLogin=1");
+      const callback =
+        typeof router.query.callbackUrl === "string" &&
+        router.query.callbackUrl.startsWith("/") &&
+        !router.query.callbackUrl.startsWith("//")
+          ? router.query.callbackUrl
+          : null;
+      router.push(callback ?? "/?fromLogin=1");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign in failed");
     } finally {
@@ -87,7 +96,7 @@ export default function LoginPage() {
               color: "var(--foreground)",
             }}
           >
-            {QUOTE}
+            {quote}
           </blockquote>
         </div>
 

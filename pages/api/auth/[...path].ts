@@ -66,16 +66,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     res.status(response.status);
+
+    // Forward Set-Cookie headers — forEach can skip/combine them
+    const rawSetCookies = response.headers.getSetCookie?.() ?? [];
+    const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
+    const setCookies = isLocalhost
+      ? rawSetCookies.map((c) =>
+          c
+            .replace(/^__Secure-/i, "")        // strip __Secure- prefix (requires HTTPS)
+            .replace(/;\s*Secure/i, "")         // strip Secure flag
+            .replace(/;\s*Partitioned/i, "")    // strip Partitioned (requires Secure)
+            .replace(/SameSite=None/i, "SameSite=Lax") // None requires Secure
+        )
+      : rawSetCookies;
+    if (setCookies.length > 0) {
+      res.setHeader("Set-Cookie", setCookies);
+    }
+
     const forwardHeaders = [
       "content-type", "content-length", "content-encoding", "date",
       "x-neon-ret-request-id", "set-auth-jwt", "set-auth-token"
     ];
     response.headers.forEach((value, key) => {
       const lower = key.toLowerCase();
-      if (lower === "set-cookie") {
-        const setCookies = response.headers.getSetCookie?.() ?? [value];
-        res.setHeader("Set-Cookie", setCookies);
-      } else if (forwardHeaders.includes(lower)) {
+      if (lower !== "set-cookie" && forwardHeaders.includes(lower)) {
         res.setHeader(key, value);
       }
     });
