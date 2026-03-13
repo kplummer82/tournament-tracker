@@ -250,7 +250,7 @@ export default function LeaguesPage() {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
-      <div className="mx-auto max-w-7xl w-full px-6 py-8 flex-1">
+      <div className="mx-auto max-w-7xl w-full px-4 md:px-6 py-8 flex-1">
         <div className="flex items-center justify-between mb-6">
           <h1
             style={{
@@ -288,7 +288,7 @@ export default function LeaguesPage() {
               </button>
             </div>
             {error && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{error}</p>}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <input className={INPUT} placeholder="League name *" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
               <input className={INPUT} placeholder="Abbreviation (e.g. SMYB)" value={form.abbreviation} onChange={(e) => setForm((p) => ({ ...p, abbreviation: e.target.value }))} />
               <input className={INPUT} placeholder="City" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} />
@@ -343,7 +343,7 @@ export default function LeaguesPage() {
                         /* ── Edit mode ── */
                         <div className="p-4 space-y-3">
                           {editError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editError}</p>}
-                          <div className="grid grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <input
                               className={INPUT}
                               placeholder="League name *"

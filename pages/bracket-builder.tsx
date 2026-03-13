@@ -102,7 +102,7 @@ export default function BracketBuilderPage() {
     <div className="min-h-screen">
       <Header />
 
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-4 md:px-6 py-8">
         <h1 className="text-2xl font-bold mb-6">Bracket Builder</h1>
         <p className="text-muted-foreground mb-8">
           Create bracket layouts and save them to the system library. No tournament required.

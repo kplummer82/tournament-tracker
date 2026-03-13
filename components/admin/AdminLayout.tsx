@@ -23,14 +23,14 @@ export default function AdminLayout({ children, activeTab }: AdminLayoutProps) {
   return (
     <div className="min-h-screen">
       <Header />
-      <main className="mx-auto max-w-7xl px-6 py-8">
+      <main className="mx-auto max-w-7xl px-4 md:px-6 py-8">
         <h1 className="text-2xl font-bold mb-2">Admin</h1>
         <p className="text-muted-foreground text-sm mb-6">
           Manage users, roles, and system bracket templates.
         </p>
         <div
           role="tablist"
-          className="mb-6 bg-muted/60 border border-border p-1 rounded-lg w-fit inline-flex gap-0.5"
+          className="mb-6 bg-muted/60 border border-border p-1 rounded-lg w-fit max-w-full overflow-x-auto inline-flex gap-0.5"
         >
           {TAB_CONFIG.map(({ value, label, href }) => {
             const isActive = activeTab === value;
@@ -41,7 +41,7 @@ export default function AdminLayout({ children, activeTab }: AdminLayoutProps) {
                 role="tab"
                 aria-selected={isActive}
                 className={cn(
-                  "px-4 py-2 rounded-md text-sm font-medium transition-colors",
+                  "px-4 py-2.5 md:py-2 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
                   isActive
                     ? "bg-background text-foreground shadow-sm"
                     : "text-muted-foreground hover:text-foreground"

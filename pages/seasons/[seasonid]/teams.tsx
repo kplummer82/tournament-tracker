@@ -393,7 +393,7 @@ function TeamsBody() {
                     <button
                       type="button"
                       onClick={() => handleRemove(r.id, r.name)}
-                      className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                      className="h-9 w-9 md:h-7 md:w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
                       title="Remove from season"
                     >
                       <Trash2 className="h-3.5 w-3.5" />

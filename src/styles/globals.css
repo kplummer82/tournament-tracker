@@ -260,6 +260,16 @@ textarea:focus {
 .animate-fade-up-3 { animation: fadeUp 0.3s 0.19s ease-out both; }
 .animate-fade-up-4 { animation: fadeUp 0.3s 0.26s ease-out both; }
 
+/* Safe area support for notched/rounded-corner devices */
+@supports (padding: env(safe-area-inset-top)) {
+  .safe-top    { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+  .safe-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

@@ -543,18 +543,126 @@ function ScheduleBody() {
           </p>
         </div>
       ) : (
-        <div className="border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-surface">
-                {["Date", "Time", "Home", "Away", "Score", "Status", ""].map((h) => (
-                  <th key={h} className={cn("p-3 label-section", h === "" ? "text-right" : "text-left")}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>{renderRows(filteredRows)}</tbody>
-          </table>
-        </div>
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-surface">
+                  {["Date", "Time", "Home", "Away", "Score", "Status", ""].map((h) => (
+                    <th key={h} className={cn("p-3 label-section", h === "" ? "text-right" : "text-left")}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>{renderRows(filteredRows)}</tbody>
+            </table>
+          </div>
+
+          {/* Mobile card list */}
+          <div className="md:hidden border border-border divide-y divide-border/50">
+            {filteredRows.map((g) => {
+              const hasScore = g.homescore != null && g.awayscore != null;
+              const homeWon = hasScore && g.homescore! > g.awayscore!;
+              const awayWon = hasScore && g.awayscore! > g.homescore!;
+              const isForfeit = g.gamestatusid === HOME_TEAM_FORFEIT_ID || g.gamestatusid === AWAY_TEAM_FORFEIT_ID;
+              const forfeitWinner = g.gamestatusid === HOME_TEAM_FORFEIT_ID ? "away" : g.gamestatusid === AWAY_TEAM_FORFEIT_ID ? "home" : null;
+
+              return (
+                <div key={g.id} className="px-3 py-3 space-y-1.5">
+                  {/* Row 1: Date + Time + Status */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
+                      <span>{g.gamedate ? formatMMDDYY(g.gamedate) : "—"}</span>
+                      {g.gametime && (
+                        <>
+                          <span className="text-border">·</span>
+                          <span>{formatHHMMAMPM(g.gamedate ?? "", g.gametime)}</span>
+                        </>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                      {g.game_type === "playoff" && (
+                        <span className="badge" style={{ background: "#7c3aed18", color: "#7c3aed", borderColor: "#7c3aed30" }}>
+                          {g.bracket_name ?? "Playoff"}
+                        </span>
+                      )}
+                      {g.gamestatus_label && (
+                        <span className="badge" style={{ background: "#5a5a5a18", color: "#8a8a8a", borderColor: "#5a5a5a30" }}>
+                          {g.gamestatus_label}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Row 2-3: Teams + Scores */}
+                  {isForfeit ? (
+                    <div className="flex items-center gap-1.5 text-sm">
+                      <span className={cn("font-semibold", forfeitWinner === "home" ? "text-primary" : "text-foreground/40")} style={{ fontFamily: "var(--font-body)" }}>
+                        {g.home_team ?? "Home"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/50 font-mono uppercase tracking-wider">F</span>
+                      <span className={cn("font-semibold", forfeitWinner === "away" ? "text-primary" : "text-foreground/40")} style={{ fontFamily: "var(--font-body)" }}>
+                        {g.away_team ?? "Away"}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</span>
+                        {hasScore && (
+                          <span
+                            className={cn("tabular-nums font-bold", homeWon ? "text-primary" : "text-foreground/60")}
+                            style={{ fontFamily: "var(--font-display)", fontSize: "18px" }}
+                          >
+                            {g.homescore}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</span>
+                        {hasScore && (
+                          <span
+                            className={cn("tabular-nums font-bold", awayWon ? "text-primary" : "text-foreground/60")}
+                            style={{ fontFamily: "var(--font-display)", fontSize: "18px" }}
+                          >
+                            {g.awayscore}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Row 4: Location + Actions */}
+                  <div className="flex items-center justify-between">
+                    {(g.location || g.field) ? (
+                      <span className="text-[11px] text-muted-foreground/60 truncate" style={{ fontFamily: "var(--font-body)" }}>
+                        {[g.location, g.field].filter(Boolean).join(" · ")}
+                      </span>
+                    ) : <span />}
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(g)}
+                        className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                        title="Edit game"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(g.id)}
+                        className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                        title="Delete game"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

@@ -217,7 +217,7 @@ export default function DivisionDetailPage() {
 
       {/* Top bar */}
       <div className="border-b border-border bg-card">
-        <div className="mx-auto max-w-7xl px-6 h-10 flex items-center gap-4">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 h-10 flex items-center gap-4">
           <Link
             href={`/leagues/${leagueId}`}
             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"

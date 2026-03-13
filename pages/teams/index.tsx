@@ -276,7 +276,7 @@ export default function TeamsIndexPage() {
     <div className="min-h-screen">
       <Header />
 
-      <main className="mx-auto max-w-7xl px-6 py-8 space-y-6">
+      <main className="mx-auto max-w-7xl px-4 md:px-6 py-8 space-y-6">
 
         {/* ── Page header ── */}
         <div className="flex items-end justify-between">

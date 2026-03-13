@@ -38,7 +38,7 @@ export default function SeasonShell({
 
       {/* Top bar */}
       <div className="border-b border-border bg-card">
-        <div className="mx-auto max-w-7xl px-6 h-10 flex items-center justify-between gap-4">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 h-10 flex items-center justify-between gap-4">
           <Link
             href={backHref}
             className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
@@ -72,7 +72,7 @@ export default function SeasonShell({
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl w-full px-6 flex-1 flex flex-col">
+      <div className="mx-auto max-w-7xl w-full px-4 md:px-6 flex-1 flex flex-col">
         {/* Season header */}
         <div className="py-5 border-b border-border">
           <div className="flex items-start gap-3">

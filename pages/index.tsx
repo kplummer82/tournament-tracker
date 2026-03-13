@@ -89,7 +89,7 @@ export default function HomePage() {
 
       {/* ── How it works strip ────────────────────────────── */}
       <section className="border-t border-border animate-fade-up-2">
-        <div className="mx-auto max-w-7xl px-6">
+        <div className="mx-auto max-w-7xl px-4 md:px-6">
           <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
             {[
               { num: "01", label: "Pool Play",    desc: "Schedule round-robin games, enter scores, track wins." },
@@ -123,7 +123,7 @@ export default function HomePage() {
       {/* ── Recent tournaments (logged-in) ────────────────── */}
       {user && recent.length > 0 && (
         <section className="border-t border-border animate-fade-up-3">
-          <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="mx-auto max-w-7xl px-4 md:px-6 py-8">
             <div className="flex items-center justify-between mb-4">
               <span
                 className="text-[11px] tracking-[0.1em] uppercase text-muted-foreground"
@@ -181,7 +181,7 @@ export default function HomePage() {
 
       {/* ── Footer ────────────────────────────────────────── */}
       <footer className="border-t border-border py-5 mt-auto">
-        <div className="mx-auto max-w-7xl px-6 flex items-center justify-between">
+        <div className="mx-auto max-w-7xl px-4 md:px-6 flex items-center justify-between">
           <span
             className="text-[10px] tracking-[0.1em] uppercase text-muted-foreground"
             style={{ fontFamily: "var(--font-body)" }}

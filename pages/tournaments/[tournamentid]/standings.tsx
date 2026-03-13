@@ -126,6 +126,99 @@ function StandingsTable({
   );
 }
 
+function TournamentStandingsCardList({
+  rows,
+  advancesPerGroup,
+}: {
+  rows: StandingsRow[];
+  advancesPerGroup: number | null;
+}) {
+  return (
+    <div className="border border-border divide-y divide-border/50">
+      {rows.map((r) => {
+        const isTop = r.rank_final === 1;
+        const advances = advancesPerGroup !== null && r.rank_final <= advancesPerGroup;
+        const highlighted = advances || (isTop && advancesPerGroup === null);
+        const diff = r.rundifferential;
+
+        return (
+          <div
+            key={r.teamid}
+            className={cn(
+              "flex gap-3 px-3 py-3",
+              highlighted ? "bg-primary/5" : ""
+            )}
+            style={highlighted ? { borderLeft: "3px solid var(--primary)" } : { borderLeft: "3px solid transparent" }}
+          >
+            <span
+              className={cn(
+                "tabular-nums leading-none shrink-0 w-8 text-center",
+                highlighted ? "text-primary" : "text-muted-foreground"
+              )}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "22px",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              {r.rank_final}
+            </span>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-sm text-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
+                  {r.team ?? "—"}
+                </span>
+                <span className="tabular-nums text-sm font-medium shrink-0" style={{ fontFamily: "var(--font-body)" }}>
+                  {formatWLPct(r.wltpct, r.games)}
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                <span className="tabular-nums">{r.wins}W</span>
+                <span>({r.games}G)</span>
+                {advances && (
+                  <span
+                    className="inline-block px-1 py-px text-[8px] font-bold tracking-[0.1em] uppercase border border-primary text-primary ml-1"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    ADV
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2.5 mt-0.5 text-[11px] text-muted-foreground/70" style={{ fontFamily: "var(--font-body)" }}>
+                <span className="tabular-nums">RS {r.runsscored}</span>
+                <span className="tabular-nums">RA {r.runsagainst}</span>
+                <span
+                  className="tabular-nums font-semibold"
+                  style={{
+                    color: diff > 0 ? "var(--success)" : diff < 0 ? "var(--destructive)" : "var(--muted-foreground)",
+                  }}
+                >
+                  {diff > 0 ? "+" : ""}{diff}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ResponsiveStandings({ rows, advancesPerGroup }: { rows: StandingsRow[]; advancesPerGroup: number | null }) {
+  return (
+    <>
+      <div className="hidden md:block">
+        <StandingsTable rows={rows} advancesPerGroup={advancesPerGroup} />
+      </div>
+      <div className="md:hidden">
+        <TournamentStandingsCardList rows={rows} advancesPerGroup={advancesPerGroup} />
+      </div>
+    </>
+  );
+}
+
 function StandingsBody() {
   const { tid, t } = useTournament();
   const [rows, setRows] = useState<StandingsRow[]>([]);
@@ -248,7 +341,7 @@ function StandingsBody() {
                     {gRows.length} team{gRows.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <StandingsTable rows={gRows} advancesPerGroup={advancesPerGroup} />
+                <ResponsiveStandings rows={gRows} advancesPerGroup={advancesPerGroup} />
               </div>
             );
           })}
@@ -271,7 +364,7 @@ function StandingsBody() {
                 </h3>
                 <div className="flex-1 h-px bg-border opacity-50" />
               </div>
-              <StandingsTable
+              <ResponsiveStandings
                 rows={rows.filter((r) => !r.pool_group).map((r, idx) => ({ ...r, rank_final: idx + 1 }))}
                 advancesPerGroup={null}
               />
@@ -280,7 +373,7 @@ function StandingsBody() {
         </div>
       ) : (
         // No-groups mode: existing flat table
-        <StandingsTable rows={rows} advancesPerGroup={null} />
+        <ResponsiveStandings rows={rows} advancesPerGroup={null} />
       )}
     </div>
   );

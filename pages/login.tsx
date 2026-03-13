@@ -112,9 +112,9 @@ export default function LoginPage() {
       </div>
 
       {/* ── Right form panel ── */}
-      <div className="flex-1 flex flex-col justify-center px-8 md:px-14 py-12 max-w-lg lg:max-w-none">
+      <div className="flex-1 flex flex-col justify-center px-6 md:px-14 py-6 md:py-12 max-w-lg lg:max-w-none">
         {/* Mobile brand */}
-        <div className="mb-10 lg:hidden">
+        <div className="mb-6 md:mb-10 lg:hidden">
           <Link
             href="/"
             style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--primary)" }}

@@ -838,8 +838,8 @@ export default function BracketPreview({
 
   return (
     <>
-      {/* Normal view */}
-      <div className="relative overflow-x-auto overflow-y-auto rounded-lg border border-border/50 bg-muted/10 min-h-[320px] max-h-[70vh]">
+      {/* Normal view — desktop: scrollable bracket; mobile: tap-to-expand card */}
+      <div className="hidden md:block relative overflow-x-auto overflow-y-auto rounded-lg border border-border/50 bg-muted/10 min-h-[320px] max-h-[70vh]">
         <button
           ref={fullscreenBtnRef}
           type="button"
@@ -868,6 +868,17 @@ export default function BracketPreview({
         )}
       </div>
 
+      {/* Mobile: tap-to-expand card */}
+      <button
+        type="button"
+        onClick={() => setIsFullscreen(true)}
+        className="md:hidden w-full flex flex-col items-center justify-center gap-3 py-10 rounded-lg border border-dashed border-border/60 bg-muted/10 text-muted-foreground hover:bg-muted/20 hover:border-border transition-colors"
+      >
+        <Maximize2 className="h-6 w-6" />
+        <span className="text-sm font-medium">Tap to view bracket</span>
+        <span className="text-xs">{rounds.length} round{rounds.length !== 1 ? "s" : ""} · {firstRoundCount} first-round game{firstRoundCount !== 1 ? "s" : ""}</span>
+      </button>
+
       {/* Fullscreen overlay via portal */}
       {isFullscreen && typeof document !== "undefined" && ReactDOM.createPortal(
         <div
@@ -889,7 +900,7 @@ export default function BracketPreview({
                 onClick={handleFitToScreen}
                 title="Fit to screen (0)"
                 aria-label="Fit to screen"
-                className="h-8 w-8"
+                className="h-10 w-10 md:h-8 md:w-8"
               >
                 <Maximize className="h-4 w-4" />
               </Button>
@@ -900,7 +911,7 @@ export default function BracketPreview({
                 onClick={() => setTransform(p => ({ ...p, scale: clamp(p.scale - ZOOM_STEP, MIN_SCALE, MAX_SCALE) }))}
                 title="Zoom out (−)"
                 aria-label="Zoom out"
-                className="h-8 w-8"
+                className="h-10 w-10 md:h-8 md:w-8"
               >
                 <ZoomOut className="h-4 w-4" />
               </Button>
@@ -914,7 +925,7 @@ export default function BracketPreview({
                 onClick={() => setTransform(p => ({ ...p, scale: clamp(p.scale + ZOOM_STEP, MIN_SCALE, MAX_SCALE) }))}
                 title="Zoom in (+)"
                 aria-label="Zoom in"
-                className="h-8 w-8"
+                className="h-10 w-10 md:h-8 md:w-8"
               >
                 <ZoomIn className="h-4 w-4" />
               </Button>
@@ -926,7 +937,7 @@ export default function BracketPreview({
                 onClick={handleCloseFullscreen}
                 title="Exit fullscreen (Esc)"
                 aria-label="Exit fullscreen"
-                className="h-8 w-8"
+                className="h-10 w-10 md:h-8 md:w-8"
               >
                 <X className="h-4 w-4" />
               </Button>

@@ -174,6 +174,104 @@ function StandingsTable({
   );
 }
 
+function StandingsCardList({
+  rows,
+  advancesToPlayoffs,
+}: {
+  rows: StandingsRow[];
+  advancesToPlayoffs: number | null;
+}) {
+  const gbMap = computeGB(rows);
+
+  return (
+    <div className="border border-border divide-y divide-border/50">
+      {rows.map((r) => {
+        const advances = advancesToPlayoffs !== null && r.rank_final <= advancesToPlayoffs;
+        const isTop = r.rank_final === 1;
+        const highlighted = advances || (isTop && advancesToPlayoffs === null);
+        const diff = r.rundifferential;
+        const { w, l, t } = derivedRecord(r.wins, r.games);
+        const gb = gbMap.get(r.teamid) ?? null;
+
+        return (
+          <div
+            key={r.teamid}
+            className={cn(
+              "flex gap-3 px-3 py-3",
+              highlighted ? "bg-primary/5" : ""
+            )}
+            style={highlighted ? { borderLeft: "3px solid var(--primary)" } : { borderLeft: "3px solid transparent" }}
+          >
+            {/* Rank */}
+            <span
+              className={cn(
+                "tabular-nums leading-none shrink-0 w-8 text-center",
+                highlighted ? "text-primary" : "text-muted-foreground"
+              )}
+              style={{
+                fontFamily: "var(--font-display)",
+                fontWeight: 800,
+                fontSize: "22px",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              {r.rank_final}
+            </span>
+
+            {/* Details */}
+            <div className="flex-1 min-w-0">
+              {/* Row 1: Team + PCT */}
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-sm text-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
+                  {r.team ?? "—"}
+                </span>
+                <span className="tabular-nums text-sm font-medium shrink-0" style={{ fontFamily: "var(--font-body)" }}>
+                  {formatWLPct(r.wltpct, r.games)}
+                </span>
+              </div>
+
+              {/* Row 2: Record + GB */}
+              <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                <span className="tabular-nums">{w}-{l}-{t}</span>
+                <span>({r.games}G)</span>
+                {gb !== null && gb !== 0 && (
+                  <>
+                    <span className="text-border">·</span>
+                    <span className="tabular-nums">GB: {formatGB(gb)}</span>
+                  </>
+                )}
+                {advances && (
+                  <span
+                    className="inline-block px-1 py-px text-[8px] font-bold tracking-[0.1em] uppercase border border-primary text-primary ml-1"
+                    style={{ fontFamily: "var(--font-display)" }}
+                  >
+                    ADV
+                  </span>
+                )}
+              </div>
+
+              {/* Row 3: RS / RA / Diff */}
+              <div className="flex items-center gap-2.5 mt-0.5 text-[11px] text-muted-foreground/70" style={{ fontFamily: "var(--font-body)" }}>
+                <span className="tabular-nums">RS {r.runsscored}</span>
+                <span className="tabular-nums">RA {r.runsagainst}</span>
+                <span
+                  className="tabular-nums font-semibold"
+                  style={{
+                    color:
+                      diff > 0 ? "var(--success)" : diff < 0 ? "var(--destructive)" : "var(--muted-foreground)",
+                  }}
+                >
+                  {diff > 0 ? "+" : ""}{diff}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function StandingsBody() {
   const { seasonId, season } = useSeason();
   const [rows, setRows] = useState<StandingsRow[]>([]);
@@ -254,7 +352,14 @@ function StandingsBody() {
           </p>
         </div>
       ) : (
-        <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} />
+        <>
+          <div className="hidden md:block">
+            <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} />
+          </div>
+          <div className="md:hidden">
+            <StandingsCardList rows={rows} advancesToPlayoffs={advancesToPlayoffs} />
+          </div>
+        </>
       )}
     </div>
   );
