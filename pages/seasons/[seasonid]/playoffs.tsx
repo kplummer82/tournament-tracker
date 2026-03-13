@@ -34,12 +34,15 @@ function BracketCard({
   seasonId,
   teams,
   standingsOrder,
+  seedOffset,
   onDeleted,
 }: {
   bracket: SeasonBracket;
   seasonId: number;
   teams: TeamOpt[];
   standingsOrder: number[];
+  /** Cumulative number of seeds in all prior brackets (for correct offset into standings). */
+  seedOffset: number;
   onDeleted: (id: number) => void;
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
@@ -94,7 +97,7 @@ function BracketCard({
   useEffect(() => {
     if (!structure || standingsOrder.length === 0 || loading) return;
     const numSeeds = structure.numTeams;
-    const offset = bracket.sort_order * numSeeds;
+    const offset = seedOffset;
     const next: Record<number, number> = {};
     for (let seed = 1; seed <= numSeeds; seed++) {
       const teamId = standingsOrder[offset + seed - 1];
@@ -113,7 +116,7 @@ function BracketCard({
       body: JSON.stringify({ assignments: arr }),
     }).then(() => fetchBracketGames()).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- assignments intentionally excluded to avoid loop
-  }, [structure, standingsOrder, loading, bracket.sort_order, bracket.id, seasonId, fetchBracketGames]);
+  }, [structure, standingsOrder, loading, seedOffset, bracket.id, seasonId, fetchBracketGames]);
 
   const handleSelectTemplate = useCallback(
     (template: { id: number; name: string; structure: BracketStructure }) => {
@@ -289,6 +292,7 @@ function BracketCard({
             <BracketPreview
               structure={structure}
               seedLabels={seedLabels}
+              seedOffset={seedOffset}
               editable={false}
               onGameClick={bracketGames.length > 0 ? handleGameClick : undefined}
               gameDetails={bracketGames.length > 0 ? gameDetailsMap : undefined}
@@ -544,18 +548,29 @@ function PlayoffsBody() {
         </div>
       ) : (
         <div className="space-y-6">
-          {brackets.map((b) =>
-            seasonId ? (
-              <BracketCard
-                key={b.id}
-                bracket={b}
-                seasonId={seasonId}
-                teams={teams}
-                standingsOrder={standingsOrder}
-                onDeleted={handleBracketDeleted}
-              />
-            ) : null
-          )}
+          {(() => {
+            // Compute cumulative seed offsets so each bracket picks the correct slice of standings
+            const sorted = [...brackets].sort((a, b) => a.sort_order - b.sort_order);
+            const offsets = new Map<number, number>();
+            let cumulative = 0;
+            for (const b of sorted) {
+              offsets.set(b.id, cumulative);
+              cumulative += b.structure?.numTeams ?? 0;
+            }
+            return brackets.map((b) =>
+              seasonId ? (
+                <BracketCard
+                  key={b.id}
+                  bracket={b}
+                  seasonId={seasonId}
+                  teams={teams}
+                  standingsOrder={standingsOrder}
+                  seedOffset={offsets.get(b.id) ?? 0}
+                  onDeleted={handleBracketDeleted}
+                />
+              ) : null
+            );
+          })()}
         </div>
       )}
     </div>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Header from "@/components/Header";
-import { ArrowLeft, ArrowRight, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Plus, Trash2, X } from "lucide-react";
 
 type League = {
   id: number;
@@ -40,6 +40,16 @@ export default function LeagueDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Edit state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Delete state
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     if (!router.isReady || !leagueId) return;
     fetch(`/api/leagues/${leagueId}`)
@@ -72,6 +82,64 @@ export default function LeagueDetailPage() {
       setError(e.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const startEdit = (div: Division) => {
+    setEditingId(div.id);
+    setEditForm({ name: div.name, age_range: div.age_range ?? "", sort_order: String(div.sort_order) });
+    setEditError(null);
+    setConfirmDelete(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditError(null);
+  };
+
+  const handleEditSave = async (id: number) => {
+    if (!editForm.name.trim()) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/divisions/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          age_range: editForm.age_range.trim() || null,
+          sort_order: Number(editForm.sort_order) || 0,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save");
+      setDivisions((prev) =>
+        prev
+          .map((d) => (d.id === id ? { ...d, name: json.name, age_range: json.age_range, sort_order: json.sort_order } : d))
+          .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
+      );
+      setEditingId(null);
+    } catch (e: any) {
+      setEditError(e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteDivision = async (id: number) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/divisions/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to delete");
+      }
+      setDivisions((prev) => prev.filter((d) => d.id !== id));
+      setConfirmDelete(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -163,9 +231,18 @@ export default function LeagueDetailPage() {
                 </div>
                 {error && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{error}</p>}
                 <div className="grid grid-cols-3 gap-3">
-                  <input className={INPUT} placeholder="Division name * (e.g. Mustang)" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
-                  <input className={INPUT} placeholder="Age range (e.g. 9-10)" value={form.age_range} onChange={(e) => setForm((p) => ({ ...p, age_range: e.target.value }))} />
-                  <input className={INPUT} type="number" placeholder="Sort order" value={form.sort_order} onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                    <input className={INPUT} placeholder="e.g. Mustang" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
+                    <input className={INPUT} placeholder="e.g. 9-10" value={form.age_range} onChange={(e) => setForm((p) => ({ ...p, age_range: e.target.value }))} />
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
+                    <input className={INPUT} type="number" placeholder="0" value={form.sort_order} onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                  </div>
                 </div>
                 <div className="flex justify-end">
                   <button type="submit" disabled={saving} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
@@ -182,21 +259,126 @@ export default function LeagueDetailPage() {
             ) : (
               <div className="space-y-2">
                 {divisions.map((div) => (
-                  <Link
-                    key={div.id}
-                    href={`/leagues/${leagueId}/divisions/${div.id}`}
-                    className="flex items-center justify-between px-4 py-3 border border-border hover:border-primary/40 bg-card hover:bg-elevated transition-colors duration-100 group"
-                  >
-                    <div>
-                      <p className="font-semibold text-sm">{div.name}</p>
-                      <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                        {div.age_range ? `Ages ${div.age_range}` : ""}
-                        {div.age_range && div.season_count > 0 ? " · " : ""}
-                        {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
-                      </p>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                  </Link>
+                  <div key={div.id} className="border border-border bg-card">
+                    {editingId === div.id ? (
+                      /* ── Edit mode ── */
+                      <div className="p-4 space-y-3">
+                        {editError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editError}</p>}
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                            <input
+                              className={INPUT}
+                              placeholder="Division name"
+                              value={editForm.name}
+                              onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                              autoFocus
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
+                            <input
+                              className={INPUT}
+                              placeholder="e.g. 9-10"
+                              value={editForm.age_range}
+                              onChange={(e) => setEditForm((p) => ({ ...p, age_range: e.target.value }))}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
+                            <input
+                              className={INPUT}
+                              type="number"
+                              placeholder="0"
+                              value={editForm.sort_order}
+                              onChange={(e) => setEditForm((p) => ({ ...p, sort_order: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={cancelEdit}
+                            className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            <X className="h-3 w-3" />
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleEditSave(div.id)}
+                            disabled={editSaving || !editForm.name.trim()}
+                            className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            {editSaving ? "Saving…" : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── Display mode ── */
+                      <div className="flex items-center hover:border-primary/40 hover:bg-elevated transition-colors duration-100 group">
+                        <Link
+                          href={`/leagues/${leagueId}/divisions/${div.id}`}
+                          className="flex flex-1 items-center justify-between px-4 py-3 min-w-0"
+                        >
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm">{div.name}</p>
+                            <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                              {div.age_range ? `Ages ${div.age_range}` : ""}
+                              {div.age_range && div.season_count > 0 ? " · " : ""}
+                              {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
+                            </p>
+                          </div>
+                          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0 ml-3" />
+                        </Link>
+                        <div className="flex items-center gap-1 pr-3 shrink-0">
+                          {confirmDelete === div.id ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
+                              <button
+                                type="button"
+                                onClick={() => deleteDivision(div.id)}
+                                disabled={deleting}
+                                className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`}
+                                style={{ fontFamily: "var(--font-body)" }}
+                              >
+                                {deleting ? "…" : "Yes"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDelete(null)}
+                                className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                                style={{ fontFamily: "var(--font-body)" }}
+                              >
+                                No
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(div)}
+                                className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
+                                title="Edit division"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDelete(div.id)}
+                                className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100"
+                                title="Delete division"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             )}

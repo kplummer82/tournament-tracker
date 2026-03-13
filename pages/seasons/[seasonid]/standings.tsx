@@ -34,6 +34,25 @@ const formatWLPct = (wltpct: unknown, games: number): string => {
   return pct.startsWith("0.") ? pct.slice(1) : pct;
 };
 
+function computeGB(rows: StandingsRow[]) {
+  const leader = rows.find((r) => r.rank_final === 1);
+  if (!leader) return new Map<number, number | null>();
+  const { w: lw, l: ll } = derivedRecord(leader.wins, leader.games);
+  return new Map(
+    rows.map((r) => {
+      if (r.rank_final === 1) return [r.teamid, null];
+      const { w, l } = derivedRecord(r.wins, r.games);
+      return [r.teamid, ((lw - w) + (l - ll)) / 2];
+    })
+  );
+}
+
+const formatGB = (gb: number | null): string => {
+  if (gb === null) return "—";
+  if (gb === 0) return "—";
+  return gb % 1 === 0 ? String(gb) : gb.toFixed(1);
+};
+
 function StandingsTable({
   rows,
   advancesToPlayoffs,
@@ -41,6 +60,8 @@ function StandingsTable({
   rows: StandingsRow[];
   advancesToPlayoffs: number | null;
 }) {
+  const gbMap = computeGB(rows);
+
   return (
     <div className="border border-border overflow-hidden">
       <table className="w-full text-sm">
@@ -53,6 +74,7 @@ function StandingsTable({
             <th className="p-3 text-right label-section">T</th>
             <th className="p-3 text-right label-section">G</th>
             <th className="p-3 text-right label-section">Pct</th>
+            <th className="p-3 text-right label-section">GB</th>
             <th className="p-3 text-right label-section">RS</th>
             <th className="p-3 text-right label-section">RA</th>
             <th className="p-3 pr-4 text-right label-section">Diff</th>
@@ -111,6 +133,9 @@ function StandingsTable({
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.games}</td>
                 <td className="p-3 text-right tabular-nums font-medium" style={{ fontFamily: "var(--font-body)" }}>
                   {formatWLPct(r.wltpct, r.games)}
+                </td>
+                <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                  {formatGB(gbMap.get(r.teamid) ?? null)}
                 </td>
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.runsscored}</td>
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.runsagainst}</td>

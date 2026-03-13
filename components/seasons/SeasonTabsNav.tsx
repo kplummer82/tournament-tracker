@@ -3,7 +3,7 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 
-export type SeasonTabKey = "overview" | "teams" | "schedule" | "standings" | "playoffs" | "tiebreakers";
+export type SeasonTabKey = "overview" | "teams" | "schedule" | "standings" | "playoffs" | "tiebreakers" | "scenarios";
 
 const items: { key: SeasonTabKey; label: string; path: (id: number) => string }[] = [
   { key: "overview",    label: "Overview",    path: (id) => `/seasons/${id}/overview` },
@@ -12,6 +12,7 @@ const items: { key: SeasonTabKey; label: string; path: (id: number) => string }[
   { key: "standings",   label: "Standings",   path: (id) => `/seasons/${id}/standings` },
   { key: "playoffs",    label: "Playoffs",    path: (id) => `/seasons/${id}/playoffs` },
   { key: "tiebreakers", label: "Tiebreakers", path: (id) => `/seasons/${id}/tiebreakers` },
+  { key: "scenarios",   label: "Scenarios",   path: (id) => `/seasons/${id}/scenarios` },
 ];
 
 const NAV_STYLE: React.CSSProperties = {

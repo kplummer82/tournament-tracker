@@ -71,7 +71,7 @@ export default function SeedAssignment({
 
 export function seedLabelsFromAssignments(
   assignments: Record<number, number>,
-  teams: TeamOpt[]
+  teams: TeamOpt[],
 ): Record<number, string> {
   const teamIdToName = Object.fromEntries(teams.map((t) => [t.id, t.name]));
   const out: Record<number, string> = {};

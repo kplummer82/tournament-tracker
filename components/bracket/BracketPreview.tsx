@@ -66,6 +66,8 @@ type BracketPreviewProps = {
   structure: BracketStructure | null;
   /** Optional: seed index -> display name (e.g. team name). If not provided, show seed numbers only. */
   seedLabels?: Record<number, string>;
+  /** Offset to add to bracket-relative seed numbers for display (e.g. 8 so seed 1 shows as #9). */
+  seedOffset?: number;
   /** When true and onStructureChange is set, first-round seeds are editable (dropdowns) and first-round games are draggable. */
   editable?: boolean;
   onStructureChange?: (structure: BracketStructure) => void;
@@ -128,6 +130,7 @@ function GameSlot({
   roundIndex,
   gameIndex,
   seedLabels,
+  seedOffset,
   topPx,
   editable,
   onSeedChange,
@@ -146,6 +149,7 @@ function GameSlot({
   roundIndex: number;
   gameIndex: number;
   seedLabels?: Record<number, string>;
+  seedOffset?: number;
   topPx: number;
   editable?: boolean;
   onSeedChange?: (gameIndex: number, slotIndex: number, newSeed: number) => void;
@@ -164,19 +168,20 @@ function GameSlot({
 }) {
   const isFirstRound = roundIndex === 0;
   const isByeGame = isFirstRound && (game.seeds?.length ?? 0) === 1;
+  const off = seedOffset ?? 0;
   const slot1 =
     isFirstRound && game.seeds?.[0]
       ? seedLabels?.[game.seeds[0]]
-        ? `${seedLabels[game.seeds[0]]} (#${game.seeds[0]})`
-        : `Seed ${game.seeds[0]}`
+        ? `${seedLabels[game.seeds[0]]} (#${game.seeds[0] + off})`
+        : `Seed ${game.seeds[0] + off}`
       : game.feedsFrom?.[0]
         ? `Winner ${game.feedsFrom[0]}`
         : "—";
   const slot2 =
     isFirstRound && game.seeds?.[1]
       ? seedLabels?.[game.seeds[1]]
-        ? `${seedLabels[game.seeds[1]]} (#${game.seeds[1]})`
-        : `Seed ${game.seeds[1]}`
+        ? `${seedLabels[game.seeds[1]]} (#${game.seeds[1] + off})`
+        : `Seed ${game.seeds[1] + off}`
       : game.feedsFrom?.[1]
         ? `Winner ${game.feedsFrom[1]}`
         : "—";
@@ -439,6 +444,7 @@ function DraggableFirstRoundSlot({
 export default function BracketPreview({
   structure,
   seedLabels,
+  seedOffset,
   editable,
   onStructureChange,
   onGameClick,
@@ -726,6 +732,7 @@ export default function BracketPreview({
                 roundIndex={roundIndex}
                 gameIndex={gameIndex}
                 seedLabels={seedLabels}
+                seedOffset={seedOffset}
                 topPx={topPx}
                 editable={editable}
                 onSeedChange={handleSeedChange}
@@ -746,6 +753,7 @@ export default function BracketPreview({
             roundIndex={roundIndex}
             gameIndex={gameIndex}
             seedLabels={seedLabels}
+            seedOffset={seedOffset}
             topPx={topPx}
             editable={editable}
             onSeedChange={roundIndex === 0 ? handleSeedChange : undefined}

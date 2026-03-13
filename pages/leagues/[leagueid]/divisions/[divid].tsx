@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Header from "@/components/Header";
-import { ArrowLeft, ArrowRight, Plus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pencil, Plus, Trash2, X } from "lucide-react";
 
 type Division = {
   id: number;
@@ -46,6 +46,24 @@ export default function DivisionDetailPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Division edit state
+  const [editingDiv, setEditingDiv] = useState(false);
+  const [divForm, setDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [divSaving, setDivSaving] = useState(false);
+  const [divError, setDivError] = useState<string | null>(null);
+  const [confirmDeleteDiv, setConfirmDeleteDiv] = useState(false);
+  const [deletingDiv, setDeletingDiv] = useState(false);
+
+  // Season edit state
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", year: "", season_type: "spring" });
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Season delete state
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   useEffect(() => {
     if (!router.isReady || !leagueId || !divId) return;
     fetch(`/api/leagues/${leagueId}/divisions/${divId}`)
@@ -88,6 +106,111 @@ export default function DivisionDetailPage() {
     }
   };
 
+  // Division edit handlers
+  const startEditDiv = () => {
+    if (!division) return;
+    setEditingDiv(true);
+    setDivForm({ name: division.name, age_range: division.age_range ?? "", sort_order: String(division.sort_order) });
+    setDivError(null);
+  };
+
+  const handleDivSave = async () => {
+    if (!divForm.name.trim()) return;
+    setDivSaving(true);
+    setDivError(null);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/divisions/${divId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: divForm.name.trim(),
+          age_range: divForm.age_range.trim() || null,
+          sort_order: Number(divForm.sort_order) || 0,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save");
+      setDivision((prev) => prev ? { ...prev, name: json.name, age_range: json.age_range, sort_order: json.sort_order } : prev);
+      setEditingDiv(false);
+    } catch (e: any) {
+      setDivError(e.message);
+    } finally {
+      setDivSaving(false);
+    }
+  };
+
+  const handleDeleteDiv = async () => {
+    setDeletingDiv(true);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/divisions/${divId}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to delete");
+      }
+      router.push(`/leagues/${leagueId}`);
+    } catch (e: any) {
+      setDivError(e.message);
+      setDeletingDiv(false);
+    }
+  };
+
+  // Season edit handlers
+  const startEditSeason = (s: Season) => {
+    setEditingId(s.id);
+    setEditForm({ name: s.name, year: String(s.year), season_type: s.season_type });
+    setEditError(null);
+    setConfirmDelete(null);
+  };
+
+  const cancelEditSeason = () => {
+    setEditingId(null);
+    setEditError(null);
+  };
+
+  const handleEditSave = async (id: number) => {
+    if (!editForm.name.trim()) return;
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/seasons/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editForm.name.trim(),
+          year: Number(editForm.year),
+          season_type: editForm.season_type,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save");
+      setSeasons((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, name: json.name, year: json.year, season_type: json.season_type } : s))
+      );
+      setEditingId(null);
+    } catch (e: any) {
+      setEditError(e.message);
+    } finally {
+      setEditSaving(false);
+    }
+  };
+
+  const deleteSeason = async (id: number) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/seasons/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to delete");
+      }
+      setSeasons((prev) => prev.filter((s) => s.id !== id));
+      setConfirmDelete(null);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -117,21 +240,125 @@ export default function DivisionDetailPage() {
           <>
             {/* Division header */}
             <div className="mb-8">
-              <h1
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontWeight: 800,
-                  fontSize: "28px",
-                  letterSpacing: "-0.02em",
-                  textTransform: "uppercase",
-                }}
-              >
-                {division.name}
-              </h1>
-              {division.age_range && (
-                <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: "var(--font-body)" }}>
-                  Ages {division.age_range}
-                </p>
+              {editingDiv ? (
+                <div className="p-4 border border-border bg-card space-y-3 max-w-xl">
+                  {divError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{divError}</p>}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                      <input
+                        className={INPUT}
+                        placeholder="Division name"
+                        value={divForm.name}
+                        onChange={(e) => setDivForm((p) => ({ ...p, name: e.target.value }))}
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
+                      <input
+                        className={INPUT}
+                        placeholder="e.g. 9-10"
+                        value={divForm.age_range}
+                        onChange={(e) => setDivForm((p) => ({ ...p, age_range: e.target.value }))}
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
+                      <input
+                        className={INPUT}
+                        type="number"
+                        placeholder="0"
+                        value={divForm.sort_order}
+                        onChange={(e) => setDivForm((p) => ({ ...p, sort_order: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingDiv(false)}
+                      className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      <X className="h-3 w-3" />
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDivSave}
+                      disabled={divSaving || !divForm.name.trim()}
+                      className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {divSaving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h1
+                      style={{
+                        fontFamily: "var(--font-display)",
+                        fontWeight: 800,
+                        fontSize: "28px",
+                        letterSpacing: "-0.02em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {division.name}
+                    </h1>
+                    {division.age_range && (
+                      <p className="text-sm text-muted-foreground mt-1" style={{ fontFamily: "var(--font-body)" }}>
+                        Ages {division.age_range}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {confirmDeleteDiv ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete division?</span>
+                        <button
+                          type="button"
+                          onClick={handleDeleteDiv}
+                          disabled={deletingDiv}
+                          className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`}
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          {deletingDiv ? "…" : "Yes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteDiv(false)}
+                          className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={startEditDiv}
+                          className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
+                          title="Edit division"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteDiv(true)}
+                          className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100"
+                          title="Delete division"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
 
@@ -204,27 +431,135 @@ export default function DivisionDetailPage() {
                 {seasons.map((s) => {
                   const sc = STATUS_COLORS[s.status] ?? STATUS_COLORS.draft;
                   return (
-                    <Link
-                      key={s.id}
-                      href={`/seasons/${s.id}/overview`}
-                      className="flex items-center justify-between px-4 py-3 border border-border hover:border-primary/40 bg-card hover:bg-elevated transition-colors duration-100 group"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className="badge text-[10px]"
-                          style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
-                        >
-                          {s.status}
-                        </span>
-                        <div>
-                          <p className="font-semibold text-sm">{s.name}</p>
-                          <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                            {s.team_count} team{s.team_count !== 1 ? "s" : ""}
-                          </p>
+                    <div key={s.id} className="border border-border bg-card">
+                      {editingId === s.id ? (
+                        /* ── Edit mode ── */
+                        <div className="p-4 space-y-3">
+                          {editError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editError}</p>}
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                              <input
+                                className={INPUT}
+                                placeholder="Season name"
+                                value={editForm.name}
+                                onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
+                                autoFocus
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Year</label>
+                              <input
+                                className={INPUT}
+                                type="number"
+                                placeholder="Year"
+                                value={editForm.year}
+                                onChange={(e) => setEditForm((p) => ({ ...p, year: e.target.value }))}
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Season Type</label>
+                              <select
+                                className={INPUT}
+                                value={editForm.season_type}
+                                onChange={(e) => setEditForm((p) => ({ ...p, season_type: e.target.value }))}
+                              >
+                                {SEASON_TYPES.map((t) => (
+                                  <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditSeason}
+                              className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                              style={{ fontFamily: "var(--font-body)" }}
+                            >
+                              <X className="h-3 w-3" />
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleEditSave(s.id)}
+                              disabled={editSaving || !editForm.name.trim()}
+                              className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
+                              style={{ fontFamily: "var(--font-body)" }}
+                            >
+                              {editSaving ? "Saving…" : "Save"}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
-                    </Link>
+                      ) : (
+                        /* ── Display mode ── */
+                        <div className="flex items-center hover:border-primary/40 hover:bg-elevated transition-colors duration-100 group">
+                          <Link
+                            href={`/seasons/${s.id}/overview`}
+                            className="flex flex-1 items-center justify-between px-4 py-3 min-w-0"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span
+                                className="badge text-[10px]"
+                                style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
+                              >
+                                {s.status}
+                              </span>
+                              <div>
+                                <p className="font-semibold text-sm">{s.name}</p>
+                                <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                                  {s.team_count} team{s.team_count !== 1 ? "s" : ""}
+                                </p>
+                              </div>
+                            </div>
+                            <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0 ml-3" />
+                          </Link>
+                          <div className="flex items-center gap-1 pr-3 shrink-0">
+                            {confirmDelete === s.id ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteSeason(s.id)}
+                                  disabled={deleting}
+                                  className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`}
+                                  style={{ fontFamily: "var(--font-body)" }}
+                                >
+                                  {deleting ? "…" : "Yes"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDelete(null)}
+                                  className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                                  style={{ fontFamily: "var(--font-body)" }}
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => startEditSeason(s)}
+                                  className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
+                                  title="Edit season"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmDelete(s.id)}
+                                  className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100"
+                                  title="Delete season"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>

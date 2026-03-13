@@ -12,6 +12,7 @@ const items: { key: TabKey; label: string; path: (id: number) => string }[] = [
   { key: "standings",   label: "Standings",   path: (id) => `/tournaments/${id}/standings` },
   { key: "bracket",     label: "Bracket",     path: (id) => `/tournaments/${id}/bracket` },
   { key: "tiebreakers", label: "Tiebreakers", path: (id) => `/tournaments/${id}/tiebreakers` },
+  { key: "scenarios",   label: "Scenarios",   path: (id) => `/tournaments/${id}/scenarios` },
 ];
 
 const NAV_STYLE: React.CSSProperties = {

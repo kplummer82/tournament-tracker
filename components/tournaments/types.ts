@@ -5,7 +5,8 @@ export type TabKey =
   | "pool"
   | "standings"
   | "bracket"
-  | "tiebreakers";
+  | "tiebreakers"
+  | "scenarios";
 
 export type Tournament = {
   tournamentid: number;

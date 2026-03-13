@@ -39,7 +39,10 @@ BEGIN
     AND tg.poolorbracket = 'Pool'
     AND tg.homescore IS NOT NULL
     AND tg.awayscore IS NOT NULL
-    AND (p_include_in_progress OR COALESCE(tg.gamestatusid, 4) IN (4, 6, 7));
+    AND COALESCE(tg.gamestatusid, 4) IN (
+      4, 6, 7,
+      CASE WHEN p_include_in_progress THEN 3 ELSE NULL END
+    );
 
   /* ----------------------------------------------------------
      Optional: modeled outcomes (JSON array of objects)
