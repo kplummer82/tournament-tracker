@@ -1,8 +1,6 @@
 // pages/api/tournaments/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Pool } from "pg";
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool } from "@/lib/db";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") return getTournaments(req, res);
@@ -53,7 +51,7 @@ async function getTournaments(req: NextApiRequest, res: NextApiResponse) {
       to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS "createdAt",
       (SELECT COUNT(*)::int FROM public.tournamentteams tt WHERE tt.tournamentid = id) AS team_count,
       (SELECT COUNT(*)::int FROM public.tournamentgames tg WHERE tg.tournamentid = id AND tg.poolorbracket = 'Pool') AS total_games,
-      (SELECT COUNT(*)::int FROM public.tournamentgames tg WHERE tg.tournamentid = id AND tg.poolorbracket = 'Pool' AND tg.gamestatus = 4) AS final_games
+      (SELECT COUNT(*)::int FROM public.tournamentgames tg WHERE tg.tournamentid = id AND tg.poolorbracket = 'Pool' AND tg.gamestatusid = 4) AS final_games
     FROM public.tournaments_api
     ${whereSQL}
     ORDER BY created_at DESC NULLS LAST, id DESC

@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Pool } from "pg";
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool } from "@/lib/db";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tournamentid = Number(req.query.tournamentid);
@@ -73,24 +71,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const dateStr = String(gamedate).slice(0, 10);
 
       const client = await pool.connect();
-      const baseParams = [
-        dateStr, time, Number(home), Number(away),
-        homescore === null ? null : Number(homescore),
-        awayscore === null ? null : Number(awayscore),
-        Number(id),
-        tournamentid,
-      ];
       try {
         const r = await client.query(
           `
           UPDATE tournamentgames
-             SET gamedate   = $1::date,
-                 gametime   = $2::time,
-                 home       = $3,
-                 away       = $4,
-                 homescore  = $5,
-                 awayscore  = $6,
-                 gamestatus = $7
+             SET gamedate     = $1::date,
+                 gametime     = $2::time,
+                 home         = $3,
+                 away         = $4,
+                 homescore    = $5,
+                 awayscore    = $6,
+                 gamestatusid = $7
            WHERE id = $8 AND tournamentid = $9 AND poolorbracket = 'Pool'
           `,
           [
@@ -105,36 +96,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (!r.rowCount) return res.status(404).json({ error: "Game not found" });
         return res.status(200).json({ ok: true });
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "";
-        if ((msg.includes("gamestatusid") || msg.includes("gamestatus")) && msg.includes("does not exist")) {
-          try {
-            const r2 = await client.query(
-              `
-              UPDATE tournamentgames
-                 SET gamedate  = $1::date,
-                     gametime  = $2::time,
-                     home      = $3,
-                     away      = $4,
-                     homescore = $5,
-                     awayscore = $6
-               WHERE id = $7 AND tournamentid = $8 AND poolorbracket = 'Pool'
-              `,
-              baseParams
-            );
-            if (r2.rowCount) {
-              return res.status(200).json({
-                ok: true,
-                statusNotSaved: true,
-                message:
-                  "Game updated. Status was not saved because the database is missing the gamestatusid column. Run in Neon SQL editor: ALTER TABLE public.tournamentgames ADD COLUMN IF NOT EXISTS gamestatusid integer;",
-              });
-            }
-          } catch (e2) {
-            console.error("PUT poolgames fallback error:", e2);
-          }
-        }
         console.error("PUT poolgames error:", e);
-        return res.status(500).json({ error: msg || "Failed to update game" });
+        return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to update game" });
       } finally {
         client.release();
       }

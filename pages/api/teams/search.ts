@@ -1,8 +1,6 @@
 // pages/api/teams/search.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Pool } from "pg";
-
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+import { pool } from "@/lib/db";
 const isDev = process.env.NODE_ENV !== "production";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
