@@ -107,8 +107,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.setHeader("Set-Cookie", setCookies);
     }
 
+    // Do NOT forward content-length or content-encoding: fetch() already
+    // decompresses the body, so forwarding these causes the browser to
+    // misinterpret the (already decoded) payload.
     const forwardHeaders = [
-      "content-type", "content-length", "content-encoding", "date",
+      "content-type", "date",
       "x-neon-ret-request-id", "set-auth-jwt", "set-auth-token"
     ];
     response.headers.forEach((value, key) => {
