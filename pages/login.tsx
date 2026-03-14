@@ -32,21 +32,37 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    // Attempt sign-in. The auth client may throw or report an error even
+    // when the server-side sign-in succeeds (cookie gets set), so we
+    // verify the actual session state afterward.
+    let clientError: string | null = null;
     try {
       const res = await authClient.signIn.email({ email, password });
-      if (res.error) { setError(res.error.message ?? "Sign in failed"); return; }
-      const callback =
-        typeof router.query.callbackUrl === "string" &&
-        router.query.callbackUrl.startsWith("/") &&
-        !router.query.callbackUrl.startsWith("//")
-          ? router.query.callbackUrl
-          : null;
-      router.push(callback ?? "/?fromLogin=1");
+      if (res.error) clientError = res.error.message ?? "Sign in failed";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed");
-    } finally {
-      setLoading(false);
+      clientError = err instanceof Error ? err.message : "Sign in failed";
     }
+
+    // Check real session state — the cookie may have been set even if
+    // the client reported an error (e.g. response parsing failure).
+    try {
+      const session = await authClient.getSession();
+      if (session?.data?.user) {
+        const callback =
+          typeof router.query.callbackUrl === "string" &&
+          router.query.callbackUrl.startsWith("/") &&
+          !router.query.callbackUrl.startsWith("//")
+            ? router.query.callbackUrl
+            : null;
+        window.location.href = callback ?? "/";
+        return;
+      }
+    } catch { /* fall through to show error */ }
+
+    // Genuinely failed — no session exists
+    setError(clientError ?? "Invalid email or password");
+    setLoading(false);
   };
 
   return (

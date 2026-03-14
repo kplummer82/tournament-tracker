@@ -20,15 +20,32 @@ export default function SignUpPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    let clientError: string | null = null;
     try {
       const res = await authClient.signUp.email({ name, email, password });
-      if (res.error) { setError(res.error.message ?? "Sign up failed"); return; }
-      router.push("/login?registered=1");
+      if (res.error) clientError = res.error.message ?? "Sign up failed";
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign up failed");
-    } finally {
-      setLoading(false);
+      clientError = err instanceof Error ? err.message : "Sign up failed";
     }
+
+    // Verify session — sign-up may auto-login even if client reports error
+    try {
+      const session = await authClient.getSession();
+      if (session?.data?.user) {
+        window.location.href = "/";
+        return;
+      }
+    } catch { /* fall through */ }
+
+    if (!clientError) {
+      // Sign-up succeeded but no auto-login — redirect to login page
+      window.location.href = "/login?registered=1";
+      return;
+    }
+
+    setError(clientError);
+    setLoading(false);
   };
 
   return (
