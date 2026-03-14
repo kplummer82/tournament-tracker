@@ -640,6 +640,13 @@ function ScheduleBody() {
                       </span>
                     ) : <span />}
                     <div className="flex items-center gap-1">
+                      <Link
+                        href={`/games/season/${g.id}`}
+                        className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                        title="Manage game"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                      </Link>
                       <button
                         type="button"
                         onClick={() => openEdit(g)}
@@ -658,6 +665,19 @@ function ScheduleBody() {
                       </button>
                     </div>
                   </div>
+                  {editId === g.id && (
+                    <GameFormPanel
+                      form={editForm}
+                      setForm={setEditForm}
+                      teams={teams}
+                      statuses={statuses}
+                      saving={editing}
+                      error={editErr}
+                      onSave={handleEdit}
+                      onCancel={() => { setEditId(null); setEditErr(null); }}
+                      isEdit
+                    />
+                  )}
                 </div>
               );
             })}
