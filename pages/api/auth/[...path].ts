@@ -86,16 +86,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const rawSetCookies = response.headers.getSetCookie?.() ?? [];
     const realOrigin = `${(req.headers["x-forwarded-proto"] ?? "http")}://${req.headers.host ?? "localhost:3000"}`;
     const isLocalhost = realOrigin.includes("localhost") || realOrigin.includes("127.0.0.1") || realOrigin.includes("192.168.");
-    const setCookies = isLocalhost
-      ? rawSetCookies.map((c) =>
-          c
-            .replace(/^__Secure-/i, "")        // strip __Secure- prefix (requires HTTPS)
-            .replace(/;\s*Secure/i, "")         // strip Secure flag
-            .replace(/;\s*Partitioned/i, "")    // strip Partitioned (requires Secure)
-            .replace(/;\s*Domain=[^;]*/i, "")   // strip Domain so browser defaults to current host
-            .replace(/SameSite=None/i, "SameSite=Lax") // None requires Secure
-        )
-      : rawSetCookies;
+    const setCookies = rawSetCookies.map((c) => {
+      // Always strip Domain — we're proxying, so cookies must be scoped to our own host
+      let cookie = c.replace(/;\s*Domain=[^;]*/i, "");
+      if (isLocalhost) {
+        // Dev over HTTP: strip HTTPS-only attributes
+        cookie = cookie
+          .replace(/^__Secure-/i, "")        // strip __Secure- prefix (requires HTTPS)
+          .replace(/;\s*Secure/i, "")         // strip Secure flag
+          .replace(/;\s*Partitioned/i, "")    // strip Partitioned (requires Secure)
+          .replace(/SameSite=None/i, "SameSite=Lax"); // None requires Secure
+      }
+      return cookie;
+    });
     if (process.env.NODE_ENV !== "production") {
       console.log(`[auth proxy] ${path} — raw cookies:`, rawSetCookies);
       console.log(`[auth proxy] ${path} — rewritten cookies:`, setCookies);
