@@ -38,7 +38,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ORDER BY ld.sort_order ASC, ld.name ASC
       `;
 
-      return res.status(200).json({ ...rows[0], divisions });
+      const season_groups = await sql`
+        SELECT
+          s.year,
+          s.season_type,
+          COUNT(*)::int AS division_count,
+          array_agg(DISTINCT s.status) AS statuses
+        FROM seasons s
+        WHERE s.league_id = ${id}
+        GROUP BY s.year, s.season_type
+        ORDER BY s.year DESC,
+          CASE s.season_type
+            WHEN 'spring' THEN 1 WHEN 'summer' THEN 2
+            WHEN 'fall' THEN 3 WHEN 'winter' THEN 4
+          END
+      `;
+
+      return res.status(200).json({ ...rows[0], divisions, season_groups });
     }
 
     if (req.method === "PATCH") {

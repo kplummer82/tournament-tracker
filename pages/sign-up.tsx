@@ -43,7 +43,7 @@ export default function SignUpPage() {
             href="/"
             style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--primary)" }}
           >
-            Tournament Tracker
+            Stacked Bench
           </Link>
         </div>
 
@@ -80,7 +80,7 @@ export default function SignUpPage() {
         {/* Mobile brand */}
         <div className="mb-10 lg:hidden">
           <Link href="/" style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--primary)" }}>
-            Tournament Tracker
+            Stacked Bench
           </Link>
         </div>
 

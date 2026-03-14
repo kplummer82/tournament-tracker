@@ -31,6 +31,10 @@ type ItunesTrack = {
   artworkUrl60?: string;
 };
 
+function appleMusicUrl(itunesId: number): string {
+  return `https://music.apple.com/us/song/${itunesId}`;
+}
+
 async function searchItunes(q: string): Promise<ItunesTrack[]> {
   if (!q.trim()) return [];
   const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=8&media=music`;
@@ -166,6 +170,53 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─── WalkupSongLink (read-only display chip) ────────────────── */
+function WalkupSongLink({ song, itunesId }: { song: string; itunesId: number | null }) {
+  const parts = song.split(" — ");
+  const trackName = parts[0] || song;
+  const artistName = parts.length > 1 ? parts.slice(1).join(" — ") : null;
+
+  const chip = (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 mt-1 px-2 py-0.5 rounded-full",
+        "bg-muted/60 text-xs max-w-full",
+        itunesId
+          ? "hover:bg-primary/10 hover:text-primary cursor-pointer transition-colors duration-100 group"
+          : ""
+      )}
+    >
+      <Music
+        className={cn(
+          "h-3 w-3 shrink-0",
+          itunesId ? "text-primary/70 group-hover:text-primary" : "text-muted-foreground"
+        )}
+      />
+      <span className="truncate" style={{ fontFamily: "var(--font-body)" }}>
+        <span className="font-medium">{trackName}</span>
+        {artistName && (
+          <span className="text-muted-foreground"> — {artistName}</span>
+        )}
+      </span>
+    </span>
+  );
+
+  if (!itunesId) return <div>{chip}</div>;
+
+  return (
+    <div>
+      <a
+        href={appleMusicUrl(itunesId)}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Listen on Apple Music: ${song}`}
+      >
+        {chip}
+      </a>
     </div>
   );
 }
@@ -595,7 +646,10 @@ function RosterTab({ teamId }: { teamId: string }) {
                                 : <span className="text-muted-foreground/40 text-sm">—</span>}
                             </td>
                             <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
-                              {[r.first_name, r.last_name].filter(Boolean).join(" ")}
+                              <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
+                              {!parentView && r.walkup_song && (
+                                <WalkupSongLink song={r.walkup_song} itunesId={r.walkup_song_itunes_id} />
+                              )}
                             </td>
                             {parentView && (
                               <>
@@ -629,12 +683,19 @@ function RosterTab({ teamId }: { teamId: string }) {
                                         walkup_song_itunes_id: itunesId,
                                       })
                                     }
-                                    onBlurCommit={() =>
+                                    onBlurCommit={() => {
                                       patchRosterEntry(r.id, {
                                         walkup_song: edit.walkup_song || null,
                                         walkup_song_itunes_id: edit.walkup_song_itunes_id,
-                                      })
-                                    }
+                                      });
+                                      setRoster((prev) =>
+                                        prev.map((row) =>
+                                          row.id === r.id
+                                            ? { ...row, walkup_song: edit.walkup_song || null, walkup_song_itunes_id: edit.walkup_song_itunes_id }
+                                            : row
+                                        )
+                                      );
+                                    }}
                                   />
                                 </td>
                               </>
@@ -675,7 +736,10 @@ function RosterTab({ teamId }: { teamId: string }) {
                             className="border-t border-border hover:bg-elevated/40 transition-colors duration-75"
                           >
                             <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
-                              {[r.first_name, r.last_name].filter(Boolean).join(" ")}
+                              <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
+                              {r.walkup_song && (
+                                <WalkupSongLink song={r.walkup_song} itunesId={r.walkup_song_itunes_id} />
+                              )}
                             </td>
                             <td className="p-3">{renderActions(r)}</td>
                           </tr>

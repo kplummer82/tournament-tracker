@@ -54,7 +54,7 @@ export default function Header() {
           className="shrink-0 text-foreground hover:text-primary transition-colors duration-100"
           style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "18px", letterSpacing: "-0.01em", textTransform: "uppercase" }}
         >
-          Tournament Tracker
+          Stacked Bench
         </Link>
 
         {/* Nav — desktop only */}

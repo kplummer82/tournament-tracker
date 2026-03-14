@@ -64,15 +64,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: `season_type must be one of: ${VALID_SEASON_TYPES.join(", ")}` });
       }
 
+      // Derive league_id from division
+      const divRow = await sql`SELECT league_id FROM league_divisions WHERE id = ${Number(league_division_id)}`;
+      if (!divRow.length) return res.status(400).json({ error: "Invalid league_division_id" });
+      const leagueId = divRow[0].league_id;
+
       const statusVal = VALID_STATUSES.includes(status) ? status : "draft";
 
       const inserted = await sql`
         INSERT INTO seasons (
-          league_division_id, name, year, season_type, status,
+          league_division_id, league_id, name, year, season_type, status,
           maxrundiff, forfeit_run_diff, advances_to_playoffs
         )
         VALUES (
           ${Number(league_division_id)},
+          ${leagueId},
           ${name.trim()},
           ${Number(year)},
           ${season_type},
@@ -81,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${forfeit_run_diff != null && forfeit_run_diff !== "" ? Number(forfeit_run_diff) : null},
           ${advances_to_playoffs != null && advances_to_playoffs !== "" ? Number(advances_to_playoffs) : null}
         )
-        RETURNING id, league_division_id, name, year, season_type, status,
+        RETURNING id, league_division_id, league_id, name, year, season_type, status,
           maxrundiff, forfeit_run_diff, advances_to_playoffs,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;

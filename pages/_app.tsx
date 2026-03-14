@@ -1,3 +1,4 @@
+import "@/lib/polyfills";
 import "../src/styles/globals.css";
 import "../src/styles/fullcalendar-overrides.css";
 import type { AppProps } from "next/app";

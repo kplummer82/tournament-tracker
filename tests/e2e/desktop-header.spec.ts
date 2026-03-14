@@ -6,7 +6,7 @@ test.describe('Desktop: Header', () => {
     const header = page.locator('header');
 
     // Brand link
-    await expect(header.getByRole('link', { name: /Tournament Tracker/i })).toBeVisible();
+    await expect(header.getByRole('link', { name: /Stacked Bench/i })).toBeVisible();
 
     // All 5 nav links visible
     await expect(header.getByRole('link', { name: 'Home' })).toBeVisible();

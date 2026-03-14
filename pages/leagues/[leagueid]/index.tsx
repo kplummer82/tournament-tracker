@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Header from "@/components/Header";
-import { ArrowLeft, ArrowRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 
 type League = {
   id: number;
@@ -25,6 +25,25 @@ type Division = {
   season_count: number;
 };
 
+type SeasonGroup = {
+  year: number;
+  season_type: string;
+  division_count: number;
+  statuses: string[];
+};
+
+const SEASON_TYPES = ["spring", "summer", "fall", "winter"] as const;
+
+const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  draft:     { bg: "#5a5a5a18", text: "#888",     border: "#5a5a5a40" },
+  active:    { bg: "#00c85318", text: "#00c853",  border: "#00c85340" },
+  playoffs:  { bg: "#ff8c0018", text: "#ff8c00",  border: "#ff8c0040" },
+  completed: { bg: "#ffe50018", text: "#ffe500",  border: "#ffe50040" },
+  archived:  { bg: "#3a3a3a18", text: "#5a5a5a",  border: "#3a3a3a40" },
+};
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const INPUT = "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 const BTN_BASE = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
 
@@ -34,21 +53,27 @@ export default function LeagueDetailPage() {
 
   const [league, setLeague] = useState<League | null>(null);
   const [divisions, setDivisions] = useState<Division[]>([]);
+  const [seasonGroups, setSeasonGroups] = useState<SeasonGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: "", age_range: "", sort_order: "0" });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // Edit state
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState({ name: "", age_range: "", sort_order: "0" });
-  const [editSaving, setEditSaving] = useState(false);
-  const [editError, setEditError] = useState<string | null>(null);
+  // Division management (collapsible)
+  const [showDivisions, setShowDivisions] = useState(false);
+  const [showCreateDiv, setShowCreateDiv] = useState(false);
+  const [divForm, setDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [divSaving, setDivSaving] = useState(false);
+  const [divError, setDivError] = useState<string | null>(null);
+  const [editingDivId, setEditingDivId] = useState<number | null>(null);
+  const [editDivForm, setEditDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [editDivSaving, setEditDivSaving] = useState(false);
+  const [editDivError, setEditDivError] = useState<string | null>(null);
+  const [confirmDeleteDiv, setConfirmDeleteDiv] = useState<number | null>(null);
+  const [deletingDiv, setDeletingDiv] = useState(false);
 
-  // Delete state
-  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // New season form
+  const [showCreateSeason, setShowCreateSeason] = useState(false);
+  const [seasonForm, setSeasonForm] = useState({ year: String(new Date().getFullYear()), season_type: "spring" as string, divisionIds: [] as number[] });
+  const [seasonSaving, setSeasonSaving] = useState(false);
+  const [seasonError, setSeasonError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!router.isReady || !leagueId) return;
@@ -57,58 +82,55 @@ export default function LeagueDetailPage() {
       .then((d) => {
         setLeague(d);
         setDivisions(d.divisions ?? []);
+        setSeasonGroups(d.season_groups ?? []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [router.isReady, leagueId]);
 
+  // ── Division CRUD ──
   const createDivision = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim()) return;
-    setSaving(true);
-    setError(null);
+    if (!divForm.name.trim()) return;
+    setDivSaving(true);
+    setDivError(null);
     try {
       const res = await fetch(`/api/leagues/${leagueId}/divisions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: form.name, age_range: form.age_range || null, sort_order: Number(form.sort_order) || 0 }),
+        body: JSON.stringify({ name: divForm.name, age_range: divForm.age_range || null, sort_order: Number(divForm.sort_order) || 0 }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
       setDivisions((prev) => [...prev, { ...json, season_count: 0 }].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)));
-      setForm({ name: "", age_range: "", sort_order: "0" });
-      setShowCreate(false);
+      setDivForm({ name: "", age_range: "", sort_order: "0" });
+      setShowCreateDiv(false);
     } catch (e: any) {
-      setError(e.message);
+      setDivError(e.message);
     } finally {
-      setSaving(false);
+      setDivSaving(false);
     }
   };
 
-  const startEdit = (div: Division) => {
-    setEditingId(div.id);
-    setEditForm({ name: div.name, age_range: div.age_range ?? "", sort_order: String(div.sort_order) });
-    setEditError(null);
-    setConfirmDelete(null);
+  const startEditDiv = (div: Division) => {
+    setEditingDivId(div.id);
+    setEditDivForm({ name: div.name, age_range: div.age_range ?? "", sort_order: String(div.sort_order) });
+    setEditDivError(null);
+    setConfirmDeleteDiv(null);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditError(null);
-  };
-
-  const handleEditSave = async (id: number) => {
-    if (!editForm.name.trim()) return;
-    setEditSaving(true);
-    setEditError(null);
+  const handleEditDivSave = async (id: number) => {
+    if (!editDivForm.name.trim()) return;
+    setEditDivSaving(true);
+    setEditDivError(null);
     try {
       const res = await fetch(`/api/leagues/${leagueId}/divisions/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: editForm.name.trim(),
-          age_range: editForm.age_range.trim() || null,
-          sort_order: Number(editForm.sort_order) || 0,
+          name: editDivForm.name.trim(),
+          age_range: editDivForm.age_range.trim() || null,
+          sort_order: Number(editDivForm.sort_order) || 0,
         }),
       });
       const json = await res.json();
@@ -118,16 +140,16 @@ export default function LeagueDetailPage() {
           .map((d) => (d.id === id ? { ...d, name: json.name, age_range: json.age_range, sort_order: json.sort_order } : d))
           .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))
       );
-      setEditingId(null);
+      setEditingDivId(null);
     } catch (e: any) {
-      setEditError(e.message);
+      setEditDivError(e.message);
     } finally {
-      setEditSaving(false);
+      setEditDivSaving(false);
     }
   };
 
   const deleteDivision = async (id: number) => {
-    setDeleting(true);
+    setDeletingDiv(true);
     try {
       const res = await fetch(`/api/leagues/${leagueId}/divisions/${id}`, { method: "DELETE" });
       if (!res.ok) {
@@ -135,12 +157,64 @@ export default function LeagueDetailPage() {
         throw new Error(json.error || "Failed to delete");
       }
       setDivisions((prev) => prev.filter((d) => d.id !== id));
-      setConfirmDelete(null);
+      setConfirmDeleteDiv(null);
     } catch (e: any) {
-      setError(e.message);
+      setDivError(e.message);
     } finally {
-      setDeleting(false);
+      setDeletingDiv(false);
     }
+  };
+
+  // ── Create season group ──
+  const toggleDivisionSelection = (divId: number) => {
+    setSeasonForm((prev) => ({
+      ...prev,
+      divisionIds: prev.divisionIds.includes(divId)
+        ? prev.divisionIds.filter((id) => id !== divId)
+        : [...prev.divisionIds, divId],
+    }));
+  };
+
+  const createSeasonGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (seasonForm.divisionIds.length === 0) {
+      setSeasonError("Select at least one division");
+      return;
+    }
+    setSeasonSaving(true);
+    setSeasonError(null);
+    try {
+      const name = `${seasonForm.year} ${capitalize(seasonForm.season_type)} Season`;
+      // Create one season per selected division
+      for (const divId of seasonForm.divisionIds) {
+        const res = await fetch("/api/seasons", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            league_division_id: divId,
+            name,
+            year: Number(seasonForm.year),
+            season_type: seasonForm.season_type,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to create season");
+      }
+      // Navigate to the new season group
+      router.push(`/leagues/${leagueId}/seasons/${seasonForm.year}-${seasonForm.season_type}`);
+    } catch (e: any) {
+      setSeasonError(e.message);
+    } finally {
+      setSeasonSaving(false);
+    }
+  };
+
+  // Helper: dominant status for a season group
+  const dominantStatus = (statuses: string[]) => {
+    for (const s of ["active", "playoffs", "draft", "completed", "archived"]) {
+      if (statuses.includes(s)) return s;
+    }
+    return "draft";
   };
 
   return (
@@ -200,188 +274,279 @@ export default function LeagueDetailPage() {
               </div>
             </div>
 
-            {/* Divisions */}
+            {/* ════ Seasons (primary) ════ */}
             <div className="flex items-center justify-between mb-4">
               <h2
                 className="text-[13px] font-semibold uppercase tracking-wider text-muted-foreground"
                 style={{ fontFamily: "var(--font-body)" }}
               >
-                Divisions
+                Seasons
               </h2>
               <button
                 type="button"
-                onClick={() => setShowCreate((s) => !s)}
+                onClick={() => {
+                  if (divisions.length === 0) {
+                    setShowDivisions(true);
+                    setShowCreateDiv(true);
+                    return;
+                  }
+                  setShowCreateSeason((s) => !s);
+                }}
                 className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
                 style={{ fontFamily: "var(--font-body)" }}
               >
                 <Plus className="h-3 w-3" />
-                Add Division
+                New Season
               </button>
             </div>
 
-            {showCreate && (
-              <form onSubmit={createDivision} className="mb-4 p-4 border border-border bg-card space-y-3">
+            {showCreateSeason && (
+              <form onSubmit={createSeasonGroup} className="mb-4 p-4 border border-border bg-card space-y-3">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                    New Division
+                    New Season
                   </span>
-                  <button type="button" onClick={() => setShowCreate(false)}>
+                  <button type="button" onClick={() => setShowCreateSeason(false)}>
                     <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                   </button>
                 </div>
-                {error && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{error}</p>}
-                <div className="grid grid-cols-3 gap-3">
+                {seasonError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{seasonError}</p>}
+                <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
-                    <input className={INPUT} placeholder="e.g. Mustang" value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} required />
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Year *</label>
+                    <input
+                      className={INPUT}
+                      type="number"
+                      placeholder="Year"
+                      value={seasonForm.year}
+                      onChange={(e) => setSeasonForm((p) => ({ ...p, year: e.target.value }))}
+                      required
+                    />
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
-                    <input className={INPUT} placeholder="e.g. 9-10" value={form.age_range} onChange={(e) => setForm((p) => ({ ...p, age_range: e.target.value }))} />
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Season Type *</label>
+                    <select
+                      className={INPUT}
+                      value={seasonForm.season_type}
+                      onChange={(e) => setSeasonForm((p) => ({ ...p, season_type: e.target.value }))}
+                    >
+                      {SEASON_TYPES.map((t) => (
+                        <option key={t} value={t}>{capitalize(t)}</option>
+                      ))}
+                    </select>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
-                    <input className={INPUT} type="number" placeholder="0" value={form.sort_order} onChange={(e) => setForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Divisions *</label>
+                  <div className="flex flex-wrap gap-2">
+                    {divisions.map((div) => {
+                      const selected = seasonForm.divisionIds.includes(div.id);
+                      return (
+                        <button
+                          key={div.id}
+                          type="button"
+                          onClick={() => toggleDivisionSelection(div.id)}
+                          className={`px-3 py-1.5 text-xs border transition-colors ${
+                            selected
+                              ? "border-primary bg-primary/10 text-foreground"
+                              : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                          }`}
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          {div.name}
+                          {div.age_range ? ` (${div.age_range})` : ""}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <button type="submit" disabled={saving} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
-                    {saving ? "Creating…" : "Create Division"}
+                  <button
+                    type="submit"
+                    disabled={seasonSaving || seasonForm.divisionIds.length === 0}
+                    className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {seasonSaving ? "Creating…" : "Create Season"}
                   </button>
                 </div>
               </form>
             )}
 
-            {divisions.length === 0 ? (
+            {seasonGroups.length === 0 && !showCreateSeason ? (
               <div className="py-12 text-center text-muted-foreground" style={{ fontFamily: "var(--font-body)", fontSize: "14px" }}>
-                No divisions yet. Add the first division above.
+                No seasons yet. Create the first season above.
               </div>
             ) : (
-              <div className="space-y-2">
-                {divisions.map((div) => (
-                  <div key={div.id} className="border border-border bg-card">
-                    {editingId === div.id ? (
-                      /* ── Edit mode ── */
-                      <div className="p-4 space-y-3">
-                        {editError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editError}</p>}
-                        <div className="grid grid-cols-3 gap-3">
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
-                            <input
-                              className={INPUT}
-                              placeholder="Division name"
-                              value={editForm.name}
-                              onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))}
-                              autoFocus
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
-                            <input
-                              className={INPUT}
-                              placeholder="e.g. 9-10"
-                              value={editForm.age_range}
-                              onChange={(e) => setEditForm((p) => ({ ...p, age_range: e.target.value }))}
-                            />
-                          </div>
-                          <div className="flex flex-col gap-1">
-                            <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
-                            <input
-                              className={INPUT}
-                              type="number"
-                              placeholder="0"
-                              value={editForm.sort_order}
-                              onChange={(e) => setEditForm((p) => ({ ...p, sort_order: e.target.value }))}
-                            />
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={cancelEdit}
-                            className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
-                            style={{ fontFamily: "var(--font-body)" }}
-                          >
-                            <X className="h-3 w-3" />
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleEditSave(div.id)}
-                            disabled={editSaving || !editForm.name.trim()}
-                            className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
-                            style={{ fontFamily: "var(--font-body)" }}
-                          >
-                            {editSaving ? "Saving…" : "Save"}
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      /* ── Display mode ── */
-                      <div className="flex items-center hover:border-primary/40 hover:bg-elevated transition-colors duration-100 group">
-                        <Link
-                          href={`/leagues/${leagueId}/divisions/${div.id}`}
-                          className="flex flex-1 items-center justify-between px-4 py-3 min-w-0"
+              <div className="space-y-2 mb-10">
+                {seasonGroups.map((sg) => {
+                  const status = dominantStatus(sg.statuses);
+                  const sc = STATUS_COLORS[status] ?? STATUS_COLORS.draft;
+                  const slug = `${sg.year}-${sg.season_type}`;
+                  return (
+                    <Link
+                      key={slug}
+                      href={`/leagues/${leagueId}/seasons/${slug}`}
+                      className="flex items-center justify-between px-4 py-3 border border-border bg-card hover:border-primary/40 hover:bg-elevated transition-colors duration-100 group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="badge text-[10px]"
+                          style={{ background: sc.bg, color: sc.text, borderColor: sc.border }}
                         >
-                          <div className="min-w-0">
-                            <p className="font-semibold text-sm">{div.name}</p>
-                            <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                              {div.age_range ? `Ages ${div.age_range}` : ""}
-                              {div.age_range && div.season_count > 0 ? " · " : ""}
-                              {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
-                            </p>
-                          </div>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0 ml-3" />
-                        </Link>
-                        <div className="flex items-center gap-1 pr-3 shrink-0">
-                          {confirmDelete === div.id ? (
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
-                              <button
-                                type="button"
-                                onClick={() => deleteDivision(div.id)}
-                                disabled={deleting}
-                                className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`}
-                                style={{ fontFamily: "var(--font-body)" }}
-                              >
-                                {deleting ? "…" : "Yes"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDelete(null)}
-                                className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
-                                style={{ fontFamily: "var(--font-body)" }}
-                              >
-                                No
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => startEdit(div)}
-                                className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
-                                title="Edit division"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setConfirmDelete(div.id)}
-                                className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100"
-                                title="Delete division"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </>
-                          )}
+                          {status}
+                        </span>
+                        <div>
+                          <p className="font-semibold text-sm">
+                            {sg.year} {capitalize(sg.season_type)}
+                          </p>
+                          <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                            {sg.division_count} division{sg.division_count !== 1 ? "s" : ""}
+                          </p>
                         </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <ArrowRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+                    </Link>
+                  );
+                })}
               </div>
             )}
+
+            {/* ════ Divisions (collapsible management) ════ */}
+            <div className="border-t border-border pt-6">
+              <button
+                type="button"
+                onClick={() => setShowDivisions((s) => !s)}
+                className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                {showDivisions ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                Manage Divisions
+                <span className="text-[11px] font-normal">({divisions.length})</span>
+              </button>
+
+              {showDivisions && (
+                <div className="mt-4">
+                  <div className="flex justify-end mb-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateDiv((s) => !s)}
+                      className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Division
+                    </button>
+                  </div>
+
+                  {showCreateDiv && (
+                    <form onSubmit={createDivision} className="mb-4 p-4 border border-border bg-card space-y-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                          New Division
+                        </span>
+                        <button type="button" onClick={() => setShowCreateDiv(false)}>
+                          <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      </div>
+                      {divError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{divError}</p>}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                          <input className={INPUT} placeholder="e.g. Mustang" value={divForm.name} onChange={(e) => setDivForm((p) => ({ ...p, name: e.target.value }))} required />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
+                          <input className={INPUT} placeholder="e.g. 9-10" value={divForm.age_range} onChange={(e) => setDivForm((p) => ({ ...p, age_range: e.target.value }))} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
+                          <input className={INPUT} type="number" placeholder="0" value={divForm.sort_order} onChange={(e) => setDivForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button type="submit" disabled={divSaving} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                          {divSaving ? "Creating…" : "Create Division"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {divisions.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground" style={{ fontFamily: "var(--font-body)", fontSize: "14px" }}>
+                      No divisions yet. Add the first division above.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {divisions.map((div) => (
+                        <div key={div.id} className="border border-border bg-card">
+                          {editingDivId === div.id ? (
+                            <div className="p-4 space-y-3">
+                              {editDivError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editDivError}</p>}
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
+                                  <input className={INPUT} placeholder="Division name" value={editDivForm.name} onChange={(e) => setEditDivForm((p) => ({ ...p, name: e.target.value }))} autoFocus />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
+                                  <input className={INPUT} placeholder="e.g. 9-10" value={editDivForm.age_range} onChange={(e) => setEditDivForm((p) => ({ ...p, age_range: e.target.value }))} />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
+                                  <input className={INPUT} type="number" placeholder="0" value={editDivForm.sort_order} onChange={(e) => setEditDivForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setEditingDivId(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                                  <X className="h-3 w-3" /> Cancel
+                                </button>
+                                <button type="button" onClick={() => handleEditDivSave(div.id)} disabled={editDivSaving || !editDivForm.name.trim()} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                                  {editDivSaving ? "Saving…" : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center px-4 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm">{div.name}</p>
+                                <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                                  {div.age_range ? `Ages ${div.age_range}` : ""}
+                                  {div.age_range && div.season_count > 0 ? " · " : ""}
+                                  {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {confirmDeleteDiv === div.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
+                                    <button type="button" onClick={() => deleteDivision(div.id)} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                                      {deletingDiv ? "…" : "Yes"}
+                                    </button>
+                                    <button type="button" onClick={() => setConfirmDeleteDiv(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                                      No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <button type="button" onClick={() => startEditDiv(div)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit division">
+                                      <Pencil className="h-4 w-4" />
+                                    </button>
+                                    <button type="button" onClick={() => setConfirmDeleteDiv(div.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -8,7 +8,12 @@ import type { NextApiRequest, NextApiResponse } from "next";
 function getOrigin(req: NextApiRequest): string {
   const proto = req.headers["x-forwarded-proto"] ?? "http";
   const host = req.headers.host ?? "localhost:3000";
-  return `${proto}://${host}`;
+  const origin = `${proto}://${host}`;
+  // In dev, map LAN IPs to localhost so Neon Auth accepts the origin
+  if (process.env.NODE_ENV !== "production" && !origin.includes("localhost")) {
+    return "http://localhost:3000";
+  }
+  return origin;
 }
 
 const PROXY_HEADERS = ["user-agent", "authorization", "referer", "content-type"] as const;
@@ -36,9 +41,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     upstreamUrl.search = req.url.slice(q);
   }
 
+  // In dev over HTTP, cookies are stored without __Secure- prefix.
+  // Re-add the prefix when forwarding to Neon Auth upstream.
+  let cookie = req.headers.cookie ?? "";
+  if (process.env.NODE_ENV !== "production") {
+    cookie = cookie.replace(
+      /\bneon-auth\.session_token\b/g,
+      "__Secure-neon-auth.session_token"
+    );
+  }
+
   const headers: Record<string, string> = {
     Origin: origin,
-    Cookie: req.headers.cookie ?? "",
+    Cookie: cookie,
     "x-neon-auth-middleware": "true",
   };
   for (const key of PROXY_HEADERS) {
@@ -69,16 +84,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Forward Set-Cookie headers — forEach can skip/combine them
     const rawSetCookies = response.headers.getSetCookie?.() ?? [];
-    const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
+    const realOrigin = `${(req.headers["x-forwarded-proto"] ?? "http")}://${req.headers.host ?? "localhost:3000"}`;
+    const isLocalhost = realOrigin.includes("localhost") || realOrigin.includes("127.0.0.1") || realOrigin.includes("192.168.");
     const setCookies = isLocalhost
       ? rawSetCookies.map((c) =>
           c
             .replace(/^__Secure-/i, "")        // strip __Secure- prefix (requires HTTPS)
             .replace(/;\s*Secure/i, "")         // strip Secure flag
             .replace(/;\s*Partitioned/i, "")    // strip Partitioned (requires Secure)
+            .replace(/;\s*Domain=[^;]*/i, "")   // strip Domain so browser defaults to current host
             .replace(/SameSite=None/i, "SameSite=Lax") // None requires Secure
         )
       : rawSetCookies;
+    if (process.env.NODE_ENV !== "production") {
+      console.log(`[auth proxy] ${path} — raw cookies:`, rawSetCookies);
+      console.log(`[auth proxy] ${path} — rewritten cookies:`, setCookies);
+    }
     if (setCookies.length > 0) {
       res.setHeader("Set-Cookie", setCookies);
     }

@@ -107,7 +107,7 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
     const res = await fetch(`/api/seasons/${seasonId}`, { method: "DELETE" });
     if (res.ok) {
       if (season?.league_id) {
-        router.push(`/leagues/${season.league_id}/divisions/${season.league_division_id}`);
+        router.push(`/leagues/${season.league_id}/seasons/${season.year}-${season.season_type}`);
       } else {
         router.push("/leagues");
       }

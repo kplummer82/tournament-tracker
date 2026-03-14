@@ -18,10 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       FROM teams t
       LEFT JOIN leagues l ON l.id = t.league_id
       WHERE t.league_id = (
-        SELECT ld.league_id
-        FROM seasons s
-        JOIN league_divisions ld ON ld.id = s.league_division_id
-        WHERE s.id = ${seasonId}
+        SELECT league_id FROM seasons WHERE id = ${seasonId}
       )
       AND t.teamid NOT IN (
         SELECT st.team_id FROM season_teams st WHERE st.season_id = ${seasonId}

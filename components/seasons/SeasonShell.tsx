@@ -29,7 +29,7 @@ export default function SeasonShell({
   const sc = STATUS_COLORS[season?.status ?? "draft"] ?? STATUS_COLORS.draft;
 
   const backHref = season
-    ? `/leagues/${season.league_id}/divisions/${season.league_division_id}`
+    ? `/leagues/${season.league_id}/seasons/${season.year}-${season.season_type}`
     : "/leagues";
 
   return (
@@ -45,7 +45,7 @@ export default function SeasonShell({
             style={{ fontFamily: "var(--font-body)", fontSize: "11px", letterSpacing: "0.06em", textTransform: "uppercase" }}
           >
             <ArrowLeft className="h-3 w-3" />
-            {season ? `${season.league_abbreviation ?? season.league_name} · ${season.division_name}` : "Leagues"}
+            {season ? `${season.league_abbreviation ?? season.league_name} · ${season.year} ${season.season_type.charAt(0).toUpperCase() + season.season_type.slice(1)}` : "Leagues"}
           </Link>
 
           <div className="flex items-center gap-1.5">

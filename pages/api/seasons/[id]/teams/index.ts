@@ -36,11 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Determine the league that owns this season
       const seasonRows = await sql`
-        SELECT l.id AS league_id
-        FROM seasons s
-        JOIN league_divisions ld ON ld.id = s.league_division_id
-        JOIN leagues l           ON l.id  = ld.league_id
-        WHERE s.id = ${seasonId}
+        SELECT league_id FROM seasons WHERE id = ${seasonId}
       `;
       if (!seasonRows.length) return res.status(404).json({ error: "Season not found" });
       const leagueId = seasonRows[0].league_id;

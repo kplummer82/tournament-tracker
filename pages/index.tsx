@@ -44,19 +44,25 @@ export default function HomePage() {
             className="text-[11px] tracking-[0.2em] uppercase text-muted-foreground mb-6"
             style={{ fontFamily: "var(--font-body)" }}
           >
-            Youth Sports Tournament Management
+            Youth Sports Management Platform
           </p>
           <h1
             className="text-[clamp(64px,10vw,140px)] leading-none text-muted-foreground/30 mb-0"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            Track Every
+            Leagues.
+          </h1>
+          <h1
+            className="text-[clamp(64px,10vw,140px)] leading-none text-muted-foreground/30 -mt-2"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Tournaments.
           </h1>
           <h1
             className="text-[clamp(64px,10vw,140px)] leading-none text-foreground mb-8 -mt-2"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            Tournament.
+            Stacked.
           </h1>
         </div>
 
@@ -65,12 +71,20 @@ export default function HomePage() {
             className="text-muted-foreground mb-8 text-base"
             style={{ fontFamily: "var(--font-body)" }}
           >
-            Pool play scheduling, live standings, tiebreaker rules, and bracket assignment — all in one place.
+            Season schedules, live standings, tiebreaker rules, and bracket play — all in one place.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link
-              href="/tournaments"
+              href="/leagues"
               className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 text-[11px] font-semibold tracking-[0.1em] uppercase hover:opacity-90 transition-opacity duration-100"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              Browse Leagues
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+            <Link
+              href="/tournaments"
+              className="inline-flex items-center gap-2 border border-foreground/30 text-foreground px-6 py-3 text-[11px] font-semibold tracking-[0.1em] uppercase hover:border-foreground transition-colors duration-100"
               style={{ fontFamily: "var(--font-body)" }}
             >
               Browse Tournaments
@@ -92,9 +106,9 @@ export default function HomePage() {
         <div className="mx-auto max-w-7xl px-4 md:px-6">
           <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
             {[
-              { num: "01", label: "Pool Play",    desc: "Schedule round-robin games, enter scores, track wins." },
-              { num: "02", label: "Standings",    desc: "Configurable tiebreakers rank teams automatically." },
-              { num: "03", label: "Bracket Play", desc: "Build brackets, seed from standings, run knockout rounds." },
+              { num: "01", label: "Leagues & Seasons", desc: "Organize teams into leagues, divisions, and seasons." },
+              { num: "02", label: "Standings",         desc: "Live standings with configurable tiebreaker rules." },
+              { num: "03", label: "Brackets",          desc: "Seed from standings and run single-elimination playoffs." },
             ].map(({ num, label, desc }) => (
               <div key={num} className="flex gap-5 py-8 px-2 md:px-8 first:pl-0 last:pr-0">
                 <span
@@ -186,7 +200,7 @@ export default function HomePage() {
             className="text-[10px] tracking-[0.1em] uppercase text-muted-foreground"
             style={{ fontFamily: "var(--font-body)" }}
           >
-            Tournament Tracker
+            Stacked Bench
           </span>
           <span
             className="text-[10px] tracking-[0.08em] uppercase text-muted-foreground/50"
