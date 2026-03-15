@@ -14,6 +14,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             l.id, l.name, l.abbreviation, l.city, l.state,
             l.governing_body_id,
             gb.name AS governing_body_name,
+            l.sportid,
             s.sportname AS sport,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
@@ -30,6 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             l.id, l.name, l.abbreviation, l.city, l.state,
             l.governing_body_id,
             gb.name AS governing_body_name,
+            l.sportid,
             s.sportname AS sport,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
@@ -45,6 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             l.id, l.name, l.abbreviation, l.city, l.state,
             l.governing_body_id,
             gb.name AS governing_body_name,
+            l.sportid,
             s.sportname AS sport,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
@@ -60,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             l.id, l.name, l.abbreviation, l.city, l.state,
             l.governing_body_id,
             gb.name AS governing_body_name,
+            l.sportid,
             s.sportname AS sport,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count

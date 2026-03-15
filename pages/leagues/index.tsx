@@ -87,23 +87,26 @@ type League = {
   state: string | null;
   governing_body_id: number | null;
   governing_body_name: string | null;
+  sportid: number | null;
   sport: string | null;
   division_count: number;
 };
 
 type GovBody = { id: number; name: string; abbreviation: string | null };
+type SportRow = { id: number; name: string };
 
 const INPUT = "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 const BTN_BASE = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
 
-type EditForm = { name: string; abbreviation: string; city: string; state: string; governing_body_id: string };
+type EditForm = { name: string; abbreviation: string; city: string; state: string; governing_body_id: string; sportid: string };
 
 export default function LeaguesPage() {
   const [leagues, setLeagues] = useState<League[]>([]);
   const [loading, setLoading] = useState(true);
   const [govBodies, setGovBodies] = useState<GovBody[]>([]);
+  const [sports, setSports] = useState<SportRow[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "" });
+  const [form, setForm] = useState({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -111,7 +114,7 @@ export default function LeaguesPage() {
 
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "" });
+  const [editForm, setEditForm] = useState<EditForm>({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -119,9 +122,11 @@ export default function LeaguesPage() {
     Promise.all([
       fetch("/api/leagues").then((r) => r.json()),
       fetch("/api/governing-bodies").then((r) => r.json()),
-    ]).then(([leaguesData, gbData]) => {
+      fetch("/api/lookups").then((r) => r.json()),
+    ]).then(([leaguesData, gbData, lookupsData]) => {
       setLeagues(leaguesData.rows ?? []);
       setGovBodies(gbData.rows ?? []);
+      setSports(Array.isArray(lookupsData.sports) ? lookupsData.sports : []);
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
@@ -137,6 +142,7 @@ export default function LeaguesPage() {
         city: form.city.trim() || null,
         state: form.state.trim() || null,
         governing_body_id: form.governing_body_id ? Number(form.governing_body_id) : null,
+        sportid: form.sportid ? Number(form.sportid) : null,
       };
       const res = await fetch("/api/leagues", {
         method: "POST",
@@ -146,8 +152,9 @@ export default function LeaguesPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
       const gb = govBodies.find((g) => g.id === body.governing_body_id);
-      setLeagues((prev) => [{ ...json, governing_body_name: gb?.name ?? null, division_count: 0 }, ...prev]);
-      setForm({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "" });
+      const sp = sports.find((s) => s.id === body.sportid);
+      setLeagues((prev) => [{ ...json, governing_body_name: gb?.name ?? null, sport: sp?.name ?? null, division_count: 0 }, ...prev]);
+      setForm({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
       setShowCreate(false);
     } catch (e: any) {
       setError(e.message);
@@ -181,6 +188,7 @@ export default function LeaguesPage() {
       city: league.city ?? "",
       state: league.state ?? "",
       governing_body_id: league.governing_body_id ? String(league.governing_body_id) : "",
+      sportid: league.sportid ? String(league.sportid) : "",
     });
     setEditError(null);
     setConfirmDelete(null);
@@ -205,11 +213,13 @@ export default function LeaguesPage() {
           city: editForm.city.trim() || null,
           state: editForm.state.trim() || null,
           governing_body_id: editForm.governing_body_id ? Number(editForm.governing_body_id) : null,
+          sportid: editForm.sportid ? Number(editForm.sportid) : null,
         }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to save");
       const newGb = govBodies.find((g) => g.id === json.governing_body_id) ?? null;
+      const newSport = sports.find((s) => s.id === json.sportid) ?? null;
       setLeagues((prev) =>
         prev.map((l) =>
           l.id === id
@@ -221,6 +231,8 @@ export default function LeaguesPage() {
                 state: json.state,
                 governing_body_id: json.governing_body_id,
                 governing_body_name: newGb?.name ?? null,
+                sportid: json.sportid ?? null,
+                sport: newSport?.name ?? null,
               }
             : l
         )
@@ -305,6 +317,16 @@ export default function LeaguesPage() {
                   </option>
                 ))}
               </select>
+              <select
+                className={INPUT}
+                value={form.sportid}
+                onChange={(e) => setForm((p) => ({ ...p, sportid: e.target.value }))}
+              >
+                <option value="">Sport (optional)</option>
+                {sports.map((s) => (
+                  <option key={s.id} value={String(s.id)}>{s.name}</option>
+                ))}
+              </select>
             </div>
             <div className="flex justify-end">
               <button type="submit" disabled={saving} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
@@ -378,6 +400,16 @@ export default function LeaguesPage() {
                                 <option key={g.id} value={String(g.id)}>
                                   {g.abbreviation ? `${g.abbreviation} – ${g.name}` : g.name}
                                 </option>
+                              ))}
+                            </select>
+                            <select
+                              className={INPUT}
+                              value={editForm.sportid}
+                              onChange={(e) => setEditForm((p) => ({ ...p, sportid: e.target.value }))}
+                            >
+                              <option value="">Sport (optional)</option>
+                              {sports.map((s) => (
+                                <option key={s.id} value={String(s.id)}>{s.name}</option>
                               ))}
                             </select>
                           </div>

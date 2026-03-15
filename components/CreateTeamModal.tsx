@@ -28,7 +28,7 @@ type TeamCreatePayload = {
 
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
 
-type LeagueRow = { id: number; name: string; abbreviation?: string | null };
+type LeagueRow = { id: number; name: string; abbreviation?: string | null; sportid?: number | null };
 type LeagueDivisionRow = { id: number; name: string; age_range?: string | null };
 
 function useLookups() {
@@ -93,12 +93,18 @@ export default function CreateTeamModal({
 
   const isLeagueTeam = leagueId && leagueId !== "__none__";
 
-  // When the league selection changes, fetch that league's divisions and reset divisionId
+  // When the league selection changes, fetch that league's divisions, reset divisionId, and auto-assign sport
   useEffect(() => {
     setDivisionId("");
     if (!isLeagueTeam) {
       setLeagueDivisions([]);
+      setSportId("");
       return;
+    }
+    // Auto-assign the league's sport
+    const selectedLeague = leagues.find((l) => String(l.id) === leagueId);
+    if (selectedLeague?.sportid) {
+      setSportId(String(selectedLeague.sportid));
     }
     let cancelled = false;
     (async () => {
@@ -316,7 +322,7 @@ export default function CreateTeamModal({
 
             <div className="grid gap-2">
               <Label className="label-section">Sport</Label>
-              <Select value={sportId} onValueChange={setSportId} disabled={loading}>
+              <Select value={sportId} onValueChange={setSportId} disabled={loading || !!isLeagueTeam}>
                 <SelectTrigger>
                   <SelectValue placeholder={loading ? "Loading…" : "Select"} />
                 </SelectTrigger>

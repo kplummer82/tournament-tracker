@@ -5,7 +5,14 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Music, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Loader2, Music, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
@@ -832,18 +839,340 @@ function RosterTab({ teamId }: { teamId: string }) {
   );
 }
 
+/* ─── Lookups for edit ────────────────────────────────────────── */
+type LookupRow = { id: number; name: string };
+type LeagueRow = { id: number; name: string; abbreviation?: string | null; sportid?: number | null };
+type LeagueDivisionRow = { id: number; name: string; age_range?: string | null };
+const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
+
+/* ─── EditTeamModal ──────────────────────────────────────────── */
+function EditTeamModal({
+  team,
+  open,
+  onOpenChange,
+  onSaved,
+}: {
+  team: TeamDetail;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved: (updated: TeamDetail) => void;
+}) {
+  const [name, setName] = useState(team.name ?? "");
+  const [year, setYear] = useState(team.year ?? new Date().getFullYear());
+  const [season, setSeason] = useState(team.season ?? "");
+  const [leagueId, setLeagueId] = useState(team.league_id ? String(team.league_id) : "");
+  const [divisionId, setDivisionId] = useState("");
+  const [sportId, setSportId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Lookups
+  const [sports, setSports] = useState<LookupRow[]>([]);
+  const [divisions, setDivisions] = useState<LookupRow[]>([]);
+  const [leagues, setLeagues] = useState<LeagueRow[]>([]);
+  const [leagueDivisions, setLeagueDivisions] = useState<LeagueDivisionRow[]>([]);
+  const [lookupsLoading, setLookupsLoading] = useState(true);
+  const [leagueDivisionsLoading, setLeagueDivisionsLoading] = useState(false);
+
+  const isLeagueTeam = leagueId && leagueId !== "__none__";
+
+  // Load lookups on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setLookupsLoading(true);
+        const [lookupsRes, leaguesRes] = await Promise.all([
+          fetch("/api/lookups"),
+          fetch("/api/leagues"),
+        ]);
+        const json = lookupsRes.ok ? await lookupsRes.json() : {};
+        const leaguesJson = leaguesRes.ok ? await leaguesRes.json() : { rows: [] };
+        if (!cancelled) {
+          const spts = Array.isArray(json.sports) ? json.sports : [];
+          setSports(spts);
+          const divs = Array.isArray(json.divisions) ? json.divisions : [];
+          const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+          setDivisions([...divs].sort((a, b) => collator.compare(a.name, b.name)));
+          setLeagues(Array.isArray(leaguesJson.rows) ? leaguesJson.rows : []);
+
+          // Set initial sport from the team's current sport name
+          const matchedSport = spts.find((s: LookupRow) => s.name === team.sport);
+          if (matchedSport) setSportId(String(matchedSport.id));
+
+          // Set initial division for non-league teams
+          if (!team.league_id) {
+            const matchedDiv = divs.find((d: LookupRow) => d.name === team.division);
+            if (matchedDiv) setDivisionId(String(matchedDiv.id));
+          }
+        }
+      } finally {
+        if (!cancelled) setLookupsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [team.sport, team.division, team.league_id]);
+
+  // Load league divisions when league changes
+  useEffect(() => {
+    if (!isLeagueTeam) {
+      setLeagueDivisions([]);
+      // If switching away from league, reset division to global
+      if (team.league_id && !isLeagueTeam) {
+        setDivisionId("");
+      }
+      return;
+    }
+    // Auto-assign the league's sport
+    const selectedLeague = leagues.find((l) => String(l.id) === leagueId);
+    if (selectedLeague?.sportid) {
+      setSportId(String(selectedLeague.sportid));
+    }
+
+    let cancelled = false;
+    (async () => {
+      setLeagueDivisionsLoading(true);
+      try {
+        const res = await fetch(`/api/leagues/${leagueId}/divisions`);
+        const data = res.ok ? await res.json() : { rows: [] };
+        if (!cancelled) {
+          const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
+          const rows: LeagueDivisionRow[] = Array.isArray(data.rows) ? data.rows : [];
+          const sorted = [...rows].sort((a, b) => collator.compare(a.name, b.name));
+          setLeagueDivisions(sorted);
+
+          // If this is the team's current league, pre-select the current division
+          if (String(team.league_id) === leagueId && team.league_division_id) {
+            setDivisionId(String(team.league_division_id));
+          } else {
+            setDivisionId("");
+          }
+        }
+      } catch {
+        if (!cancelled) setLeagueDivisions([]);
+      } finally {
+        if (!cancelled) setLeagueDivisionsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leagueId, isLeagueTeam]);
+
+  const canSubmit = !!(name && year && season && divisionId && sportId);
+
+  const handleSave = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const body: Record<string, unknown> = {
+        name,
+        year: Number(year),
+        season,
+        sportId: Number(sportId),
+      };
+      if (isLeagueTeam) {
+        body.leagueId = Number(leagueId);
+        body.leagueDivisionId = Number(divisionId);
+        body.divisionId = null; // clear old division
+      } else {
+        body.leagueId = null;
+        body.leagueDivisionId = null;
+        body.divisionId = Number(divisionId);
+      }
+
+      const res = await fetch(`/api/teams/${team.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+
+      // Re-fetch the team to get the updated details with joined names
+      const refreshRes = await fetch(`/api/teams/${team.id}`, { cache: "no-store" });
+      if (refreshRes.ok) {
+        const data = await refreshRes.json();
+        if (data.team) onSaved(data.team);
+      }
+      onOpenChange(false);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Failed to save");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const divisionDisabled = lookupsLoading || (!!isLeagueTeam && leagueDivisionsLoading);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg rounded-none">
+        <DialogHeader>
+          <DialogTitle style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "20px", textTransform: "uppercase", letterSpacing: "-0.01em" }}>
+            Edit Team
+          </DialogTitle>
+          <DialogDescription style={{ fontFamily: "var(--font-body)", fontSize: "13px" }}>
+            Update the team details.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error && (
+          <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        )}
+
+        <div className="grid gap-4 py-2">
+          {/* Team Name */}
+          <div className="grid gap-2">
+            <Label htmlFor="edit-team-name" className="label-section">Team name</Label>
+            <Input
+              id="edit-team-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          {/* Year / Season */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label className="label-section">Year</Label>
+              <Input
+                type="number"
+                value={year}
+                onChange={(e) => setYear(Number(e.target.value))}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label className="label-section">Season</Label>
+              <Select value={season} onValueChange={setSeason}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SEASONS.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* League */}
+          <div className="grid gap-2">
+            <Label className="label-section">
+              League <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <Select value={leagueId} onValueChange={setLeagueId} disabled={lookupsLoading}>
+              <SelectTrigger>
+                <SelectValue placeholder={lookupsLoading ? "Loading…" : "None (independent)"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">None (independent)</SelectItem>
+                {leagues.map((l) => (
+                  <SelectItem key={l.id} value={String(l.id)}>
+                    {l.abbreviation ? `${l.abbreviation} – ${l.name}` : l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Division / Sport */}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label className="label-section">Division</Label>
+              <Select
+                value={divisionId}
+                onValueChange={setDivisionId}
+                disabled={divisionDisabled}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={
+                    lookupsLoading ? "Loading…"
+                    : isLeagueTeam && leagueDivisionsLoading ? "Loading…"
+                    : isLeagueTeam && leagueDivisions.length === 0 && !leagueDivisionsLoading ? "No divisions"
+                    : "Select"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  {isLeagueTeam
+                    ? leagueDivisions.map((d) => (
+                        <SelectItem key={d.id} value={String(d.id)}>
+                          {d.age_range ? `${d.name} (${d.age_range})` : d.name}
+                        </SelectItem>
+                      ))
+                    : divisions.map((d) => (
+                        <SelectItem key={d.id} value={String(d.id)}>{d.name}</SelectItem>
+                      ))
+                  }
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label className="label-section">Sport</Label>
+              <Select value={sportId} onValueChange={setSportId} disabled={lookupsLoading || !!isLeagueTeam}>
+                <SelectTrigger>
+                  <SelectValue placeholder={lookupsLoading ? "Loading…" : "Select"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {sports.map((s) => (
+                    <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="px-4 py-2 text-[11px] uppercase tracking-[0.08em] border border-border text-muted-foreground hover:text-foreground transition-colors duration-100"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={submitting || lookupsLoading || !canSubmit}
+            className="inline-flex items-center gap-2 px-4 py-2 text-[11px] uppercase tracking-[0.08em] bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity duration-100"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+            {submitting ? "Saving…" : "Save"}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ─── TeamDetailPage ─────────────────────────────────────────── */
 export default function TeamDetailPage() {
   const router = useRouter();
   const teamId = router.query.teamId as string | undefined;
   const returnTo = typeof router.query.returnTo === "string" ? router.query.returnTo : undefined;
   const backHref = returnTo && returnTo.startsWith("/") && !returnTo.includes("//") ? returnTo : "/teams";
-  const backLabel = backHref === "/teams" ? "Back to Teams" : "Back to tournament teams";
+  const backLabel = backHref === "/teams"
+    ? "Back to Teams"
+    : backHref.startsWith("/seasons/")
+      ? backHref.endsWith("/standings")
+        ? "Back to standings"
+        : "Back to league teams"
+      : "Back to tournament teams";
 
   const [team, setTeam] = useState<TeamDetail | null>(null);
   const [tournaments, setTournaments] = useState<TeamTournament[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("overview");
 
   useEffect(() => {
@@ -931,11 +1260,22 @@ export default function TeamDetailPage() {
           <TabsContent value="overview" className="mt-6 space-y-6">
             <Card>
               <CardContent className="p-6">
-                <h2 className="text-lg font-medium mb-4">Details</h2>
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-lg font-medium">Details</h2>
+                  <button
+                    type="button"
+                    onClick={() => setEditOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.08em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors duration-100"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Edit
+                  </button>
+                </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
                     <dt className="text-muted-foreground">Division</dt>
-                    <dd className="font-medium">{team.division ?? team.league_division_name ?? "—"}</dd>
+                    <dd className="font-medium">{team.league_division_name ?? team.division ?? "—"}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">Season</dt>
@@ -956,6 +1296,15 @@ export default function TeamDetailPage() {
                 </dl>
               </CardContent>
             </Card>
+
+            {editOpen && (
+              <EditTeamModal
+                team={team}
+                open={editOpen}
+                onOpenChange={setEditOpen}
+                onSaved={(updated) => setTeam(updated)}
+              />
+            )}
 
             <Card>
               <CardContent className="p-6">

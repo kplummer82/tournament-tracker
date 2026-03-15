@@ -97,8 +97,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'PATCH') {
       const body = req.body ?? {};
-      const { name, divisionId, season, year, sportId, leagueId } = body;
+      const { name, divisionId, season, year, sportId, leagueId, leagueDivisionId } = body;
       const hasLeagueId = 'leagueId' in body;
+      const hasLeagueDivisionId = 'leagueDivisionId' in body;
 
       const updated = await sql`
         UPDATE teams
@@ -111,6 +112,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           league_id = CASE WHEN ${hasLeagueId}
                         THEN ${leagueId != null ? Number(leagueId) : null}::int
                         ELSE league_id
+                      END,
+          league_division_id = CASE WHEN ${hasLeagueDivisionId}
+                        THEN ${leagueDivisionId != null ? Number(leagueDivisionId) : null}::int
+                        ELSE league_division_id
                       END
         WHERE teamid = ${id}
         RETURNING teamid AS id

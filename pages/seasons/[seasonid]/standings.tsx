@@ -1,9 +1,11 @@
 // pages/seasons/[seasonid]/standings.tsx
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SosView, { type SosGameRow } from "@/components/seasons/SosView";
 
 type StandingsRow = {
   teamid: number;
@@ -18,6 +20,9 @@ type StandingsRow = {
   rundifferential: number;
   rank_final: number;
 };
+
+type ViewMode = "standings" | "sos";
+type SosMode = "full" | "remaining";
 
 /** Derive W/L/T from the DB's win_pts (wins=1, ties=0.5) and games played */
 function derivedRecord(wins: number, games: number) {
@@ -53,12 +58,52 @@ const formatGB = (gb: number | null): string => {
   return gb % 1 === 0 ? String(gb) : gb.toFixed(1);
 };
 
+/* ── Segmented control ─────────────────────────────────────────────── */
+
+function SegmentedControl<T extends string>({
+  options,
+  active,
+  onChange,
+  size = "default",
+}: {
+  options: { key: T; label: string }[];
+  active: T;
+  onChange: (key: T) => void;
+  size?: "default" | "sm";
+}) {
+  const pad = size === "sm" ? "px-2.5 py-1 text-[10px]" : "px-3 py-1.5 text-[11px]";
+  return (
+    <div className="inline-flex border border-border overflow-hidden">
+      {options.map((o) => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={cn(
+            "font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer",
+            pad,
+            o.key === active
+              ? "bg-primary text-primary-foreground"
+              : "bg-transparent text-muted-foreground hover:text-foreground"
+          )}
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── Standings table (unchanged) ───────────────────────────────────── */
+
 function StandingsTable({
   rows,
   advancesToPlayoffs,
+  seasonId,
 }: {
   rows: StandingsRow[];
   advancesToPlayoffs: number | null;
+  seasonId: string;
 }) {
   const gbMap = computeGB(rows);
 
@@ -125,7 +170,12 @@ function StandingsTable({
                   </span>
                 </td>
                 <td className="p-3 font-semibold text-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                  {r.team ?? "—"}
+                  <Link
+                    href={`/teams/${r.teamid}?returnTo=/seasons/${seasonId}/standings`}
+                    className="hover:text-primary transition-colors"
+                  >
+                    {r.team ?? "—"}
+                  </Link>
                 </td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{w}</td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{l}</td>
@@ -174,12 +224,16 @@ function StandingsTable({
   );
 }
 
+/* ── Standings card list (unchanged) ───────────────────────────────── */
+
 function StandingsCardList({
   rows,
   advancesToPlayoffs,
+  seasonId,
 }: {
   rows: StandingsRow[];
   advancesToPlayoffs: number | null;
+  seasonId: string;
 }) {
   const gbMap = computeGB(rows);
 
@@ -222,9 +276,13 @@ function StandingsCardList({
             <div className="flex-1 min-w-0">
               {/* Row 1: Team + PCT */}
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-sm text-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
+                <Link
+                  href={`/teams/${r.teamid}?returnTo=/seasons/${seasonId}/standings`}
+                  className="font-semibold text-sm text-foreground truncate hover:text-primary transition-colors"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
                   {r.team ?? "—"}
-                </span>
+                </Link>
                 <span className="tabular-nums text-sm font-medium shrink-0" style={{ fontFamily: "var(--font-body)" }}>
                   {formatWLPct(r.wltpct, r.games)}
                 </span>
@@ -272,6 +330,8 @@ function StandingsCardList({
   );
 }
 
+/* ── Main body ─────────────────────────────────────────────────────── */
+
 function StandingsBody() {
   const { seasonId, season } = useSeason();
   const [rows, setRows] = useState<StandingsRow[]>([]);
@@ -279,8 +339,15 @@ function StandingsBody() {
   const [err, setErr] = useState<string | null>(null);
   const [includeInProgress, setIncludeInProgress] = useState(false);
 
+  const [viewMode, setViewMode] = useState<ViewMode>("standings");
+  const [sosMode, setSosMode] = useState<SosMode>("full");
+  const [games, setGames] = useState<SosGameRow[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const gamesLoaded = useRef(false);
+
   const advancesToPlayoffs = season?.advances_to_playoffs ?? null;
 
+  // Fetch standings
   useEffect(() => {
     if (!seasonId) return;
     let cancelled = false;
@@ -306,33 +373,101 @@ function StandingsBody() {
     return () => { cancelled = true; };
   }, [seasonId, includeInProgress]);
 
+  // Lazy-fetch games when SoS view is activated
+  useEffect(() => {
+    if (viewMode !== "sos" || !seasonId || gamesLoaded.current) return;
+    let cancelled = false;
+    (async () => {
+      setGamesLoading(true);
+      try {
+        const res = await fetch(`/api/seasons/${seasonId}/games`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) {
+          setGames(Array.isArray(data?.games) ? data.games : []);
+          gamesLoaded.current = true;
+        }
+      } catch {
+        if (!cancelled) setGames([]);
+      } finally {
+        if (!cancelled) setGamesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [viewMode, seasonId]);
+
+  // Reset games cache when season changes
+  const prevSeasonId = useRef(seasonId);
+  useEffect(() => {
+    if (seasonId !== prevSeasonId.current) {
+      gamesLoaded.current = false;
+      prevSeasonId.current = seasonId;
+    }
+  }, [seasonId]);
+
+  const handleViewChange = useCallback((v: ViewMode) => {
+    setViewMode(v);
+  }, []);
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      {/* Header */}
+      <div className="flex flex-col gap-3 mb-5 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "20px", textTransform: "uppercase", letterSpacing: "-0.01em" }}>
-            Standings
+            {viewMode === "standings" ? "Standings" : "Strength of Schedule"}
           </h2>
-          {!loading && rows.length > 0 && (
+          {viewMode === "standings" && !loading && rows.length > 0 && (
             <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "var(--font-body)" }}>
               {rows.length} teams ranked
               {advancesToPlayoffs !== null && ` · top ${advancesToPlayoffs} advance to playoffs`}
             </p>
           )}
         </div>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeInProgress}
-            onChange={(e) => setIncludeInProgress(e.target.checked)}
-            className="w-3.5 h-3.5 accent-primary cursor-pointer"
+
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* View-specific controls */}
+          {viewMode === "standings" && (
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={includeInProgress}
+                onChange={(e) => setIncludeInProgress(e.target.checked)}
+                className="w-3.5 h-3.5 accent-primary cursor-pointer"
+              />
+              <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                Include In Progress
+              </span>
+            </label>
+          )}
+          {viewMode === "sos" && (
+            <SegmentedControl<SosMode>
+              options={[
+                { key: "full", label: "Full Season" },
+                { key: "remaining", label: "Remaining" },
+              ]}
+              active={sosMode}
+              onChange={setSosMode}
+              size="sm"
+            />
+          )}
+
+          {/* View switcher */}
+          <SegmentedControl<ViewMode>
+            options={[
+              { key: "standings", label: "Standings" },
+              { key: "sos", label: "SoS" },
+            ]}
+            active={viewMode}
+            onChange={handleViewChange}
           />
-          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            Include In Progress
-          </span>
-        </label>
+        </div>
       </div>
 
+      {/* Content */}
       {loading ? (
         <div className="space-y-1">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -351,15 +486,23 @@ function StandingsBody() {
             Add teams and regular season games to see standings.
           </p>
         </div>
-      ) : (
+      ) : viewMode === "standings" ? (
         <>
           <div className="hidden md:block">
-            <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} />
+            <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} />
           </div>
           <div className="md:hidden">
-            <StandingsCardList rows={rows} advancesToPlayoffs={advancesToPlayoffs} />
+            <StandingsCardList rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} />
           </div>
         </>
+      ) : gamesLoading ? (
+        <div className="space-y-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="h-12 bg-elevated animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <SosView standings={rows} games={games} mode={sosMode} seasonId={String(seasonId)} />
       )}
     </div>
   );

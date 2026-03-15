@@ -19,6 +19,7 @@ type Team = {
   year: number;
   sport: string;
   league_name: string | null;
+  league_division_name: string | null;
 };
 type TeamsResponse = { rows: Team[]; total: number };
 type LookupRow = { id: number; name: string };
@@ -91,13 +92,13 @@ function TeamRow({ t }: { t: Team }) {
         style={{ fontFamily: "var(--font-body)", fontSize: "12px" }}
       >
         {t.league_name && <span>{t.league_name}</span>}
-        {t.year && <span>{t.league_name ? "·\u00a0" : ""}{t.year}</span>}
-        {t.season && <span>·&nbsp;{t.season}</span>}
-        {t.division && (
+        {(t.league_division_name || t.division) && (
           <span className="border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-wider">
-            {t.division}
+            {t.league_division_name || t.division}
           </span>
         )}
+        {t.year && <span>{t.league_name || t.league_division_name || t.division ? "·\u00a0" : ""}{t.year}</span>}
+        {t.season && <span>·&nbsp;{t.season}</span>}
         {t.sport && (
           <span className="border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-wider">
             {t.sport}
