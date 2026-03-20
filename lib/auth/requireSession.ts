@@ -4,8 +4,6 @@ import { sql } from "@/lib/db";
 
 type Session = NonNullable<Awaited<ReturnType<typeof getSessionForRequest>>>;
 
-const APPROVED_ROLES = new Set(["user", "admin"]);
-
 // In-memory cache for the approval setting (avoids a DB query on every API call)
 let approvalCache: { value: boolean; expiresAt: number } | null = null;
 const CACHE_TTL_MS = 60_000; // 60 seconds
@@ -26,8 +24,22 @@ export async function isApprovalRequired(): Promise<boolean> {
 }
 
 /**
+ * Check if a user has 'inactive' status in user_profiles (awaiting admin approval).
+ * No row = treat as active (legacy users created before this table existed).
+ */
+export async function isUserInactive(userId: string): Promise<boolean> {
+  try {
+    const rows = await sql`SELECT 1 FROM user_profiles WHERE user_id = ${userId} AND status = 'inactive'`;
+    return rows.length > 0;
+  } catch {
+    // If the table doesn't exist yet, treat as active
+    return false;
+  }
+}
+
+/**
  * Require an authenticated session. Returns the session or sends 401 and returns null.
- * If approval mode is enabled, also rejects users whose role is not "user" or "admin".
+ * If approval mode is enabled, also rejects users with inactive status.
  */
 export async function requireSession(
   req: NextApiRequest,
@@ -40,7 +52,7 @@ export async function requireSession(
   }
 
   const approvalEnabled = await isApprovalRequired();
-  if (approvalEnabled && !APPROVED_ROLES.has(session.user.role ?? "")) {
+  if (approvalEnabled && await isUserInactive(session.user.id)) {
     res.status(401).json({ error: "Account pending approval" });
     return null;
   }

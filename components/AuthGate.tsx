@@ -5,21 +5,22 @@ import { useRouter } from "next/router";
 import { authClient } from "@/lib/auth/client";
 
 const PUBLIC_PAGES = new Set(["/login", "/sign-up"]);
-const APPROVED_ROLES = new Set(["user", "admin"]);
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
-  const [approvalRequired, setApprovalRequired] = useState<boolean | null>(null);
+  const [userPending, setUserPending] = useState<boolean | null>(null);
   const redirectingRef = useRef(false);
 
-  // Fetch approval-mode setting once on mount
+  // Fetch per-user pending status whenever session changes (login/signup)
+  const userId = session?.user?.id;
   useEffect(() => {
-    fetch("/api/auth/approval-status")
+    if (isPending) return; // wait for session to resolve
+    fetch("/api/auth/approval-status", { credentials: "include" })
       .then((r) => r.json())
-      .then((d) => setApprovalRequired(d.requireApproval ?? false))
-      .catch(() => setApprovalRequired(false));
-  }, []);
+      .then((d) => setUserPending(d.userPending ?? false))
+      .catch(() => setUserPending(false));
+  }, [userId, isPending]);
 
   // Reset redirect guard when route changes
   useEffect(() => {
@@ -38,7 +39,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // --- Loading state ---
-  if (isPending || approvalRequired === null) {
+  if (isPending || userPending === null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
@@ -56,7 +57,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // --- Approval mode: pending users ---
-  if (approvalRequired && !APPROVED_ROLES.has(session.user.role ?? "")) {
+  if (userPending) {
     return <PendingApprovalScreen />;
   }
 

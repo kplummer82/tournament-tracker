@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireAdmin } from "@/lib/auth/requireSession";
+import { sql } from "@/lib/db";
 
 function getOrigin(req: NextApiRequest): string {
   const proto = req.headers["x-forwarded-proto"] ?? "http";
@@ -43,6 +44,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const data = await authRes.json();
     if (!authRes.ok) {
       return res.status(authRes.status).json(data);
+    }
+    // Activate: set user status to 'active' so they can access the app
+    try {
+      await sql`UPDATE user_profiles SET status = 'active', updated_at = NOW() WHERE user_id = ${id}`;
+    } catch {
+      // Non-fatal — table may not exist yet
     }
     return res.status(200).json(data);
   } catch (err) {

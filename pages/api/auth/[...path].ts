@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { isApprovalRequired } from "@/lib/auth/requireSession";
+import { sql } from "@/lib/db";
 
 /**
  * Standalone auth proxy for Pages Router.
@@ -120,6 +122,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         res.setHeader(key, value);
       }
     });
+
+    // --- Track every signup in user_profiles ---
+    // Neon Auth defaults role="user" which we can't change. Instead, track
+    // user status in our own DB. When approval mode is on, new users start
+    // as 'inactive' and must be approved by an admin.
+    if (
+      response.ok &&
+      path.startsWith("sign-up") &&
+      method === "POST"
+    ) {
+      try {
+        const parsed = JSON.parse(text);
+        const userData = parsed?.data ?? parsed;
+        const userId = userData?.user?.id;
+        if (userId) {
+          const approvalRequired = await isApprovalRequired();
+          const status = approvalRequired ? "inactive" : "active";
+          await sql`INSERT INTO user_profiles (user_id, status) VALUES (${userId}, ${status}) ON CONFLICT (user_id) DO NOTHING`;
+          console.log(`[auth proxy] created user_profile for ${userId} with status=${status}`);
+        }
+      } catch (e) {
+        // Don't break signup if profile creation fails
+        console.error("[auth proxy] error creating user profile on signup:", e);
+      }
+    }
 
     if (text) {
       const contentType = response.headers.get("content-type") ?? "";

@@ -8,6 +8,8 @@ type UserRow = {
   email: string;
   name: string;
   role?: string | null;
+  pending?: boolean;
+  userStatus?: string;
 };
 
 export default function AdminUsersClient() {
@@ -98,18 +100,36 @@ export default function AdminUsersClient() {
     }
   };
 
+  const toggleStatus = async (userId: string, currentStatus: string) => {
+    setUpdatingId(userId);
+    const newStatus = currentStatus === "active" ? "inactive" : "active";
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Failed to update status");
+      }
+      await fetchUsers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to update status");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   // Sort: pending users first, then by email
   const sortedUsers = [...users].sort((a, b) => {
-    const aPending = !a.role || (a.role !== "user" && a.role !== "admin");
-    const bPending = !b.role || (b.role !== "user" && b.role !== "admin");
-    if (aPending && !bPending) return -1;
-    if (!aPending && bPending) return 1;
+    if (a.pending && !b.pending) return -1;
+    if (!a.pending && b.pending) return 1;
     return (a.email ?? "").localeCompare(b.email ?? "");
   });
 
-  const pendingCount = users.filter(
-    (u) => !u.role || (u.role !== "user" && u.role !== "admin")
-  ).length;
+  const pendingCount = users.filter((u) => u.pending).length;
 
   if (loading) {
     return <p className="text-muted-foreground">Loading users…</p>;
@@ -149,14 +169,14 @@ export default function AdminUsersClient() {
         </div>
       )}
 
-      {/* Pending users badge */}
-      {approvalRequired && pendingCount > 0 && (
+      {/* Inactive users badge */}
+      {pendingCount > 0 && (
         <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2.5">
           <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-xs font-semibold">
             {pendingCount}
           </span>
           <span className="text-sm text-amber-700 dark:text-amber-400">
-            {pendingCount === 1 ? "user is" : "users are"} pending approval
+            {pendingCount === 1 ? "user is" : "users are"} inactive
           </span>
         </div>
       )}
@@ -172,14 +192,16 @@ export default function AdminUsersClient() {
                 <th className="text-left p-3 font-medium">Email</th>
                 <th className="text-left p-3 font-medium">Name</th>
                 <th className="text-left p-3 font-medium">Role</th>
+                <th className="text-left p-3 font-medium">Status</th>
                 <th className="text-left p-3 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               {sortedUsers.map((u) => {
                 const isAdmin = u.role === "admin";
-                const isUser = u.role === "user";
-                const isPending = !u.role || (!isAdmin && !isUser);
+                const isPending = !!u.pending;
+                const userStatus = u.userStatus ?? "active";
+                const isActive = userStatus === "active";
                 const isUpdating = updatingId === u.id;
                 return (
                   <tr key={u.id} className="border-b border-border/50 hover:bg-muted/20">
@@ -188,27 +210,31 @@ export default function AdminUsersClient() {
                     <td className="p-3">
                       {isAdmin ? (
                         <span className="text-primary font-medium">Admin</span>
-                      ) : isPending ? (
-                        <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400 font-medium">
-                          <span className="h-2 w-2 rounded-full bg-amber-500" />
-                          Pending
-                        </span>
                       ) : (
                         <span className="text-muted-foreground">User</span>
                       )}
                     </td>
                     <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        {isPending && (
-                          <Button
-                            variant="default"
-                            size="sm"
-                            disabled={isUpdating}
-                            onClick={() => setRole(u.id, "user")}
-                          >
-                            {isUpdating ? "Approving…" : "Approve"}
-                          </Button>
+                      <button
+                        onClick={() => toggleStatus(u.id, userStatus)}
+                        disabled={isUpdating}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium disabled:opacity-50"
+                      >
+                        {isActive ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                            Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                            <span className="h-2 w-2 rounded-full bg-amber-500" />
+                            Inactive
+                          </span>
                         )}
+                      </button>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center gap-2">
                         {isAdmin ? (
                           <Button
                             variant="outline"
@@ -220,7 +246,7 @@ export default function AdminUsersClient() {
                           </Button>
                         ) : (
                           <Button
-                            variant={isPending ? "outline" : "default"}
+                            variant="default"
                             size="sm"
                             disabled={isUpdating}
                             onClick={() => setRole(u.id, "admin")}
