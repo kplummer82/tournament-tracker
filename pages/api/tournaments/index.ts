@@ -1,6 +1,8 @@
 // pages/api/tournaments/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
+import { requireSession } from "@/lib/auth/requireSession";
+import { assignRole } from "@/lib/auth/permissions";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") return getTournaments(req, res);
@@ -115,6 +117,9 @@ async function getIdOrResolve(
 //   "visibilityid": 2             // or "visibility": "Private"
 // }
 async function createTournament(req: NextApiRequest, res: NextApiResponse) {
+  const session = await requireSession(req, res);
+  if (!session) return;
+
   const body = req.body || {};
   const client = await pool.connect();
 
@@ -209,6 +214,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       "tournamentvisibility",
       "advances_per_group",
       "num_pool_groups",
+      "created_by",
     ];
 
     const values = [
@@ -223,6 +229,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       visibilityId,
       advancesPerGroup,
       numPoolGroups,
+      session.user.id,
     ];
 
     const placeholders = values.map((_, idx) => `$${idx + 1}`).join(",");
@@ -251,6 +258,10 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
     );
 
     await client.query("COMMIT");
+
+    // Auto-assign tournament_admin role to creator
+    await assignRole(session.user.id, "tournament_admin", "tournament", newId, "system");
+
     res.status(201).json(rows[0]);
   } catch (e: any) {
     await client.query("ROLLBACK");

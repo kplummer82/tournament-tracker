@@ -25,7 +25,7 @@ export default function SeasonShell({
   enableSave?: boolean;
   children: React.ReactNode;
 }) {
-  const { seasonId, season, saving, save, remove, loading, error } = useSeason();
+  const { seasonId, season, saving, save, remove, loading, error, canEdit } = useSeason();
   const sc = STATUS_COLORS[season?.status ?? "draft"] ?? STATUS_COLORS.draft;
 
   const backHref = season
@@ -48,27 +48,29 @@ export default function SeasonShell({
             {season ? `${season.league_abbreviation ?? season.league_name} · ${season.year} ${season.season_type.charAt(0).toUpperCase() + season.season_type.slice(1)}` : "Leagues"}
           </Link>
 
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={remove}
-              className={cn(BTN_BASE, "border-destructive/40 text-destructive hover:bg-destructive/10")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!enableSave || saving}
-              className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Save className="h-3 w-3" />
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+          {canEdit && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={remove}
+                className={cn(BTN_BASE, "border-destructive/40 text-destructive hover:bg-destructive/10")}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!enableSave || saving}
+                className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Save className="h-3 w-3" />
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

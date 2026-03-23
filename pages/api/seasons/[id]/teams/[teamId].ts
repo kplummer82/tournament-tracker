@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const seasonId = parseInt(String(Array.isArray(req.query.id) ? req.query.id[0] : req.query.id), 10);
@@ -10,6 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "DELETE") {
+    const session = await requireSeasonAccess(req, res, seasonId);
+    if (!session) return;
+
     try {
       const rows = await sql`
         DELETE FROM season_teams

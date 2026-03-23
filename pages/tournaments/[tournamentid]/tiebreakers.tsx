@@ -4,7 +4,7 @@ import TournamentShell from "@/components/tournaments/TournamentShell";
 import TiebreakersPanel from "@/components/TiebreakersPanel";
 
 function TiebreakersBody() {
-  const { tid } = useTournament();
+  const { tid, canEdit } = useTournament();
   if (!tid) return <div className="text-sm text-muted-foreground">Invalid tournament id.</div>;
   return (
     <div>
@@ -16,7 +16,7 @@ function TiebreakersBody() {
           Configure how teams are ranked when they have equal records.
         </p>
       </div>
-      <TiebreakersPanel tournamentId={tid} />
+      <TiebreakersPanel tournamentId={tid} readOnly={!canEdit} />
     </div>
   );
 }

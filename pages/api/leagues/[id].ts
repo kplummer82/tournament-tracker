@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireLeagueAccess } from "@/lib/auth/requireSession";
 
 function parseId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -58,6 +59,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
+      const session = await requireLeagueAccess(req, res, id);
+      if (!session) return;
+
       const { name, abbreviation, city, state, governing_body_id, sportid } = req.body ?? {};
       const gbId = governing_body_id !== undefined
         ? (governing_body_id === null || governing_body_id === "" ? null : Number(governing_body_id))
@@ -90,6 +94,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "DELETE") {
+      const session = await requireLeagueAccess(req, res, id);
+      if (!session) return;
+
       const rows = await sql`
         DELETE FROM leagues WHERE id = ${id} RETURNING id
       `;

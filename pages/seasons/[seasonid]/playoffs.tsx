@@ -36,6 +36,7 @@ function BracketCard({
   standingsOrder,
   seedOffset,
   onDeleted,
+  canEdit,
 }: {
   bracket: SeasonBracket;
   seasonId: number;
@@ -44,6 +45,7 @@ function BracketCard({
   /** Cumulative number of seeds in all prior brackets (for correct offset into standings). */
   seedOffset: number;
   onDeleted: (id: number) => void;
+  canEdit: boolean;
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
   const [templateId, setTemplateId] = useState<number | null>(bracket.template_id ?? null);
@@ -235,15 +237,17 @@ function BracketCard({
         >
           {bracket.name}
         </h3>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-          title="Delete bracket"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+            title="Delete bracket"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <div className="p-4 space-y-4">
@@ -268,15 +272,17 @@ function BracketCard({
                 </span>
               )}
             </p>
-            <button
-              type="button"
-              onClick={() => setPickerOpen((o) => !o)}
-              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RefreshCw className="h-3 w-3" />
-              {pickerOpen ? "Hide" : structure ? "Change" : "Select template"}
-              {pickerOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setPickerOpen((o) => !o)}
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RefreshCw className="h-3 w-3" />
+                {pickerOpen ? "Hide" : structure ? "Change" : "Select template"}
+                {pickerOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              </button>
+            )}
           </div>
           {pickerOpen && (
             <div className="mb-3">
@@ -306,17 +312,19 @@ function BracketCard({
         )}
 
         {/* Save button */}
-        <div className="flex items-center gap-3 pt-1">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving || !structure || !templateId}
-            className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            {saving ? "Saving…" : "Save bracket"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving || !structure || !templateId}
+              className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {saving ? "Saving…" : "Save bracket"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -410,7 +418,7 @@ function CreateBracketForm({
 
 // ---------- Main playoffs body ----------
 function PlayoffsBody() {
-  const { seasonId } = useSeason();
+  const { seasonId, canEdit } = useSeason();
   const [brackets, setBrackets] = useState<SeasonBracket[]>([]);
   const [teams, setTeams] = useState<TeamOpt[]>([]);
   const [standingsOrder, setStandingsOrder] = useState<number[]>([]);
@@ -506,15 +514,17 @@ function PlayoffsBody() {
             </span>
           </label>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate((s) => !s)}
-          className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Bracket
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setShowCreate((s) => !s)}
+            className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Bracket
+          </button>
+        )}
       </div>
 
       {showCreate && seasonId && (
@@ -567,6 +577,7 @@ function PlayoffsBody() {
                   standingsOrder={standingsOrder}
                   seedOffset={offsets.get(b.id) ?? 0}
                   onDeleted={handleBracketDeleted}
+                  canEdit={canEdit}
                 />
               ) : null
             );

@@ -1,6 +1,7 @@
 // pages/api/tournaments/[tournamentid]/tiebreakers.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 type ApiTB = { id: number; code: string; displayName: string | null; description: string | null; sortDirection: "ASC" | "DESC" };
 type ApiSelected = { tiebreakerId: number; priority: number };
@@ -55,6 +56,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PUT") {
+      const session = await requireTournamentAccess(req, res, tournamentId!);
+      if (!session) return;
+
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       const raw = Array.isArray(body?.tiebreakerIds) ? body.tiebreakerIds : [];
       const ids: number[] = Array.from(

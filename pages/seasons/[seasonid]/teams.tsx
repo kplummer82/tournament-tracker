@@ -22,7 +22,7 @@ function TeamBadge({ name }: { name: string }) {
 }
 
 function TeamsBody() {
-  const { seasonId, season } = useSeason();
+  const { seasonId, season, canEdit } = useSeason();
   const [rows, setRows] = useState<TeamRow[]>([]);
   const [options, setOptions] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -206,36 +206,38 @@ function TeamsBody() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={showCreate ? () => setShowCreate(false) : openCreate}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border",
-              showCreate
-                ? "border-border text-muted-foreground hover:text-foreground"
-                : "bg-primary text-primary-foreground border-primary hover:opacity-90"
-            )}
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            {showCreate ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-            {showCreate ? "Cancel" : "New Team"}
-          </button>
-          <button
-            type="button"
-            onClick={showAdd ? () => { setShowAdd(false); setAddIds(new Set()); } : openAdd}
-            className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border",
-              showAdd
-                ? "border-border text-muted-foreground hover:text-foreground"
-                : "border-border text-foreground hover:bg-elevated"
-            )}
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            {showAdd ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-            {showAdd ? "Cancel" : "Add Teams"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={showCreate ? () => setShowCreate(false) : openCreate}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border",
+                showCreate
+                  ? "border-border text-muted-foreground hover:text-foreground"
+                  : "bg-primary text-primary-foreground border-primary hover:opacity-90"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {showCreate ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+              {showCreate ? "Cancel" : "New Team"}
+            </button>
+            <button
+              type="button"
+              onClick={showAdd ? () => { setShowAdd(false); setAddIds(new Set()); } : openAdd}
+              className={cn(
+                "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border",
+                showAdd
+                  ? "border-border text-muted-foreground hover:text-foreground"
+                  : "border-border text-foreground hover:bg-elevated"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {showAdd ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+              {showAdd ? "Cancel" : "Add Teams"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Quick-create form */}
@@ -368,7 +370,7 @@ function TeamsBody() {
             <thead>
               <tr className="border-b border-border bg-surface">
                 <th className="text-left p-3 pl-4 label-section">Team</th>
-                <th className="w-12"></th>
+                {canEdit && <th className="w-12"></th>}
               </tr>
             </thead>
             <tbody>
@@ -389,16 +391,18 @@ function TeamsBody() {
                       </Link>
                     </div>
                   </td>
-                  <td className="p-3 pr-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => handleRemove(r.id, r.name)}
-                      className="h-9 w-9 md:h-7 md:w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                      title="Remove from season"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </td>
+                  {canEdit && (
+                    <td className="p-3 pr-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => handleRemove(r.id, r.name)}
+                        className="h-9 w-9 md:h-7 md:w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                        title="Remove from season"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

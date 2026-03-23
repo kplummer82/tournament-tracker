@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireSession } from "@/lib/auth/requireSession";
+import { assignRole } from "@/lib/auth/permissions";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -78,6 +80,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
+      const session = await requireSession(req, res);
+      if (!session) return;
+
       const { name, abbreviation, city, state, governing_body_id, sportid } = req.body ?? {};
       if (!name?.trim()) {
         return res.status(400).json({ error: "name is required" });
@@ -86,19 +91,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const sId = sportid ? Number(sportid) : null;
 
       const inserted = await sql`
-        INSERT INTO leagues (name, abbreviation, city, state, governing_body_id, sportid)
+        INSERT INTO leagues (name, abbreviation, city, state, governing_body_id, sportid, created_by)
         VALUES (
           ${name.trim()},
           ${abbreviation?.trim() ?? null},
           ${city?.trim() ?? null},
           ${state?.trim() ?? null},
           ${gbId},
-          ${sId}
+          ${sId},
+          ${session.user.id}
         )
         RETURNING id, name, abbreviation, city, state, governing_body_id, sportid,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
-      return res.status(201).json(inserted[0]);
+      const newLeague = inserted[0];
+
+      // Auto-assign league_admin role to creator
+      await assignRole(session.user.id, "league_admin", "league", newLeague.id, "system");
+
+      return res.status(201).json(newLeague);
     }
 
     res.setHeader("Allow", ["GET", "POST"]);

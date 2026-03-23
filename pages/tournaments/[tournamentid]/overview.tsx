@@ -1,6 +1,7 @@
 // pages/tournaments/[tournamentid]/overview.tsx
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
+import ManageAccessPanel from "@/components/ManageAccessPanel";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -32,7 +33,7 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 function OverviewForm() {
-  const { t, setT, divisions, statuses, visibilities } = useTournament();
+  const { tid, t, setT, divisions, statuses, visibilities, canEdit } = useTournament();
   if (!t) return null;
 
   return (
@@ -44,6 +45,7 @@ function OverviewForm() {
             <Field label="Tournament name">
               <input
                 className={INPUT}
+                disabled={!canEdit}
                 value={t.name ?? ""}
                 onChange={(e) => setT((p) => (p ? { ...p, name: e.target.value } : p))}
                 placeholder="e.g. Summer Classic 2025"
@@ -53,6 +55,7 @@ function OverviewForm() {
           <Field label="Division">
             <select
               className={INPUT}
+              disabled={!canEdit}
               value={t.divisionid ? String(t.divisionid) : ""}
               onChange={(e) => setT((p) => (p ? { ...p, divisionid: Number(e.target.value) } : p))}
             >
@@ -64,6 +67,7 @@ function OverviewForm() {
           <Field label="Year">
             <input
               className={INPUT}
+              disabled={!canEdit}
               type="number"
               value={t.year ?? ""}
               onChange={(e) =>
@@ -81,6 +85,7 @@ function OverviewForm() {
           <Field label="City">
             <input
               className={INPUT}
+              disabled={!canEdit}
               value={t.city ?? ""}
               onChange={(e) => setT((p) => (p ? { ...p, city: e.target.value } : p))}
               placeholder="San Marcos"
@@ -89,6 +94,7 @@ function OverviewForm() {
           <Field label="State">
             <input
               className={INPUT}
+              disabled={!canEdit}
               value={t.state ?? ""}
               onChange={(e) => setT((p) => (p ? { ...p, state: e.target.value } : p))}
               placeholder="CA"
@@ -103,6 +109,7 @@ function OverviewForm() {
           <Field label="Max run differential">
             <input
               className={INPUT}
+              disabled={!canEdit}
               type="number"
               value={t.maxrundiff ?? ""}
               onChange={(e) =>
@@ -114,6 +121,7 @@ function OverviewForm() {
           <Field label="Forfeit run differential">
             <input
               className={INPUT}
+              disabled={!canEdit}
               type="number"
               min={0}
               value={t.forfeit_run_diff ?? ""}
@@ -126,6 +134,7 @@ function OverviewForm() {
           <Field label="Pool groups">
             <input
               className={INPUT}
+              disabled={!canEdit}
               type="number"
               min={1}
               max={8}
@@ -139,6 +148,7 @@ function OverviewForm() {
           <Field label="Teams advance per group">
             <input
               className={INPUT}
+              disabled={!canEdit}
               type="number"
               min={1}
               value={t.advances_per_group ?? ""}
@@ -151,6 +161,7 @@ function OverviewForm() {
           <Field label="Status">
             <select
               className={INPUT}
+              disabled={!canEdit}
               value={t.statusid ? String(t.statusid) : ""}
               onChange={(e) => setT((p) => (p ? { ...p, statusid: Number(e.target.value) } : p))}
             >
@@ -162,6 +173,7 @@ function OverviewForm() {
           <Field label="Visibility">
             <select
               className={INPUT}
+              disabled={!canEdit}
               value={t.visibilityid ? String(t.visibilityid) : ""}
               onChange={(e) => setT((p) => (p ? { ...p, visibilityid: Number(e.target.value) } : p))}
             >
@@ -176,6 +188,10 @@ function OverviewForm() {
       <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
         Click <strong>Save</strong> in the top bar to apply changes.
       </p>
+
+      {canEdit && tid && (
+        <ManageAccessPanel scopeType="tournament" scopeId={tid} />
+      )}
     </div>
   );
 }

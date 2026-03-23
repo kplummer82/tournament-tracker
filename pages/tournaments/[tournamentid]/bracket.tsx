@@ -15,7 +15,7 @@ type TeamOpt = { id: number; name: string };
 
 
 function BracketBody() {
-  const { tid, t } = useTournament();
+  const { tid, t, canEdit } = useTournament();
   const [structure, setStructure] = useState<BracketStructure | null>(null);
   const [templateId, setTemplateId] = useState<number | null>(null);
   const [templateName, setTemplateName] = useState<string | null>(null);
@@ -251,7 +251,7 @@ function BracketBody() {
               <p className="text-xs text-muted-foreground mt-0.5">Choose a bracket structure from the library.</p>
             )}
           </div>
-          {bracketSaved && (
+          {canEdit && bracketSaved && (
             <button
               type="button"
               onClick={() => setPickerExpanded((v) => !v)}
@@ -264,7 +264,7 @@ function BracketBody() {
           )}
         </div>
 
-        {pickerExpanded && (
+        {canEdit && pickerExpanded && (
           <div className="mt-4 space-y-4">
             <LibraryPicker onSelect={handleSelectFromLibrary} selectedId={templateId} />
           </div>
@@ -304,21 +304,23 @@ function BracketBody() {
 
 
       {/* Save */}
-      <div className="flex items-center gap-4">
-        <Button
-          onClick={handleSaveBracket}
-          disabled={
-            !templateId ||
-            !structure ||
-            saving ||
-            (structure ? !validateFirstRoundSeeds(structure).valid : false)
-          }
-          className="shadow-sm"
-        >
-          {saving ? "Saving…" : "Save bracket"}
-        </Button>
-        {saveError && <span className="text-sm text-destructive">{saveError}</span>}
-      </div>
+      {canEdit && (
+        <div className="flex items-center gap-4">
+          <Button
+            onClick={handleSaveBracket}
+            disabled={
+              !templateId ||
+              !structure ||
+              saving ||
+              (structure ? !validateFirstRoundSeeds(structure).valid : false)
+            }
+            className="shadow-sm"
+          >
+            {saving ? "Saving…" : "Save bracket"}
+          </Button>
+          {saveError && <span className="text-sm text-destructive">{saveError}</span>}
+        </div>
+      )}
     </div>
   );
 }

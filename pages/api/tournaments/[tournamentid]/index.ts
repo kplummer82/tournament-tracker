@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 /** Shape returned from the view.
  *  Includes back-compat aliases: tournamentid, tournamentstatus, tournamentvisibility.
@@ -60,6 +61,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
+      const session = await requireTournamentAccess(req, res, id);
+      if (!session) return;
+
       // Read any fields the Overview page may send.
       const {
         name, city, state, year, maxrundiff,
@@ -131,6 +135,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "DELETE") {
+      const session = await requireTournamentAccess(req, res, id);
+      if (!session) return;
+
       // Prefer a controlled proc; fallback here if you haven't created it yet.
       // await sql/*sql*/`SELECT public.api_delete_tournament(${id}, 'restrict');`;
       await sql/*sql*/`DELETE FROM public.tournaments WHERE tournamentid = ${id};`;

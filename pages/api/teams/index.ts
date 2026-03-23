@@ -1,6 +1,8 @@
 // pages/api/teams/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { neon } from "@neondatabase/serverless";
+import { requireSession } from "@/lib/auth/requireSession";
+import { assignRole } from "@/lib/auth/permissions";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -148,6 +150,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
+      const session = await requireSession(req, res);
+      if (!session) return;
+
       const { name, divisionId, divisionLabel, season, year, sportId, leagueId, leagueDivisionId } = req.body || {};
       const isLeagueTeam = !!leagueId;
 
@@ -207,8 +212,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const insertRes = await sql.query(
         `
-        INSERT INTO teams (name, division, season, year, sportid, league_id, league_division_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO teams (name, division, season, year, sportid, league_id, league_division_id, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING teamid AS id;
         `,
         [
@@ -219,11 +224,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sportId ?? null,
           leagueId ? Number(leagueId) : null,
           leagueDivisionId ? Number(leagueDivisionId) : null,
+          session.user.id,
         ]
       );
 
       const insertedRows = normalizeRows<{ id: number }>(insertRes);
-      res.status(201).json({ id: insertedRows[0].id });
+      const newTeamId = insertedRows[0].id;
+
+      // Auto-assign team_manager to creator for unaffiliated teams
+      if (!isLeagueTeam) {
+        await assignRole(session.user.id, "team_manager", "team", newTeamId, "system");
+      }
+
+      res.status(201).json({ id: newTeamId });
       return;
     }
 

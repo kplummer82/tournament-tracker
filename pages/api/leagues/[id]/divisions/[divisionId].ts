@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireDivisionAccess } from "@/lib/auth/requireSession";
 
 function parseIds(req: NextApiRequest): { leagueId: number | null; divisionId: number | null } {
   const rawLeague = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -40,6 +41,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
+      const session = await requireDivisionAccess(req, res, divisionId);
+      if (!session) return;
+
       const { name, age_range, sort_order } = req.body ?? {};
       const rows = await sql`
         UPDATE league_divisions
@@ -56,6 +60,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "DELETE") {
+      const session = await requireDivisionAccess(req, res, divisionId);
+      if (!session) return;
+
       const rows = await sql`
         DELETE FROM league_divisions
         WHERE id = ${divisionId} AND league_id = ${leagueId}

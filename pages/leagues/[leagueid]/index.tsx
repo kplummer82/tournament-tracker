@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Header from "@/components/Header";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import ManageAccessPanel from "@/components/ManageAccessPanel";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 
 type League = {
@@ -51,6 +53,9 @@ export default function LeagueDetailPage() {
   const router = useRouter();
   const leagueId = Number(Array.isArray(router.query.leagueid) ? router.query.leagueid[0] : router.query.leagueid);
 
+  const permissions = usePermissions();
+  const canEdit = permissions.canEditLeague(leagueId);
+
   const [league, setLeague] = useState<League | null>(null);
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [seasonGroups, setSeasonGroups] = useState<SeasonGroup[]>([]);
@@ -74,6 +79,11 @@ export default function LeagueDetailPage() {
   const [seasonForm, setSeasonForm] = useState({ year: String(new Date().getFullYear()), season_type: "spring" as string, divisionIds: [] as number[] });
   const [seasonSaving, setSeasonSaving] = useState(false);
   const [seasonError, setSeasonError] = useState<string | null>(null);
+
+  // Inline division creation within the season form
+  const [inlineDivs, setInlineDivs] = useState<{ name: string; age_range: string; sort_order: string }[]>([]);
+  const [showInlineDivForm, setShowInlineDivForm] = useState(false);
+  const [inlineDivForm, setInlineDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
 
   useEffect(() => {
     if (!router.isReady || !leagueId) return;
@@ -175,18 +185,45 @@ export default function LeagueDetailPage() {
     }));
   };
 
+  const addInlineDiv = () => {
+    if (!inlineDivForm.name.trim()) return;
+    setInlineDivs((prev) => [...prev, { ...inlineDivForm }]);
+    setInlineDivForm({ name: "", age_range: "", sort_order: String(inlineDivs.length + 1) });
+    setShowInlineDivForm(false);
+  };
+
+  const removeInlineDiv = (idx: number) => {
+    setInlineDivs((prev) => prev.filter((_, i) => i !== idx));
+  };
+
   const createSeasonGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (seasonForm.divisionIds.length === 0) {
-      setSeasonError("Select at least one division");
+    // Must have either existing divisions selected or inline divisions queued
+    if (seasonForm.divisionIds.length === 0 && inlineDivs.length === 0) {
+      setSeasonError("Add at least one division");
       return;
     }
     setSeasonSaving(true);
     setSeasonError(null);
     try {
+      // Step 1: Create any inline divisions first
+      const newDivIds: number[] = [];
+      for (const div of inlineDivs) {
+        const res = await fetch(`/api/leagues/${leagueId}/divisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: div.name, age_range: div.age_range || null, sort_order: Number(div.sort_order) || 0 }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || "Failed to create division");
+        newDivIds.push(json.id);
+        setDivisions((prev) => [...prev, { ...json, season_count: 0 }].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)));
+      }
+
+      // Step 2: Create one season per selected/new division
+      const allDivIds = [...seasonForm.divisionIds, ...newDivIds];
       const name = `${seasonForm.year} ${capitalize(seasonForm.season_type)} Season`;
-      // Create one season per selected division
-      for (const divId of seasonForm.divisionIds) {
+      for (const divId of allDivIds) {
         const res = await fetch("/api/seasons", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -282,22 +319,23 @@ export default function LeagueDetailPage() {
               >
                 Seasons
               </h2>
-              <button
-                type="button"
-                onClick={() => {
-                  if (divisions.length === 0) {
-                    setShowDivisions(true);
-                    setShowCreateDiv(true);
-                    return;
-                  }
-                  setShowCreateSeason((s) => !s);
-                }}
-                className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
-                style={{ fontFamily: "var(--font-body)" }}
-              >
-                <Plus className="h-3 w-3" />
-                New Season
-              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowCreateSeason((s) => !s);
+                    if (!showCreateSeason && divisions.length === 0) {
+                      setInlineDivs([]);
+                      setShowInlineDivForm(true);
+                    }
+                  }}
+                  className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  <Plus className="h-3 w-3" />
+                  New Season
+                </button>
+              )}
             </div>
 
             {showCreateSeason && (
@@ -306,7 +344,7 @@ export default function LeagueDetailPage() {
                   <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                     New Season
                   </span>
-                  <button type="button" onClick={() => setShowCreateSeason(false)}>
+                  <button type="button" onClick={() => { setShowCreateSeason(false); setInlineDivs([]); setShowInlineDivForm(false); }}>
                     <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                   </button>
                 </div>
@@ -336,34 +374,88 @@ export default function LeagueDetailPage() {
                     </select>
                   </div>
                 </div>
+
+                {/* Divisions section */}
                 <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Divisions *</label>
-                  <div className="flex flex-wrap gap-2">
-                    {divisions.map((div) => {
-                      const selected = seasonForm.divisionIds.includes(div.id);
-                      return (
-                        <button
-                          key={div.id}
-                          type="button"
-                          onClick={() => toggleDivisionSelection(div.id)}
-                          className={`px-3 py-1.5 text-xs border transition-colors ${
-                            selected
-                              ? "border-primary bg-primary/10 text-foreground"
-                              : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
-                          }`}
+
+                  {/* Existing divisions (toggle to select) */}
+                  {divisions.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-1">
+                      {divisions.map((div) => {
+                        const selected = seasonForm.divisionIds.includes(div.id);
+                        return (
+                          <button
+                            key={div.id}
+                            type="button"
+                            onClick={() => toggleDivisionSelection(div.id)}
+                            className={`px-3 py-1.5 text-xs border transition-colors ${
+                              selected
+                                ? "border-primary bg-primary/10 text-foreground"
+                                : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/30"
+                            }`}
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            {div.name}
+                            {div.age_range ? ` (${div.age_range})` : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Inline new divisions queued for creation */}
+                  {inlineDivs.length > 0 && (
+                    <div className="flex flex-wrap gap-2 mb-1">
+                      {inlineDivs.map((d, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-primary bg-primary/10 text-foreground"
                           style={{ fontFamily: "var(--font-body)" }}
                         >
-                          {div.name}
-                          {div.age_range ? ` (${div.age_range})` : ""}
+                          {d.name}{d.age_range ? ` (${d.age_range})` : ""}
+                          <button type="button" onClick={() => removeInlineDiv(idx)} className="text-muted-foreground hover:text-foreground">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Inline division creation mini-form */}
+                  {showInlineDivForm ? (
+                    <div className="p-3 border border-border bg-elevated space-y-2">
+                      <div className="grid grid-cols-3 gap-2">
+                        <input className={INPUT} placeholder="Division name *" value={inlineDivForm.name} onChange={(e) => setInlineDivForm((p) => ({ ...p, name: e.target.value }))} autoFocus />
+                        <input className={INPUT} placeholder="Age range (e.g. 9-10)" value={inlineDivForm.age_range} onChange={(e) => setInlineDivForm((p) => ({ ...p, age_range: e.target.value }))} />
+                        <input className={INPUT} type="number" placeholder="Sort order" value={inlineDivForm.sort_order} onChange={(e) => setInlineDivForm((p) => ({ ...p, sort_order: e.target.value }))} />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => setShowInlineDivForm(false)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                          Cancel
                         </button>
-                      );
-                    })}
-                  </div>
+                        <button type="button" onClick={addInlineDiv} disabled={!inlineDivForm.name.trim()} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                          Add
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setShowInlineDivForm(true); setInlineDivForm({ name: "", age_range: "", sort_order: String(divisions.length + inlineDivs.length) }); }}
+                      className="self-start flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors mt-1"
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add new division
+                    </button>
+                  )}
                 </div>
+
                 <div className="flex justify-end">
                   <button
                     type="submit"
-                    disabled={seasonSaving || seasonForm.divisionIds.length === 0}
+                    disabled={seasonSaving || (seasonForm.divisionIds.length === 0 && inlineDivs.length === 0)}
                     className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`}
                     style={{ fontFamily: "var(--font-body)" }}
                   >
@@ -427,17 +519,19 @@ export default function LeagueDetailPage() {
 
               {showDivisions && (
                 <div className="mt-4">
-                  <div className="flex justify-end mb-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateDiv((s) => !s)}
-                      className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
-                      style={{ fontFamily: "var(--font-body)" }}
-                    >
-                      <Plus className="h-3 w-3" />
-                      Add Division
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex justify-end mb-3">
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateDiv((s) => !s)}
+                        className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        <Plus className="h-3 w-3" />
+                        Add Division
+                      </button>
+                    </div>
+                  )}
 
                   {showCreateDiv && (
                     <form onSubmit={createDivision} className="mb-4 p-4 border border-border bg-card space-y-3">
@@ -516,28 +610,30 @@ export default function LeagueDetailPage() {
                                   {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                {confirmDeleteDiv === div.id ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
-                                    <button type="button" onClick={() => deleteDivision(div.id)} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
-                                      {deletingDiv ? "…" : "Yes"}
-                                    </button>
-                                    <button type="button" onClick={() => setConfirmDeleteDiv(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
-                                      No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <button type="button" onClick={() => startEditDiv(div)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit division">
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
-                                    <button type="button" onClick={() => setConfirmDeleteDiv(div.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
-                                      <Trash2 className="h-4 w-4" />
-                                    </button>
-                                  </>
-                                )}
-                              </div>
+                              {canEdit && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {confirmDeleteDiv === div.id ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
+                                      <button type="button" onClick={() => deleteDivision(div.id)} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                                        {deletingDiv ? "…" : "Yes"}
+                                      </button>
+                                      <button type="button" onClick={() => setConfirmDeleteDiv(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                                        No
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button type="button" onClick={() => startEditDiv(div)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit division">
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                      <button type="button" onClick={() => setConfirmDeleteDiv(div.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -547,6 +643,15 @@ export default function LeagueDetailPage() {
                 </div>
               )}
             </div>
+
+            {/* Manage Access */}
+            {canEdit && (
+              <ManageAccessPanel
+                scopeType="league"
+                scopeId={leagueId}
+                divisions={divisions.map((d) => ({ id: d.id, name: d.name }))}
+              />
+            )}
           </>
         )}
       </div>

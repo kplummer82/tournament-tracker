@@ -3,7 +3,7 @@ import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 
 function TiebreakersBody() {
-  const { seasonId } = useSeason();
+  const { seasonId, canEdit } = useSeason();
   if (!seasonId) return <div className="text-sm text-muted-foreground">Invalid season id.</div>;
   return (
     <div>
@@ -15,7 +15,7 @@ function TiebreakersBody() {
           Configure how teams are ranked when they have equal records.
         </p>
       </div>
-      <SeasonTiebreakersPanel seasonId={seasonId} />
+      <SeasonTiebreakersPanel seasonId={seasonId} canEdit={canEdit} />
     </div>
   );
 }
@@ -121,7 +121,7 @@ function SortableSelectedItem({ tb, priority, active, onToggle, onMoveUp, onMove
   );
 }
 
-function SeasonTiebreakersPanel({ seasonId }: { seasonId: number }) {
+function SeasonTiebreakersPanel({ seasonId, canEdit }: { seasonId: number; canEdit: boolean }) {
   const [available, setAvailable] = useState<Tiebreaker[]>([]);
   const [selected, setSelected] = useState<SelectedTB[]>([]);
   const [loading, setLoading] = useState(true);
@@ -225,33 +225,39 @@ function SeasonTiebreakersPanel({ seasonId }: { seasonId: number }) {
         ) : (
           <>
             {error && <div className="mb-4 rounded-md border border-destructive/50 bg-destructive/10 text-destructive p-3 text-sm">{error}</div>}
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-6 items-start">
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground">Available</h3>
-                  <button onClick={addAll} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted">
-                    <PlusCircle className="w-4 h-4" /> Add all
+            <div className={cn("grid grid-cols-1 gap-6 items-start", canEdit ? "lg:grid-cols-[1fr_auto_1fr]" : "max-w-lg")}>
+              {canEdit && (
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-foreground">Available</h3>
+                    <button onClick={addAll} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted">
+                      <PlusCircle className="w-4 h-4" /> Add all
+                    </button>
+                  </div>
+                  <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
+                    {availFiltered.length === 0 && <div className="text-sm text-muted-foreground">No more items</div>}
+                    {availFiltered.map((tb) => <SelectableRow key={tb.id} tb={tb} selected={availSel.has(tb.id)} onToggle={toggleAvail} />)}
+                  </div>
+                </div>
+              )}
+              {canEdit && (
+                <div className="flex flex-col justify-center items-center gap-2 py-4">
+                  <button onClick={addSelected} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap">
+                    <ArrowRight className="w-4 h-4" /> Add selected
+                  </button>
+                  <button onClick={removeSelected} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap">
+                    <ArrowLeft className="w-4 h-4" /> Remove selected
                   </button>
                 </div>
-                <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
-                  {availFiltered.length === 0 && <div className="text-sm text-muted-foreground">No more items</div>}
-                  {availFiltered.map((tb) => <SelectableRow key={tb.id} tb={tb} selected={availSel.has(tb.id)} onToggle={toggleAvail} />)}
-                </div>
-              </div>
-              <div className="flex flex-col justify-center items-center gap-2 py-4">
-                <button onClick={addSelected} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap">
-                  <ArrowRight className="w-4 h-4" /> Add selected
-                </button>
-                <button onClick={removeSelected} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap">
-                  <ArrowLeft className="w-4 h-4" /> Remove selected
-                </button>
-              </div>
+              )}
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-foreground">Selected (drag to reorder)</h3>
-                  <button onClick={removeAll} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted">
-                    <MinusCircle className="w-4 h-4" /> Remove all
-                  </button>
+                  <h3 className="text-sm font-semibold text-foreground">{canEdit ? "Selected (drag to reorder)" : "Current tiebreaker order"}</h3>
+                  {canEdit && (
+                    <button onClick={removeAll} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted">
+                      <MinusCircle className="w-4 h-4" /> Remove all
+                    </button>
+                  )}
                 </div>
                 <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                   <SortableContext items={selectedSortableIds} strategy={rectSortingStrategy}>
@@ -277,15 +283,17 @@ function SeasonTiebreakersPanel({ seasonId }: { seasonId: number }) {
                 </DndContext>
               </div>
             </div>
-            <div className="mt-6 flex items-center gap-3">
-              <button onClick={onSave} disabled={saving || !hasChanges} className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white", saving || !hasChanges ? "bg-indigo-300" : "bg-indigo-600 hover:bg-indigo-700")}>
-                <Save className="w-4 h-4" />{saving ? "Saving…" : "Save"}
-              </button>
-              <button onClick={onCancel} disabled={!hasChanges} className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-lg border", !hasChanges ? "border-border text-muted-foreground" : "border-border hover:bg-muted")}>
-                <RotateCcw className="w-4 h-4" /> Cancel
-              </button>
-              <div className="ml-auto text-sm text-muted-foreground">First item has highest priority.</div>
-            </div>
+            {canEdit && (
+              <div className="mt-6 flex items-center gap-3">
+                <button onClick={onSave} disabled={saving || !hasChanges} className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white", saving || !hasChanges ? "bg-indigo-300" : "bg-indigo-600 hover:bg-indigo-700")}>
+                  <Save className="w-4 h-4" />{saving ? "Saving…" : "Save"}
+                </button>
+                <button onClick={onCancel} disabled={!hasChanges} className={cn("inline-flex items-center gap-2 px-4 py-2 rounded-lg border", !hasChanges ? "border-border text-muted-foreground" : "border-border hover:bg-muted")}>
+                  <RotateCcw className="w-4 h-4" /> Cancel
+                </button>
+                <div className="ml-auto text-sm text-muted-foreground">First item has highest priority.</div>
+              </div>
+            )}
           </>
         )}
       </div>

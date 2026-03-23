@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 function parseId(val: string | string[] | undefined): number | null {
   const raw = Array.isArray(val) ? val[0] : val;
@@ -16,6 +17,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!teamId) return res.status(400).json({ error: "Invalid teamId" });
 
   if (req.method === "PATCH") {
+    const session = await requireTournamentAccess(req, res, tournamentId!);
+    if (!session) return;
+
     try {
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
 
@@ -50,6 +54,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "DELETE") {
+    const session = await requireTournamentAccess(req, res, tournamentId!);
+    if (!session) return;
+
     try {
       await sql`
         DELETE FROM bracket_assignments

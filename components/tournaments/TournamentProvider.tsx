@@ -1,6 +1,7 @@
 // components/tournaments/TournamentProvider.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 import type { Tournament, LookupRow } from "./types";
 
 type Ctx = {
@@ -15,6 +16,7 @@ type Ctx = {
   saving: boolean;
   save: () => Promise<void>;
   remove: () => Promise<void>;
+  canEdit: boolean;
 };
 
 const C = createContext<Ctx | undefined>(undefined);
@@ -65,6 +67,12 @@ export default function TournamentProvider({ children }: { children: React.React
     return () => void (cancelled = true);
   }, [router.isReady, tid]);
 
+  const permissions = usePermissions();
+  const canEdit = useMemo(() => {
+    if (permissions.loading || !tid) return false;
+    return permissions.canEditTournament(tid);
+  }, [permissions, tid]);
+
   const save = async () => {
     if (!tid || !t) return;
     setSaving(true);
@@ -106,7 +114,7 @@ export default function TournamentProvider({ children }: { children: React.React
   };
 
   return (
-    <C.Provider value={{ tid, t, setT, divisions, statuses, visibilities, loading, error, saving, save, remove }}>
+    <C.Provider value={{ tid, t, setT, divisions, statuses, visibilities, loading, error, saving, save, remove, canEdit }}>
       {children}
     </C.Provider>
   );

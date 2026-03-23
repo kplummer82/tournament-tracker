@@ -1,6 +1,7 @@
 // pages/api/tournaments/[tournamentid]/teams/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const id = Number((req.query as any).tournamentid);
@@ -26,6 +27,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === "POST") {
+    const session = await requireTournamentAccess(req, res, id);
+    if (!session) return;
+
     // Modal adds by teamId into the base table
     const { teamIds } = (req.body ?? {}) as { teamIds: number[] };
     if (!Array.isArray(teamIds) || teamIds.length === 0)

@@ -44,7 +44,7 @@ function ScoreCell({ score, isWinner }: { score: number | null; isWinner?: boole
 }
 
 function PoolBody() {
-  const { tid } = useTournament();
+  const { tid, canEdit } = useTournament();
   const [rows, setRows] = useState<PoolGameRow[]>([]);
   const [teamRows, setTeamRows] = useState<TournamentTeamRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -177,21 +177,25 @@ function PoolBody() {
               >
                 <ExternalLink className="h-3.5 w-3.5" />
               </Link>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-none"
-                title="Edit game"
-                onClick={() => openEdit(g)}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-              {tid && (
-                <PoolGameDeleteButton
-                  tournamentId={tid}
-                  gameId={g.id}
-                  onDeleted={(id) => setRows((prev) => prev.filter((x) => x.id !== id))}
-                />
+              {canEdit && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-none"
+                    title="Edit game"
+                    onClick={() => openEdit(g)}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  {tid && (
+                    <PoolGameDeleteButton
+                      tournamentId={tid}
+                      gameId={g.id}
+                      onDeleted={(id) => setRows((prev) => prev.filter((x) => x.id !== id))}
+                    />
+                  )}
+                </>
               )}
             </div>
           </td>
@@ -213,14 +217,16 @@ function PoolBody() {
             </p>
           )}
         </div>
-        <Button
-          onClick={() => setAddOpen(true)}
-          className="gap-2 bg-primary text-primary-foreground hover:opacity-90 border-0 rounded-none text-[11px] uppercase tracking-[0.08em] h-8 px-4"
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Game
-        </Button>
+        {canEdit && (
+          <Button
+            onClick={() => setAddOpen(true)}
+            className="gap-2 bg-primary text-primary-foreground hover:opacity-90 border-0 rounded-none text-[11px] uppercase tracking-[0.08em] h-8 px-4"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Game
+          </Button>
+        )}
       </div>
 
       {loading ? (

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 function parseSeasonId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -48,6 +49,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PUT") {
+      const session = await requireSeasonAccess(req, res, seasonId);
+      if (!session) return;
+
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
       const raw = Array.isArray(body?.tiebreakerIds) ? body.tiebreakerIds : [];
       const ids: number[] = Array.from(

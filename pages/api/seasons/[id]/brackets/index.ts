@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 function parseSeasonId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -29,6 +30,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
+      const session = await requireSeasonAccess(req, res, seasonId);
+      if (!session) return;
+
       const { name, sort_order, template_id } = req.body ?? {};
       if (!name?.trim()) return res.status(400).json({ error: "name is required" });
 

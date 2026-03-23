@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireDivisionAccess } from "@/lib/auth/requireSession";
 
 const VALID_SEASON_TYPES = ["spring", "summer", "fall", "winter"] as const;
 const VALID_STATUSES = ["draft", "active", "playoffs", "completed", "archived"] as const;
@@ -58,6 +59,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       } = req.body ?? {};
 
       if (!league_division_id) return res.status(400).json({ error: "league_division_id is required" });
+
+      const session = await requireDivisionAccess(req, res, Number(league_division_id));
+      if (!session) return;
       if (!name?.trim()) return res.status(400).json({ error: "name is required" });
       if (!year) return res.status(400).json({ error: "year is required" });
       if (!VALID_SEASON_TYPES.includes(season_type)) {

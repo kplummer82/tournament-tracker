@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 const VALID_SEASON_TYPES = ["spring", "summer", "fall", "winter"];
 const VALID_STATUSES = ["draft", "active", "playoffs", "completed", "archived"];
@@ -42,6 +43,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PATCH") {
+      const session = await requireSeasonAccess(req, res, id);
+      if (!session) return;
+
       const {
         name, year, season_type, status,
         maxrundiff, forfeit_run_diff, advances_to_playoffs,
@@ -73,6 +77,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "DELETE") {
+      const session = await requireSeasonAccess(req, res, id);
+      if (!session) return;
+
       const rows = await sql`
         DELETE FROM seasons WHERE id = ${id} RETURNING id
       `;

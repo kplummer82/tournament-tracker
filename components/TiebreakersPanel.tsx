@@ -179,7 +179,7 @@ function SortableSelectedItem({
 }
 
 /* ---------- main panel (formerly TiebreakersManager) ---------- */
-export default function TiebreakersPanel({ tournamentId }: { tournamentId: number }) {
+export default function TiebreakersPanel({ tournamentId, readOnly = false }: { tournamentId: number; readOnly?: boolean }) {
   const [available, setAvailable] = useState<Tiebreaker[]>([]);
   const [selected, setSelected] = useState<SelectedTB[]>([]);
   const [loading, setLoading] = useState(true);
@@ -333,12 +333,14 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
               <div className="flex-1">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-foreground">Available</h3>
-                  <button
-                    onClick={addAll}
-                    className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted"
-                  >
-                    <PlusCircle className="w-4 h-4" /> Add all
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={addAll}
+                      className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted"
+                    >
+                      <PlusCircle className="w-4 h-4" /> Add all
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2 max-h-[560px] overflow-auto pr-1">
                   {availFiltered.length === 0 && <div className="text-sm text-muted-foreground">No more items</div>}
@@ -349,33 +351,37 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
               </div>
 
               {/* Middle controls */}
-              <div className="flex flex-col justify-center items-center gap-2 py-4">
-                <button
-                  onClick={addSelected}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
-                >
-                  <ArrowRight className="w-4 h-4" />
-                  Add selected
-                </button>
-                <button
-                  onClick={removeSelected}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
-                >
-                  <ArrowLeft className="w-4 h-4" />
-                  Remove selected
-                </button>
-              </div>
+              {!readOnly && (
+                <div className="flex flex-col justify-center items-center gap-2 py-4">
+                  <button
+                    onClick={addSelected}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    Add selected
+                  </button>
+                  <button
+                    onClick={removeSelected}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-md border border-border hover:bg-muted text-sm whitespace-nowrap"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    Remove selected
+                  </button>
+                </div>
+              )}
 
               {/* Selected list with DnD reordering */}
               <div className="flex-1">
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-foreground">Selected (drag to reorder)</h3>
-                  <button
-                    onClick={removeAll}
-                    className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted"
-                  >
-                    <MinusCircle className="w-4 h-4" /> Remove all
-                  </button>
+                  {!readOnly && (
+                    <button
+                      onClick={removeAll}
+                      className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted"
+                    >
+                      <MinusCircle className="w-4 h-4" /> Remove all
+                    </button>
+                  )}
                 </div>
 
                 <DndContext collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -407,32 +413,34 @@ export default function TiebreakersPanel({ tournamentId }: { tournamentId: numbe
               </div>
             </div>
 
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                onClick={onSave}
-                disabled={saving || !hasChanges}
-                className={cn(
-                  "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white",
-                  saving || !hasChanges ? "bg-indigo-300" : "bg-indigo-600 hover:bg-indigo-700"
-                )}
-              >
-                <Save className="w-4 h-4" />
-                {saving ? "Saving…" : "Save"}
-              </button>
-              <button
-                onClick={onCancel}
-                disabled={!hasChanges}
-                className={cn(
-                  "inline-flex items-center gap-2 px-4 py-2 rounded-lg border",
-                  !hasChanges ? "border-border text-muted-foreground" : "border-border hover:bg-muted"
-                )}
-              >
-                <RotateCcw className="w-4 h-4" /> Cancel
-              </button>
-              <div className="ml-auto text-sm text-muted-foreground">
-                First item has highest priority. No duplicates allowed.
+            {!readOnly && (
+              <div className="mt-6 flex items-center gap-3">
+                <button
+                  onClick={onSave}
+                  disabled={saving || !hasChanges}
+                  className={cn(
+                    "inline-flex items-center gap-2 px-4 py-2 rounded-lg text-white",
+                    saving || !hasChanges ? "bg-indigo-300" : "bg-indigo-600 hover:bg-indigo-700"
+                  )}
+                >
+                  <Save className="w-4 h-4" />
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  onClick={onCancel}
+                  disabled={!hasChanges}
+                  className={cn(
+                    "inline-flex items-center gap-2 px-4 py-2 rounded-lg border",
+                    !hasChanges ? "border-border text-muted-foreground" : "border-border hover:bg-muted"
+                  )}
+                >
+                  <RotateCcw className="w-4 h-4" /> Cancel
+                </button>
+                <div className="ml-auto text-sm text-muted-foreground">
+                  First item has highest priority. No duplicates allowed.
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

@@ -103,7 +103,7 @@ function GroupSectionHeader({ label, count, colSpan = 3 }: { label: string; coun
 }
 
 function TeamsBody() {
-  const { tid, t } = useTournament();
+  const { tid, t, canEdit } = useTournament();
   const numGroups = (t?.num_pool_groups ?? 0) >= 2 ? (t!.num_pool_groups as number) : null;
   const [rows, setRows] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -263,7 +263,7 @@ function TeamsBody() {
             </p>
           )}
         </div>
-        {tid && <AddTeamsModal tournamentid={tid} onAdded={() => setVersion((v) => v + 1)} />}
+        {canEdit && tid && <AddTeamsModal tournamentid={tid} onAdded={() => setVersion((v) => v + 1)} />}
       </div>
 
       {numGroups != null && (
@@ -353,7 +353,7 @@ function TeamsBody() {
                         </td>
                       )}
                       <td className="p-3 pr-4">
-                        {r.id != null && (
+                        {canEdit && r.id != null && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <button

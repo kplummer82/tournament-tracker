@@ -211,7 +211,7 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
 type GameFilter = "all" | "regular" | "playoff";
 
 function ScheduleBody() {
-  const { seasonId } = useSeason();
+  const { seasonId, canEdit } = useSeason();
   const [rows, setRows] = useState<GameRow[]>([]);
   const [teams, setTeams] = useState<TeamOpt[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
@@ -435,22 +435,26 @@ function ScheduleBody() {
                 >
                   <ExternalLink className="h-3.5 w-3.5" />
                 </Link>
-                <button
-                  type="button"
-                  onClick={() => openEdit(g)}
-                  className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-                  title="Edit game"
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(g.id)}
-                  className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                  title="Delete game"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
+                {canEdit && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openEdit(g)}
+                      className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                      title="Edit game"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(g.id)}
+                      className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                      title="Delete game"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </td>
           </tr>
@@ -475,15 +479,17 @@ function ScheduleBody() {
             </p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
-          className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Add Game
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
+            className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Game
+          </button>
+        )}
       </div>
 
       {/* Game type filter */}
@@ -647,22 +653,26 @@ function ScheduleBody() {
                       >
                         <ExternalLink className="h-4 w-4" />
                       </Link>
-                      <button
-                        type="button"
-                        onClick={() => openEdit(g)}
-                        className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
-                        title="Edit game"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(g.id)}
-                        className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
-                        title="Delete game"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      {canEdit && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(g)}
+                            className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                            title="Edit game"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(g.id)}
+                            className="h-9 w-9 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                            title="Delete game"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                   {editId === g.id && (

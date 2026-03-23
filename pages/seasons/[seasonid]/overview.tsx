@@ -35,7 +35,7 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 function OverviewForm() {
-  const { season, setSeason } = useSeason();
+  const { season, setSeason, canEdit } = useSeason();
   if (!season) return null;
 
   return (
@@ -50,6 +50,7 @@ function OverviewForm() {
                 value={season.name}
                 onChange={(e) => setSeason((p) => p ? { ...p, name: e.target.value } : p)}
                 placeholder="e.g. 2025 Spring Season"
+                disabled={!canEdit}
               />
             </Field>
           </div>
@@ -61,6 +62,7 @@ function OverviewForm() {
               onChange={(e) =>
                 setSeason((p) => p ? { ...p, year: Number(e.target.value) } : p)
               }
+              disabled={!canEdit}
             />
           </Field>
           <Field label="Season type">
@@ -70,6 +72,7 @@ function OverviewForm() {
               onChange={(e) =>
                 setSeason((p) => p ? { ...p, season_type: e.target.value as typeof season.season_type } : p)
               }
+              disabled={!canEdit}
             >
               {SEASON_TYPES.map((t) => (
                 <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
@@ -89,6 +92,7 @@ function OverviewForm() {
               onChange={(e) =>
                 setSeason((p) => p ? { ...p, status: e.target.value as typeof season.status } : p)
               }
+              disabled={!canEdit}
             >
               {STATUSES.map((s) => (
                 <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
@@ -106,6 +110,7 @@ function OverviewForm() {
                 )
               }
               placeholder="e.g. 10 (leave blank for none)"
+              disabled={!canEdit}
             />
           </Field>
           <Field label="Forfeit run differential">
@@ -120,6 +125,7 @@ function OverviewForm() {
                 )
               }
               placeholder="e.g. 7 (leave blank for 0)"
+              disabled={!canEdit}
             />
           </Field>
           <Field label="Teams advance to playoffs">
@@ -133,6 +139,7 @@ function OverviewForm() {
                 )
               }
               placeholder="e.g. 4"
+              disabled={!canEdit}
             />
           </Field>
         </div>
@@ -161,9 +168,11 @@ function OverviewForm() {
         </div>
       </section>
 
-      <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-        Click <strong>Save</strong> in the top bar to apply changes.
-      </p>
+      {canEdit && (
+        <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+          Click <strong>Save</strong> in the top bar to apply changes.
+        </p>
+      )}
     </div>
   );
 }

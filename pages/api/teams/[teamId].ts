@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/db';
+import { requireTeamAccess } from '@/lib/auth/requireSession';
 
 export type TeamDetail = {
   id: number;
@@ -96,6 +97,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PATCH') {
+      const session = await requireTeamAccess(req, res, id);
+      if (!session) return;
+
       const body = req.body ?? {};
       const { name, divisionId, season, year, sportId, leagueId, leagueDivisionId } = body;
       const hasLeagueId = 'leagueId' in body;
@@ -130,6 +134,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'DELETE') {
+      const session = await requireTeamAccess(req, res, id);
+      if (!session) return;
+
       // First unlink from tournaments
       await sql`
         DELETE FROM tournamentteams WHERE teamid = ${id}

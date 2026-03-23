@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tournamentid = Number(req.query.tournamentid);
@@ -11,6 +12,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader("Allow", "DELETE");
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  const session = await requireTournamentAccess(req, res, tournamentid);
+  if (!session) return;
 
   try {
     const client = await pool.connect();

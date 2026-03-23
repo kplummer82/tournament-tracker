@@ -1,8 +1,20 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getSessionForRequest } from "./server";
 import { sql } from "@/lib/db";
+import {
+  getUserRoles,
+  getSeasonAncestry,
+  getDivisionAncestry,
+  getTeamAncestry,
+  hasLeagueAccess,
+  hasDivisionAccess,
+  hasSeasonAccess,
+  hasTournamentAccess,
+  hasTeamAccess,
+} from "./permissions";
 
 type Session = NonNullable<Awaited<ReturnType<typeof getSessionForRequest>>>;
+export type { Session };
 
 // In-memory cache for the approval setting (avoids a DB query on every API call)
 let approvalCache: { value: boolean; expiresAt: number } | null = null;
@@ -74,4 +86,131 @@ export async function requireAdmin(
     return null;
   }
   return session;
+}
+
+// --------------- Scoped Access Helpers ---------------
+
+/**
+ * Require league_admin access for a specific league.
+ * System admins always pass.
+ */
+export async function requireLeagueAccess(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  leagueId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const roles = await getUserRoles(session.user.id);
+  if (hasLeagueAccess(roles, leagueId)) return session;
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
+/**
+ * Require division_admin (or league_admin on parent league) access.
+ * System admins always pass.
+ */
+export async function requireDivisionAccess(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  divisionId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const ancestry = await getDivisionAncestry(divisionId);
+  if (!ancestry) {
+    res.status(404).json({ error: "Division not found" });
+    return null;
+  }
+
+  const roles = await getUserRoles(session.user.id);
+  if (hasDivisionAccess(roles, divisionId, ancestry.league_id)) return session;
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
+/**
+ * Require access to a season (via division_admin or league_admin on parent).
+ * System admins always pass.
+ */
+export async function requireSeasonAccess(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  seasonId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const ancestry = await getSeasonAncestry(seasonId);
+  if (!ancestry) {
+    res.status(404).json({ error: "Season not found" });
+    return null;
+  }
+
+  const roles = await getUserRoles(session.user.id);
+  if (hasSeasonAccess(roles, ancestry.division_id, ancestry.league_id)) return session;
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
+/**
+ * Require tournament_admin access for a specific tournament.
+ * System admins always pass.
+ */
+export async function requireTournamentAccess(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  tournamentId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const roles = await getUserRoles(session.user.id);
+  if (hasTournamentAccess(roles, tournamentId)) return session;
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
+/**
+ * Require team_manager access (or division_admin/league_admin on parent, or creator of unaffiliated team).
+ * System admins always pass.
+ */
+export async function requireTeamAccess(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  teamId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const teamAncestry = await getTeamAncestry(teamId);
+  if (!teamAncestry) {
+    res.status(404).json({ error: "Team not found" });
+    return null;
+  }
+
+  // Creator of unaffiliated team always has access
+  if (!teamAncestry.league_id && teamAncestry.created_by === session.user.id) {
+    return session;
+  }
+
+  const roles = await getUserRoles(session.user.id);
+  if (hasTeamAccess(roles, teamId, teamAncestry.league_id, teamAncestry.league_division_id)) {
+    return session;
+  }
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
 }

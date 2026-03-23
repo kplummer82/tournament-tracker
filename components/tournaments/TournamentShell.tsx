@@ -25,7 +25,7 @@ export default function TournamentShell({
   enableSave?: boolean;
   children: React.ReactNode;
 }) {
-  const { tid, t, saving, save, remove, loading, error } = useTournament();
+  const { tid, t, saving, save, remove, loading, error, canEdit } = useTournament();
   const sc = STATUS_COLORS[t?.tournamentstatus ?? ""] ?? STATUS_COLORS.Draft;
 
   return (
@@ -45,37 +45,39 @@ export default function TournamentShell({
           </Link>
 
           {/* Actions */}
-          <div className="flex items-center gap-1.5">
-            {tid && (
-              <Link
-                href={`/tournaments?cloneFrom=${tid}`}
-                className={cn(BTN_BASE, "border-border text-muted-foreground hover:text-foreground hover:border-border/80")}
+          {canEdit && (
+            <div className="flex items-center gap-1.5">
+              {tid && (
+                <Link
+                  href={`/tournaments?cloneFrom=${tid}`}
+                  className={cn(BTN_BASE, "border-border text-muted-foreground hover:text-foreground hover:border-border/80")}
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  <Copy className="h-3 w-3" />
+                  Clone
+                </Link>
+              )}
+              <button
+                type="button"
+                onClick={remove}
+                className={cn(BTN_BASE, "border-destructive/40 text-destructive hover:bg-destructive/10")}
                 style={{ fontFamily: "var(--font-body)" }}
               >
-                <Copy className="h-3 w-3" />
-                Clone
-              </Link>
-            )}
-            <button
-              type="button"
-              onClick={remove}
-              className={cn(BTN_BASE, "border-destructive/40 text-destructive hover:bg-destructive/10")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!enableSave || saving}
-              className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Save className="h-3 w-3" />
-              {saving ? "Saving…" : "Save"}
-            </button>
-          </div>
+                <Trash2 className="h-3 w-3" />
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!enableSave || saving}
+                className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Save className="h-3 w-3" />
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

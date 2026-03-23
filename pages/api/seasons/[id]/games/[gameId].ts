@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { advanceWinner } from "@/lib/bracket-games";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 const FORFEIT_STATUS_IDS = new Set([6, 7]); // Home Team Forfeit, Away Team Forfeit
 
@@ -18,6 +19,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (req.method === "DELETE") {
+      const session = await requireSeasonAccess(req, res, seasonId);
+      if (!session) return;
+
       const rows = await sql`
         DELETE FROM season_games
         WHERE id = ${gameId} AND season_id = ${seasonId}
@@ -29,6 +33,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // PATCH: update scores, status, and/or scheduling fields
     if (req.method === "PATCH") {
+      const session = await requireSeasonAccess(req, res, seasonId);
+      if (!session) return;
+
       const body = req.body ?? {};
 
       // Build SET clauses dynamically for provided fields

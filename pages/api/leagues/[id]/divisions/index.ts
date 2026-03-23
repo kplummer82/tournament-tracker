@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireLeagueAccess } from "@/lib/auth/requireSession";
 
 function parseLeagueId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -26,6 +27,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
+      const session = await requireLeagueAccess(req, res, leagueId);
+      if (!session) return;
+
       const { name, age_range, sort_order } = req.body ?? {};
       if (!name?.trim()) {
         return res.status(400).json({ error: "name is required" });

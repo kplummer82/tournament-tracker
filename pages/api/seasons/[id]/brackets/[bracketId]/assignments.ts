@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { syncBracketGames } from "@/lib/bracket-games";
 import type { BracketStructure } from "@/components/bracket/types";
+import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 function parseIds(req: NextApiRequest) {
   const seasonId = parseInt(String(Array.isArray(req.query.id) ? req.query.id[0] : req.query.id), 10);
@@ -34,6 +35,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PUT") {
+      const session = await requireSeasonAccess(req, res, seasonId);
+      if (!session) return;
+
       // Verify this bracket belongs to the given season
       const bracketRows = await sql`
         SELECT id FROM season_brackets WHERE id = ${bracketId} AND season_id = ${seasonId}

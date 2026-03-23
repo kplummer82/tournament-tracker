@@ -17,6 +17,8 @@ import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 import TeamCalendarTab from "@/components/teams/TeamCalendarTab";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+import ManageAccessPanel from "@/components/ManageAccessPanel";
 
 type TabKey = "overview" | "roster" | "calendar";
 
@@ -240,7 +242,7 @@ const fieldCls = "px-2 py-1.5 text-sm bg-input-bg border border-border focus:out
 const actionBtnCls = "px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.07em] transition-colors duration-100";
 
 /* ─── RosterTab ──────────────────────────────────────────────── */
-function RosterTab({ teamId }: { teamId: string }) {
+function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
   const [roster, setRoster] = useState<RosterRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -500,37 +502,40 @@ function RosterTab({ teamId }: { teamId: string }) {
   );
 
   // Action buttons for display rows
-  const renderActions = (r: RosterRow) => (
-    <div className="flex items-center justify-end gap-1">
-      <button
-        type="button"
-        title="Edit"
-        onClick={() => startEdit(r)}
-        className="p-1 text-muted-foreground hover:text-foreground transition-colors duration-75"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
-      {confirmDeleteId === r.id ? (
+  const renderActions = (r: RosterRow) => {
+    if (!canEdit) return null;
+    return (
+      <div className="flex items-center justify-end gap-1">
         <button
           type="button"
-          onClick={() => deleteEntry(r.id)}
-          className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive border border-destructive/40 hover:bg-destructive/10 transition-colors duration-75"
-          style={{ fontFamily: "var(--font-body)" }}
+          title="Edit"
+          onClick={() => startEdit(r)}
+          className="p-1 text-muted-foreground hover:text-foreground transition-colors duration-75"
         >
-          Delete?
+          <Pencil className="h-3.5 w-3.5" />
         </button>
-      ) : (
-        <button
-          type="button"
-          title="Delete"
-          onClick={() => setConfirmDeleteId(r.id)}
-          className="p-1 text-muted-foreground hover:text-destructive transition-colors duration-75"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
-      )}
-    </div>
-  );
+        {confirmDeleteId === r.id ? (
+          <button
+            type="button"
+            onClick={() => deleteEntry(r.id)}
+            className="px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-destructive border border-destructive/40 hover:bg-destructive/10 transition-colors duration-75"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Delete?
+          </button>
+        ) : (
+          <button
+            type="button"
+            title="Delete"
+            onClick={() => setConfirmDeleteId(r.id)}
+            className="p-1 text-muted-foreground hover:text-destructive transition-colors duration-75"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   const thCls = "text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium";
   const playerCols = parentView ? 5 : 3; // jersey + name + [hat + walkup] + actions
@@ -577,15 +582,17 @@ function RosterTab({ teamId }: { teamId: string }) {
             </button>
 
             {/* Add person */}
-            <button
-              type="button"
-              onClick={openAdd}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add person
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={openAdd}
+                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add person
+              </button>
+            )}
           </div>
         </div>
 
@@ -759,7 +766,7 @@ function RosterTab({ teamId }: { teamId: string }) {
             )}
 
             {/* Inline add form */}
-            {addOpen && (
+            {canEdit && addOpen && (
               <div className="border border-primary/30 bg-elevated/30">
                 <div className="flex items-center justify-between px-3 pt-3 pb-2">
                   <p
@@ -1174,6 +1181,8 @@ export default function TeamDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>("overview");
+  const permissions = usePermissions();
+  const canEdit = teamId ? permissions.canEditTeam(Number(teamId), team?.league_id ?? null) : false;
 
   useEffect(() => {
     if (!teamId) return;
@@ -1262,15 +1271,17 @@ export default function TeamDetailPage() {
               <CardContent className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-medium">Details</h2>
-                  <button
-                    type="button"
-                    onClick={() => setEditOpen(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.08em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors duration-100"
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    <Pencil className="h-3 w-3" />
-                    Edit
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      onClick={() => setEditOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] uppercase tracking-[0.08em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground transition-colors duration-100"
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      <Pencil className="h-3 w-3" />
+                      Edit
+                    </button>
+                  )}
                 </div>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                   <div>
@@ -1297,7 +1308,7 @@ export default function TeamDetailPage() {
               </CardContent>
             </Card>
 
-            {editOpen && (
+            {canEdit && editOpen && (
               <EditTeamModal
                 team={team}
                 open={editOpen}
@@ -1332,13 +1343,17 @@ export default function TeamDetailPage() {
           </TabsContent>
 
           <TabsContent value="roster" className="mt-6">
-            {teamId && <RosterTab teamId={teamId} />}
+            {teamId && <RosterTab teamId={teamId} canEdit={canEdit} />}
           </TabsContent>
 
           <TabsContent value="calendar" className="mt-6">
             {teamId && <TeamCalendarTab teamId={teamId} />}
           </TabsContent>
         </Tabs>
+
+        {canEdit && teamId && (
+          <ManageAccessPanel scopeType="team" scopeId={Number(teamId)} />
+        )}
       </main>
     </div>
   );

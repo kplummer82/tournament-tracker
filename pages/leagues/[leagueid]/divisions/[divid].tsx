@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
 import Header from "@/components/Header";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 import { ArrowLeft, ArrowRight, Pencil, Trash2, X } from "lucide-react";
 
 type Division = {
@@ -36,6 +37,9 @@ export default function DivisionDetailPage() {
   const router = useRouter();
   const leagueId = Number(Array.isArray(router.query.leagueid) ? router.query.leagueid[0] : router.query.leagueid);
   const divId = Number(Array.isArray(router.query.divid) ? router.query.divid[0] : router.query.divid);
+
+  const permissions = usePermissions();
+  const canEdit = permissions.canEditDivision(divId, leagueId);
 
   const [division, setDivision] = useState<Division | null>(null);
   const [seasons, setSeasons] = useState<Season[]>([]);
@@ -184,28 +188,30 @@ export default function DivisionDetailPage() {
                       </p>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
-                    {confirmDeleteDiv ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete division?</span>
-                        <button type="button" onClick={handleDeleteDiv} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
-                          {deletingDiv ? "…" : "Yes"}
-                        </button>
-                        <button type="button" onClick={() => setConfirmDeleteDiv(false)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
-                          No
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <button type="button" onClick={startEditDiv} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit division">
-                          <Pencil className="h-4 w-4" />
-                        </button>
-                        <button type="button" onClick={() => setConfirmDeleteDiv(true)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </>
-                    )}
-                  </div>
+                  {canEdit && (
+                    <div className="flex items-center gap-1">
+                      {confirmDeleteDiv ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete division?</span>
+                          <button type="button" onClick={handleDeleteDiv} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                            {deletingDiv ? "…" : "Yes"}
+                          </button>
+                          <button type="button" onClick={() => setConfirmDeleteDiv(false)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button type="button" onClick={startEditDiv} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit division">
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button type="button" onClick={() => setConfirmDeleteDiv(true)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

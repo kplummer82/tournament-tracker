@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 export type Season = {
   id: number;
@@ -32,6 +33,8 @@ type Ctx = {
   saving: boolean;
   save: () => Promise<void>;
   remove: () => Promise<void>;
+  /** Whether the current user can edit this season (has division_admin, league_admin, or system admin) */
+  canEdit: boolean;
 };
 
 const C = createContext<Ctx | undefined>(undefined);
@@ -76,6 +79,12 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
     return () => void (cancelled = true);
   }, [router.isReady, seasonId]);
 
+  const permissions = usePermissions();
+  const canEdit = useMemo(() => {
+    if (permissions.loading || !season) return false;
+    return permissions.canEditSeason(season.league_id, season.league_division_id);
+  }, [permissions, season]);
+
   const save = async () => {
     if (!seasonId || !season) return;
     setSaving(true);
@@ -118,7 +127,7 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
   };
 
   return (
-    <C.Provider value={{ seasonId, season, setSeason, loading, error, saving, save, remove }}>
+    <C.Provider value={{ seasonId, season, setSeason, loading, error, saving, save, remove, canEdit }}>
       {children}
     </C.Provider>
   );
