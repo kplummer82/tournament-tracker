@@ -16,6 +16,7 @@ import {
   generateWinLossOutcomes,
   generateScoredOutcomes,
   generateBestCaseOutcomes,
+  generateMatchupDirectedOutcomes,
   meetsSeedTarget,
   isAmbiguous,
 } from "./simulate";
@@ -364,15 +365,34 @@ async function runMatchupMonteCarlo(
     return { isPossible: met, probability: met ? 100 : 0, simulationsRun };
   }
 
-  // --- Possibility check: try random win/loss sims ---
+  // --- Possibility check: directed search across 4 win/loss combos ---
+  // Rather than 50 random sims (weak signal), we systematically try the four
+  // extremes: X wins/loses × Y wins/loses, with other games randomized each
+  // attempt. This is analogous to generateBestCaseOutcomes for seed scenarios
+  // and is far more likely to find the matchup if it's achievable at all.
+  // Order matters: the first two combos (one team wins, other loses) are the
+  // most likely to produce complementary seeds and are checked first.
   let isPossible = false;
   const POSSIBILITY_ATTEMPTS = Math.min(50, budget);
-  for (let i = 0; i < POSSIBILITY_ATTEMPTS && !isPossible; i++) {
-    const outcomes = generateWinLossOutcomes(remainingGames);
-    const standings = await callStandingsFn(outcomes);
-    simulationsRun++;
-    if (meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize)) {
-      isPossible = true;
+  const DIRECTED_COMBOS: [boolean, boolean][] = [
+    [true, false],  // X wins all, Y loses all → seeds likely diverge (best case for complementary pairing)
+    [false, true],  // X loses all, Y wins all → same, reversed
+    [true, true],   // both win → explore upper-seed pairings
+    [false, false], // both lose → explore lower-seed pairings
+  ];
+  const attemptsPerCombo = Math.max(1, Math.ceil(POSSIBILITY_ATTEMPTS / DIRECTED_COMBOS.length));
+
+  for (const [xWins, yWins] of DIRECTED_COMBOS) {
+    if (isPossible) break;
+    for (let i = 0; i < attemptsPerCombo && !isPossible; i++) {
+      const outcomes = generateMatchupDirectedOutcomes(
+        remainingGames, teamId, xWins, opponentTeamId, yWins, maxRunDiff
+      );
+      const standings = await callStandingsFn(outcomes);
+      simulationsRun++;
+      if (meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize)) {
+        isPossible = true;
+      }
     }
   }
   onProgress?.(simulationsRun);

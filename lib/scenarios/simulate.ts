@@ -86,6 +86,43 @@ export function generateScoredOutcomes(
 }
 
 /**
+ * Generate directed outcomes for the matchup possibility check.
+ * Forces teamXId and teamYId to win or lose all their games (with max run
+ * differential), while all other games are randomized. This lets us
+ * efficiently explore whether complementary seeds are achievable without
+ * relying on pure 50/50 chance.
+ *
+ * When X and Y play each other, X's outcome takes priority.
+ */
+export function generateMatchupDirectedOutcomes(
+  games: RemainingGame[],
+  teamXId: number,
+  teamXWins: boolean,
+  teamYId: number,
+  teamYWins: boolean,
+  maxRunDiff: number | null
+): SimulatedOutcome[] {
+  const maxDiff = maxRunDiff ?? 10;
+  return games.map((g) => {
+    const xInGame = g.home === teamXId || g.away === teamXId;
+    const yInGame = g.home === teamYId || g.away === teamYId;
+
+    if (xInGame) {
+      // X's desired outcome takes priority (covers head-to-head games too)
+      const homeWins = g.home === teamXId ? teamXWins : !teamXWins;
+      return { home: g.home, away: g.away, homescore: homeWins ? maxDiff : 0, awayscore: homeWins ? 0 : maxDiff };
+    }
+    if (yInGame) {
+      const homeWins = g.home === teamYId ? teamYWins : !teamYWins;
+      return { home: g.home, away: g.away, homescore: homeWins ? maxDiff : 0, awayscore: homeWins ? 0 : maxDiff };
+    }
+    // Other games: random
+    const homeWins = Math.random() < 0.5;
+    return { home: g.home, away: g.away, homescore: homeWins ? 1 : 0, awayscore: homeWins ? 0 : 1 };
+  });
+}
+
+/**
  * Generate best-case outcomes for a specific team:
  * - Team always wins with max score differential
  * - Other games: opponents of teams competing for the target seed lose
