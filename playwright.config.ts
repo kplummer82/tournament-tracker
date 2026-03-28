@@ -19,6 +19,10 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      name: 'mobile',
+      use: { ...devices['iPhone 14'] },
+    },
+    {
       name: 'ldqa',
       use: {
         ...devices['Desktop Chrome'],

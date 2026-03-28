@@ -9,10 +9,13 @@ type TeamRow = { id: number; name: string };
 
 type ScenarioRow = {
   id: number;
+  question_type: "seed_achievable" | "first_round_matchup";
   team_id: number;
   team_name: string | null;
-  target_seed: number;
-  seed_mode: "exact" | "or_better";
+  opponent_team_id: number | null;
+  opponent_team_name: string | null;
+  target_seed: number | null;
+  seed_mode: "exact" | "or_better" | null;
   is_possible: boolean | null;
   probability: number | null;
   simulations_run: number;
@@ -32,7 +35,9 @@ function CreateScenarioForm({
   teams: TeamRow[];
   onCreated: (s: ScenarioRow) => void;
 }) {
+  const [questionType, setQuestionType] = useState<"seed_achievable" | "first_round_matchup">("seed_achievable");
   const [teamId, setTeamId] = useState<number | "">(teams[0]?.id ?? "");
+  const [opponentTeamId, setOpponentTeamId] = useState<number | "">(teams[1]?.id ?? teams[0]?.id ?? "");
   const [targetSeed, setTargetSeed] = useState(1);
   const [seedMode, setSeedMode] = useState<"or_better" | "exact">("or_better");
   const [submitting, setSubmitting] = useState(false);
@@ -41,13 +46,18 @@ function CreateScenarioForm({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!teamId) return;
+    if (questionType === "first_round_matchup" && !opponentTeamId) return;
     setSubmitting(true);
     setErr(null);
     try {
+      const body = questionType === "first_round_matchup"
+        ? { questionType, teamId, opponentTeamId }
+        : { questionType, teamId, targetSeed, seedMode };
+
       const res = await fetch(`/api/tournaments/${tournamentId}/scenarios`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId, targetSeed, seedMode }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
@@ -66,6 +76,8 @@ function CreateScenarioForm({
     }
   };
 
+  const opponentOptions = teams.filter((t) => t.id !== Number(teamId));
+
   return (
     <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-muted/20 p-5 space-y-4">
       <h3
@@ -74,8 +86,31 @@ function CreateScenarioForm({
       >
         New Scenario
       </h3>
+
+      {/* Scenario type tabs */}
+      <div className="flex gap-1 p-1 rounded-lg bg-muted/40 border border-border w-fit">
+        {(["seed_achievable", "first_round_matchup"] as const).map((type) => (
+          <button
+            key={type}
+            type="button"
+            onClick={() => setQuestionType(type)}
+            className={cn(
+              "px-3 py-1.5 text-xs font-medium rounded-md transition-colors",
+              questionType === type
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {type === "seed_achievable" ? "Seed achievable?" : "First-round matchup?"}
+          </button>
+        ))}
+      </div>
+
       <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-        Can a team achieve a specific seed for bracket play?
+        {questionType === "seed_achievable"
+          ? "Can a team achieve a specific seed for bracket play?"
+          : "Can two teams be matched up in the first round of bracket play?"}
       </p>
 
       <div className="flex flex-wrap gap-4">
@@ -95,41 +130,62 @@ function CreateScenarioForm({
           </select>
         </label>
 
-        {/* Target Seed */}
-        <label className="w-24">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
-            Seed
-          </span>
-          <input
-            type="number"
-            min={1}
-            max={teams.length}
-            value={targetSeed}
-            onChange={(e) => setTargetSeed(parseInt(e.target.value, 10) || 1)}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-          />
-        </label>
+        {questionType === "seed_achievable" ? (
+          <>
+            {/* Target Seed */}
+            <label className="w-24">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
+                Seed
+              </span>
+              <select
+                value={targetSeed}
+                onChange={(e) => setTargetSeed(Number(e.target.value))}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                {teams.map((_, i) => (
+                  <option key={i + 1} value={i + 1}>{i + 1}</option>
+                ))}
+              </select>
+            </label>
 
-        {/* Seed Mode */}
-        <label className="w-36">
-          <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
-            Mode
-          </span>
-          <select
-            value={seedMode}
-            onChange={(e) => setSeedMode(e.target.value as "exact" | "or_better")}
-            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
-          >
-            <option value="or_better">Seed {targetSeed} or better</option>
-            <option value="exact">Exactly seed {targetSeed}</option>
-          </select>
-        </label>
+            {/* Seed Mode */}
+            <label className="w-36">
+              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
+                Mode
+              </span>
+              <select
+                value={seedMode}
+                onChange={(e) => setSeedMode(e.target.value as "exact" | "or_better")}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+              >
+                <option value="or_better">Seed {targetSeed} or better</option>
+                <option value="exact">Exactly seed {targetSeed}</option>
+              </select>
+            </label>
+          </>
+        ) : (
+          /* Opponent Team */
+          <label className="flex-1 min-w-[180px]">
+            <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
+              Opponent
+            </span>
+            <select
+              value={opponentTeamId}
+              onChange={(e) => setOpponentTeamId(Number(e.target.value))}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+            >
+              {opponentOptions.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
         <button
           type="submit"
-          disabled={submitting || !teamId}
+          disabled={submitting || !teamId || (questionType === "first_round_matchup" && !opponentTeamId)}
           className={cn(
             "px-4 py-2 text-sm font-medium rounded-md transition-colors",
             "bg-primary text-primary-foreground hover:bg-primary/90",
@@ -202,19 +258,31 @@ function ScenarioCard({
     }
   };
 
-  const seedLabel = scenario.seed_mode === "exact"
-    ? `exactly seed #${scenario.target_seed}`
-    : `seed #${scenario.target_seed} or better`;
+  const isMatchup = scenario.question_type === "first_round_matchup";
+
+  const questionLabel = isMatchup
+    ? `Can they meet in round 1?`
+    : scenario.seed_mode === "exact"
+      ? `Can they achieve exactly seed #${scenario.target_seed}?`
+      : `Can they achieve seed #${scenario.target_seed} or better?`;
 
   return (
     <div className="border border-border rounded-lg p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            {scenario.team_name ?? `Team ${scenario.team_id}`}
+            {isMatchup ? (
+              <>
+                {scenario.team_name ?? `Team ${scenario.team_id}`}
+                <span className="text-muted-foreground font-normal"> vs </span>
+                {scenario.opponent_team_name ?? `Team ${scenario.opponent_team_id}`}
+              </>
+            ) : (
+              scenario.team_name ?? `Team ${scenario.team_id}`
+            )}
           </p>
           <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            Can they achieve {seedLabel}?
+            {questionLabel}
           </p>
         </div>
         <div className="flex gap-1.5 shrink-0">
@@ -389,11 +457,11 @@ function ScenariosBody() {
           Scenarios
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5" style={{ fontFamily: "var(--font-body)" }}>
-          Explore whether teams can achieve specific bracket play seeds.
+          Explore bracket play seed possibilities and first-round matchups.
         </p>
       </div>
 
-      {teams.length > 0 && tid && (
+      {teams.length > 1 && tid && (
         <CreateScenarioForm
           tournamentId={tid}
           teams={teams}
@@ -423,7 +491,7 @@ function ScenariosBody() {
             No Scenarios Yet
           </p>
           <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            Create a scenario above to analyze bracket play seed possibilities.
+            Create a scenario above to analyze bracket play possibilities.
           </p>
         </div>
       )}

@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
-import { runScenarioAnalysis } from "@/lib/scenarios/engine";
+import { runScenarioAnalysis, runFirstRoundMatchupAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { seasonId: number; scenarioId: number } | null {
   const rawSeason = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -48,20 +48,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Background execution
     (async () => {
       try {
-        const result = await runScenarioAnalysis(
-          seasonId,
-          scenario.team_id,
-          scenario.target_seed,
-          scenario.seed_mode as "exact" | "or_better",
-          async (simRun: number) => {
-            // Update progress periodically
-            await sql`
-              UPDATE scenario_questions
-              SET simulations_run = ${simRun}, updated_at = NOW()
-              WHERE id = ${scenarioId}
-            `.catch(() => {}); // non-critical, swallow errors
-          }
-        );
+        const onProgress = async (simRun: number) => {
+          await sql`
+            UPDATE scenario_questions
+            SET simulations_run = ${simRun}, updated_at = NOW()
+            WHERE id = ${scenarioId}
+          `.catch(() => {});
+        };
+
+        const result = scenario.question_type === "first_round_matchup"
+          ? await runFirstRoundMatchupAnalysis(
+              seasonId,
+              scenario.team_id,
+              scenario.opponent_team_id,
+              onProgress
+            )
+          : await runScenarioAnalysis(
+              seasonId,
+              scenario.team_id,
+              scenario.target_seed,
+              scenario.seed_mode as "exact" | "or_better",
+              onProgress
+            );
 
         await sql`
           UPDATE scenario_questions

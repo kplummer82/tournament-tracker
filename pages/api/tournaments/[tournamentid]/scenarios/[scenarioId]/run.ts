@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
-import { runTournamentScenarioAnalysis } from "@/lib/scenarios/engine";
+import { runTournamentScenarioAnalysis, runTournamentFirstRoundMatchupAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { tournamentId: number; scenarioId: number } | null {
   const rawT = Array.isArray(req.query.tournamentid) ? req.query.tournamentid[0] : req.query.tournamentid;
@@ -48,19 +48,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Background execution
     (async () => {
       try {
-        const result = await runTournamentScenarioAnalysis(
-          tournamentId,
-          scenario.team_id,
-          scenario.target_seed,
-          scenario.seed_mode as "exact" | "or_better",
-          async (simRun: number) => {
-            await sql`
-              UPDATE scenario_questions
-              SET simulations_run = ${simRun}, updated_at = NOW()
-              WHERE id = ${scenarioId}
-            `.catch(() => {});
-          }
-        );
+        const onProgress = async (simRun: number) => {
+          await sql`
+            UPDATE scenario_questions
+            SET simulations_run = ${simRun}, updated_at = NOW()
+            WHERE id = ${scenarioId}
+          `.catch(() => {});
+        };
+
+        const result = scenario.question_type === "first_round_matchup"
+          ? await runTournamentFirstRoundMatchupAnalysis(
+              tournamentId,
+              scenario.team_id,
+              scenario.opponent_team_id,
+              onProgress
+            )
+          : await runTournamentScenarioAnalysis(
+              tournamentId,
+              scenario.team_id,
+              scenario.target_seed,
+              scenario.seed_mode as "exact" | "or_better",
+              onProgress
+            );
 
         await sql`
           UPDATE scenario_questions

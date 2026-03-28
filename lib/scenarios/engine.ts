@@ -283,6 +283,139 @@ async function runMonteCarloAnalysis(
   };
 }
 
+/** Get the playoff bracket size for a season (used for first-round matchup pairing). */
+async function getBracketSizeForSeason(seasonId: number): Promise<number> {
+  // Prefer the seed_count from the season's first bracket template
+  const bracketRows = await sql`
+    SELECT COALESCE(bt.seed_count, (sb.structure->>'numTeams')::int) AS size
+    FROM season_brackets sb
+    LEFT JOIN bracket_templates bt ON bt.id = sb.template_id
+    WHERE sb.season_id = ${seasonId}
+    ORDER BY sb.sort_order
+    LIMIT 1
+  `;
+  const size = bracketRows[0]?.size ? Number(bracketRows[0].size) : 0;
+  if (size > 0) return size;
+  // Fallback: total teams in season
+  const countRows = await sql`SELECT COUNT(*)::int AS count FROM season_teams WHERE season_id = ${seasonId}`;
+  return Number(countRows[0]?.count ?? 0);
+}
+
+/** Get the playoff bracket size for a tournament. */
+async function getBracketSizeForTournament(tournamentId: number): Promise<number> {
+  const bracketRows = await sql`
+    SELECT COALESCE(bt.seed_count, (tb.structure->>'numTeams')::int) AS size
+    FROM tournament_bracket tb
+    LEFT JOIN bracket_templates bt ON bt.id = tb.template_id
+    WHERE tb.tournament_id = ${tournamentId}
+  `;
+  const size = bracketRows[0]?.size ? Number(bracketRows[0].size) : 0;
+  if (size > 0) return size;
+  const countRows = await sql`SELECT COUNT(*)::int AS count FROM tournamentteams WHERE tournamentid = ${tournamentId}`;
+  return Number(countRows[0]?.count ?? 0);
+}
+
+/**
+ * Check if two teams are paired in round 1 of a standard bracket.
+ * Standard pairing: seed k plays seed (bracketSize + 1 - k).
+ * Both teams must qualify (seed <= bracketSize).
+ */
+function meetsFirstRoundMatchup(
+  standings: StandingsRow[],
+  teamId: number,
+  opponentTeamId: number,
+  bracketSize: number
+): boolean {
+  const teamRow = standings.find((r) => r.teamid === teamId);
+  const opponentRow = standings.find((r) => r.teamid === opponentTeamId);
+  if (!teamRow || !opponentRow) return false;
+  const s1 = teamRow.rank_final;
+  const s2 = opponentRow.rank_final;
+  if (s1 > bracketSize || s2 > bracketSize) return false;
+  return s1 + s2 === bracketSize + 1;
+}
+
+/**
+ * Monte Carlo analysis for "Can team X face team Y in round 1?"
+ * Uses scored outcomes (layer 2 only) after a quick possibility check.
+ */
+async function runMatchupMonteCarlo(
+  remainingGames: RemainingGame[],
+  teamId: number,
+  opponentTeamId: number,
+  bracketSize: number,
+  maxRunDiff: number | null,
+  callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const budget = await getMaxSimulations();
+  let simulationsRun = 0;
+
+  if (bracketSize < 2) {
+    return { isPossible: false, probability: null, simulationsRun: 0 };
+  }
+
+  // --- No remaining games: check current standings ---
+  if (remainingGames.length === 0) {
+    const standings = await callStandingsFn([]);
+    simulationsRun++;
+    onProgress?.(simulationsRun);
+    const met = meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize);
+    return { isPossible: met, probability: met ? 100 : 0, simulationsRun };
+  }
+
+  // --- Possibility check: try random win/loss sims ---
+  let isPossible = false;
+  const POSSIBILITY_ATTEMPTS = Math.min(50, budget);
+  for (let i = 0; i < POSSIBILITY_ATTEMPTS && !isPossible; i++) {
+    const outcomes = generateWinLossOutcomes(remainingGames);
+    const standings = await callStandingsFn(outcomes);
+    simulationsRun++;
+    if (meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize)) {
+      isPossible = true;
+    }
+  }
+  onProgress?.(simulationsRun);
+
+  if (!isPossible) {
+    return { isPossible: false, probability: null, simulationsRun };
+  }
+
+  // --- Full Monte Carlo with scored outcomes ---
+  const remainingBudget = budget - simulationsRun;
+  let achieves = 0;
+  let total = 0;
+  const BATCH_SIZE = 20;
+  const PROGRESS_INTERVAL = 500;
+
+  for (let offset = 0; offset < remainingBudget; offset += BATCH_SIZE) {
+    const batchCount = Math.min(BATCH_SIZE, remainingBudget - offset);
+    const tasks = Array.from({ length: batchCount }, () => async () => {
+      const outcomes = generateScoredOutcomes(remainingGames, maxRunDiff);
+      const standings = await callStandingsFn(outcomes);
+      return meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize);
+    });
+    const results = await pooled(tasks, BATCH_SIZE);
+    for (const met of results) {
+      total++;
+      simulationsRun++;
+      if (met) achieves++;
+    }
+    if (simulationsRun % PROGRESS_INTERVAL < BATCH_SIZE) {
+      onProgress?.(simulationsRun);
+    }
+  }
+
+  onProgress?.(simulationsRun);
+
+  const probability = total > 0 ? (achieves / total) * 100 : 0;
+  return {
+    isPossible: true,
+    probability: Math.round(probability * 10000) / 10000,
+    simulationsRun,
+  };
+}
+
 /**
  * Main entry point: run the full scenario analysis for "Can team X achieve seed #Y?"
  * Season mode — analyzes remaining regular-season games.
@@ -314,4 +447,36 @@ export async function runTournamentScenarioAnalysis(
   const { maxRunDiff } = await getTournamentSettings(tournamentId);
   const callFn = (simulated: SimulatedOutcome[]) => callTournamentStandings(tournamentId, simulated);
   return runMonteCarloAnalysis(remainingGames, teamId, targetSeed, seedMode, maxRunDiff, callFn, onProgress);
+}
+
+/**
+ * Season mode — "Can team X face team Y in the first round of bracket play?"
+ */
+export async function runFirstRoundMatchupAnalysis(
+  seasonId: number,
+  teamId: number,
+  opponentTeamId: number,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const remainingGames = await getRemainingGames(seasonId);
+  const { maxRunDiff } = await getSeasonSettings(seasonId);
+  const bracketSize = await getBracketSizeForSeason(seasonId);
+  const callFn = (simulated: SimulatedOutcome[]) => callStandings(seasonId, simulated);
+  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSize, maxRunDiff, callFn, onProgress);
+}
+
+/**
+ * Tournament mode — "Can team X face team Y in the first round of bracket play?"
+ */
+export async function runTournamentFirstRoundMatchupAnalysis(
+  tournamentId: number,
+  teamId: number,
+  opponentTeamId: number,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const remainingGames = await getRemainingTournamentGames(tournamentId);
+  const { maxRunDiff } = await getTournamentSettings(tournamentId);
+  const bracketSize = await getBracketSizeForTournament(tournamentId);
+  const callFn = (simulated: SimulatedOutcome[]) => callTournamentStandings(tournamentId, simulated);
+  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSize, maxRunDiff, callFn, onProgress);
 }
