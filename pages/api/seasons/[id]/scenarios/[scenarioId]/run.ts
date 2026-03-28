@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { waitUntil } from "@vercel/functions";
 import { sql } from "@/lib/db";
 import { runScenarioAnalysis, runFirstRoundMatchupAnalysis } from "@/lib/scenarios/engine";
 
@@ -45,8 +46,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Return immediately — run analysis in background
     res.status(202).json({ scenario: { ...scenario, status: "running" } });
 
-    // Background execution
-    (async () => {
+    // Background execution — waitUntil keeps the function alive after the 202 response
+    waitUntil((async () => {
       try {
         const onProgress = async (simRun: number) => {
           await sql`
@@ -90,7 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           WHERE id = ${scenarioId}
         `.catch(() => {});
       }
-    })();
+    })());
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[scenario run API]", err);
