@@ -123,6 +123,35 @@ export function generateMatchupDirectedOutcomes(
 }
 
 /**
+ * Generate worst-case outcomes for a specific team:
+ * - Team always loses with max score differential
+ * - Other games are randomized.
+ * Used in the possibility check for seeds worse than the team's current position.
+ */
+export function generateWorstCaseOutcomes(
+  games: RemainingGame[],
+  teamId: number,
+  maxRunDiff: number | null
+): SimulatedOutcome[] {
+  const maxDiff = maxRunDiff ?? 10;
+  return games.map((g) => {
+    if (g.home === teamId) {
+      return { home: g.home, away: g.away, homescore: 0, awayscore: maxDiff };
+    }
+    if (g.away === teamId) {
+      return { home: g.home, away: g.away, homescore: maxDiff, awayscore: 0 };
+    }
+    const homeWins = Math.random() < 0.5;
+    return {
+      home: g.home,
+      away: g.away,
+      homescore: homeWins ? 1 : 0,
+      awayscore: homeWins ? 0 : 1,
+    };
+  });
+}
+
+/**
  * Generate best-case outcomes for a specific team:
  * - Team always wins with max score differential
  * - Other games: opponents of teams competing for the target seed lose

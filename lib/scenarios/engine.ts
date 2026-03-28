@@ -16,6 +16,7 @@ import {
   generateWinLossOutcomes,
   generateScoredOutcomes,
   generateBestCaseOutcomes,
+  generateWorstCaseOutcomes,
   generateMatchupDirectedOutcomes,
   meetsSeedTarget,
   isAmbiguous,
@@ -67,7 +68,7 @@ async function getRemainingGames(seasonId: number): Promise<RemainingGame[]> {
     FROM season_games
     WHERE season_id = ${seasonId}
       AND game_type = 'regular'
-      AND gamestatusid NOT IN (4, 6, 7)
+      AND (gamestatusid IS NULL OR gamestatusid NOT IN (4, 6, 7))
   `;
   return rows as unknown as RemainingGame[];
 }
@@ -174,20 +175,42 @@ async function runMonteCarloAnalysis(
     return { isPossible: met, probability: met ? 100 : 0, simulationsRun };
   }
 
-  // --- Step 1: Possibility check (best-case heuristic) ---
-  let isPossible = false;
+  // --- Step 1: Possibility check (range-based heuristic) ---
+  // Run best-case (team wins all) to find the minimum achievable rank, and
+  // worst-case (team loses all) to find the maximum achievable rank. The target
+  // seed is possible iff it falls within [bestCaseMinRank, worstCaseMaxRank].
+  // This correctly handles seeds in both directions from the team's current position.
   const POSSIBILITY_ATTEMPTS = Math.min(50, budget);
+  const halfAttempts = Math.ceil(POSSIBILITY_ATTEMPTS / 2);
 
-  for (let i = 0; i < POSSIBILITY_ATTEMPTS && !isPossible; i++) {
+  let bestCaseMinRank = Infinity;   // lowest rank # the team achieves when winning all
+  let worstCaseMaxRank = 0;         // highest rank # the team achieves when losing all
+
+  for (let i = 0; i < halfAttempts; i++) {
     const outcomes = generateBestCaseOutcomes(remainingGames, teamId, maxRunDiff);
     const standings = await callStandingsFn(outcomes);
     simulationsRun++;
-    if (meetsSeedTarget(standings, teamId, targetSeed, seedMode)) {
-      isPossible = true;
-    }
+    const row = standings.find((r) => r.teamid === teamId);
+    if (row) bestCaseMinRank = Math.min(bestCaseMinRank, row.rank_final);
   }
+
+  for (let i = 0; i < halfAttempts; i++) {
+    const outcomes = generateWorstCaseOutcomes(remainingGames, teamId, maxRunDiff);
+    const standings = await callStandingsFn(outcomes);
+    simulationsRun++;
+    const row = standings.find((r) => r.teamid === teamId);
+    if (row) worstCaseMaxRank = Math.max(worstCaseMaxRank, row.rank_final);
+  }
+
   budget -= simulationsRun;
   onProgress?.(simulationsRun);
+
+  // Determine if target seed falls within achievable range
+  const isPossible = bestCaseMinRank !== Infinity && worstCaseMaxRank !== 0 && (
+    seedMode === "or_better"
+      ? bestCaseMinRank <= targetSeed
+      : targetSeed >= bestCaseMinRank && targetSeed <= worstCaseMaxRank
+  );
 
   if (!isPossible) {
     return { isPossible: false, probability: null, simulationsRun };
@@ -365,37 +388,44 @@ async function runMatchupMonteCarlo(
     return { isPossible: met, probability: met ? 100 : 0, simulationsRun };
   }
 
-  // --- Possibility check: directed search across 4 win/loss combos ---
-  // Rather than 50 random sims (weak signal), we systematically try the four
-  // extremes: X wins/loses × Y wins/loses, with other games randomized each
-  // attempt. This is analogous to generateBestCaseOutcomes for seed scenarios
-  // and is far more likely to find the matchup if it's achievable at all.
-  // Order matters: the first two combos (one team wins, other loses) are the
-  // most likely to produce complementary seeds and are checked first.
-  let isPossible = false;
+  // --- Possibility check: range-based across 4 win/loss combos ---
+  // Run directed simulations to discover each team's achievable rank range, then
+  // check if any valid bracket pairing (k, bracketSize+1-k) falls within both
+  // ranges. This avoids requiring the exact matchup to appear by chance in ~50
+  // samples — which causes false IMPOSSIBLE results for achievable matchups.
   const POSSIBILITY_ATTEMPTS = Math.min(50, budget);
   const DIRECTED_COMBOS: [boolean, boolean][] = [
-    [true, false],  // X wins all, Y loses all → seeds likely diverge (best case for complementary pairing)
-    [false, true],  // X loses all, Y wins all → same, reversed
-    [true, true],   // both win → explore upper-seed pairings
-    [false, false], // both lose → explore lower-seed pairings
+    [true, false],   // X wins all, Y loses all → X gets best ranks, Y gets worst
+    [false, true],   // X loses all, Y wins all → X gets worst ranks, Y gets best
+    [true, true],    // both win → explore upper-seed range together
+    [false, false],  // both lose → explore lower-seed range together
   ];
-  const attemptsPerCombo = Math.max(1, Math.ceil(POSSIBILITY_ATTEMPTS / DIRECTED_COMBOS.length));
+  const attemptsPerCombo = Math.max(2, Math.ceil(POSSIBILITY_ATTEMPTS / DIRECTED_COMBOS.length));
+
+  let xMinRank = Infinity, xMaxRank = 0;
+  let yMinRank = Infinity, yMaxRank = 0;
 
   for (const [xWins, yWins] of DIRECTED_COMBOS) {
-    if (isPossible) break;
-    for (let i = 0; i < attemptsPerCombo && !isPossible; i++) {
+    for (let i = 0; i < attemptsPerCombo; i++) {
       const outcomes = generateMatchupDirectedOutcomes(
         remainingGames, teamId, xWins, opponentTeamId, yWins, maxRunDiff
       );
       const standings = await callStandingsFn(outcomes);
       simulationsRun++;
-      if (meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize)) {
-        isPossible = true;
-      }
+      const xRow = standings.find((r) => r.teamid === teamId);
+      const yRow = standings.find((r) => r.teamid === opponentTeamId);
+      if (xRow) { xMinRank = Math.min(xMinRank, xRow.rank_final); xMaxRank = Math.max(xMaxRank, xRow.rank_final); }
+      if (yRow) { yMinRank = Math.min(yMinRank, yRow.rank_final); yMaxRank = Math.max(yMaxRank, yRow.rank_final); }
     }
   }
   onProgress?.(simulationsRun);
+
+  // A matchup is possible if ∃ k such that:
+  //   k ∈ [xMinRank, xMaxRank], (bracketSize+1-k) ∈ [yMinRank, yMaxRank], 1 ≤ k ≤ bracketSize
+  // Solving for k: max(xMinRank, bracketSize+1-yMaxRank, 1) ≤ min(xMaxRank, bracketSize+1-yMinRank, bracketSize)
+  const kLow  = Math.max(xMinRank, bracketSize + 1 - yMaxRank, 1);
+  const kHigh = Math.min(xMaxRank, bracketSize + 1 - yMinRank, bracketSize);
+  const isPossible = xMinRank !== Infinity && yMinRank !== Infinity && kLow <= kHigh;
 
   if (!isPossible) {
     return { isPossible: false, probability: null, simulationsRun };
