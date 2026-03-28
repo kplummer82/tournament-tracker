@@ -219,6 +219,14 @@ function ScheduleBody() {
   const [err, setErr] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [filter, setFilter] = useState<GameFilter>("all");
+  const [selectedTeamIds, setSelectedTeamIds] = useState<Set<number>>(new Set());
+
+  const toggleTeam = (id: number) =>
+    setSelectedTeamIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<GameForm>(BLANK_FORM);
@@ -462,9 +470,17 @@ function ScheduleBody() {
       );
     });
 
-  const filteredRows = filter === "all" ? rows : rows.filter((g) => g.game_type === filter);
   const regularCount = rows.filter((g) => g.game_type === "regular").length;
   const playoffCount = rows.filter((g) => g.game_type === "playoff").length;
+  const filteredRows = (() => {
+    const byType = filter === "all" ? rows : rows.filter((g) => g.game_type === filter);
+    if (selectedTeamIds.size === 0) return byType;
+    return byType.filter(
+      (g) =>
+        (g.home != null && selectedTeamIds.has(g.home)) ||
+        (g.away != null && selectedTeamIds.has(g.away))
+    );
+  })();
 
   return (
     <div>
@@ -511,6 +527,38 @@ function ScheduleBody() {
               {f === "all" ? `All (${rows.length})` : f === "regular" ? `Regular (${regularCount})` : `Playoff (${playoffCount})`}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Team filter */}
+      {!loading && !err && teams.length > 1 && (
+        <div className="flex items-center gap-1 flex-wrap mb-4">
+          {teams.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => toggleTeam(t.id)}
+              className={cn(
+                "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                selectedTeamIds.has(t.id)
+                  ? "border-primary text-primary bg-primary/5"
+                  : "border-border text-muted-foreground hover:border-primary/60"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {t.name}
+            </button>
+          ))}
+          {selectedTeamIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedTeamIds(new Set())}
+              className="px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              Clear
+            </button>
+          )}
         </div>
       )}
 
