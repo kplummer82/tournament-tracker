@@ -118,13 +118,13 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
   };
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, []);
 
   return (
@@ -150,7 +150,7 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
         {query && !searching && (
           <button
             type="button"
-            onMouseDown={(e) => { e.preventDefault(); clearSong(); }}
+            onPointerDown={(e) => { e.preventDefault(); clearSong(); }}
             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
           >
             <X className="h-3 w-3" />
@@ -164,7 +164,7 @@ function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }:
             <button
               key={t.trackId}
               type="button"
-              onMouseDown={(e) => { e.preventDefault(); pickTrack(t); }}
+              onPointerDown={(e) => { e.preventDefault(); pickTrack(t); }}
               className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-elevated transition-colors duration-75"
             >
               {t.artworkUrl60 && (
