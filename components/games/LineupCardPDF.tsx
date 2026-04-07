@@ -66,7 +66,6 @@ const s = StyleSheet.create({
   batRow: { width: "50%", flexDirection: "row", alignItems: "center", marginBottom: 3, gap: 5 },
   batNum: { backgroundColor: "#cc3a00", color: "white", width: 14, height: 14, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", paddingTop: 3 },
   batName: { fontSize: 8.5, flex: 1 },
-  batJersey: { fontSize: 7.5, color: "#888888" },
   // Inning stack (portrait, full-width diagrams)
   inningStack: { flexDirection: "column", gap: 8, marginTop: 12 },
   inningBlock: {},
@@ -115,7 +114,7 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
             fill={coord.fill}
             textAnchor={coord.anchor}
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            style={{ fontSize: 9, fontFamily: "Helvetica-Bold" } as any}
+            style={{ fontSize: 11, fontFamily: "Helvetica-Bold" } as any}
           >
             {label}
           </Text>
@@ -136,11 +135,8 @@ function BattingOrderSection({ battingOrder }: { battingOrder: BattingEntry[] })
               <Text>{b.bat_order}</Text>
             </View>
             <Text style={s.batName}>
-              {b.last_name}{b.first_name ? `, ${b.first_name[0]}.` : ""}{b.jersey_number != null ? `  ` : ""}
+              {b.first_name ? `${b.first_name} ` : ""}{b.last_name}
             </Text>
-            {b.jersey_number != null && (
-              <Text style={s.batJersey}>#{b.jersey_number}</Text>
-            )}
           </View>
         ))}
       </View>
