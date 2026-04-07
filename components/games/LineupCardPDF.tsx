@@ -67,12 +67,10 @@ const s = StyleSheet.create({
   batNum: { backgroundColor: "#cc3a00", color: "white", width: 14, height: 14, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", paddingTop: 3 },
   batName: { fontSize: 8.5, flex: 1 },
   batJersey: { fontSize: 7.5, color: "#888888" },
-  // Inning pages
-  inningPage: { fontFamily: "Helvetica", fontSize: 9, padding: 28, backgroundColor: "white" },
-  inningRow: { flexDirection: "row", gap: 16, flex: 1 },
-  inningBlock: { flex: 1 },
-  inningTitle: { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#cc3a00", marginBottom: 6 },
-  pageFooter: { marginTop: 8, fontSize: 7, color: "#aaaaaa", textAlign: "center" },
+  // Inning stack (portrait, full-width diagrams)
+  inningStack: { flexDirection: "column", gap: 8, marginTop: 12 },
+  inningBlock: {},
+  inningTitle: { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#cc3a00", marginBottom: 4 },
 });
 
 function formatDate(d: string | null): string {
@@ -84,11 +82,11 @@ function formatDate(d: string | null): string {
 function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
   const byPos: Record<string, string> = {};
   for (const e of lineup) {
-    byPos[e.position] = `${e.last_name} (${e.position})`;
+    byPos[e.position] = `${e.first_name} ${e.last_name} (${e.position})`;
   }
 
   return (
-    <Svg viewBox="0 0 280 240" width="100%" height={220}>
+    <Svg viewBox="0 0 280 240" width="100%" height={240}>
       {/* Green outfield */}
       <Rect x={0} y={0} width={280} height={240} fill="#3d7a35" rx={4} />
       {/* Foul lines */}
@@ -127,6 +125,29 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
   );
 }
 
+function BattingOrderSection({ battingOrder }: { battingOrder: BattingEntry[] }) {
+  return (
+    <>
+      <Text style={s.sectionTitle}>Batting Order</Text>
+      <View style={s.batGrid}>
+        {battingOrder.map((b) => (
+          <View key={b.bat_order} style={s.batRow}>
+            <View style={s.batNum}>
+              <Text>{b.bat_order}</Text>
+            </View>
+            <Text style={s.batName}>
+              {b.last_name}{b.first_name ? `, ${b.first_name[0]}.` : ""}{b.jersey_number != null ? `  ` : ""}
+            </Text>
+            {b.jersey_number != null && (
+              <Text style={s.batJersey}>#{b.jersey_number}</Text>
+            )}
+          </View>
+        ))}
+      </View>
+    </>
+  );
+}
+
 export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defensiveLineup }: LineupCardPDFProps) {
   const dateStr = formatDate(game.gamedate);
   const timeStr = game.gametime
@@ -143,82 +164,57 @@ export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defe
     byInning[entry.inning].push(entry);
   }
 
-  // Pair innings into pages: [[1,2],[3,4],...]
+  // Pair innings: each pair goes on one page
   const inningPages: Array<[number, number | null]> = [];
   for (let i = 0; i < innings.length; i += 2) {
     inningPages.push([innings[i], innings[i + 1] ?? null]);
   }
 
-  const footerText = `${teamName} vs ${opponentName}${dateStr ? " · " + dateStr : ""}`;
+  // Every page repeats: header + batting order + up to 2 stacked inning diagrams.
+  // If no innings, show just the batting order on one page.
+  const pages = inningPages.length > 0 ? inningPages : [[null, null] as [null, null]];
 
   return (
     <Document>
-      {/* Page 1: Header + Batting Order */}
-      <Page size="LETTER" style={s.page}>
-        {/* Header */}
-        <View style={s.headerBar}>
-          <View>
-            <Text style={s.headerTeam}>{teamName}</Text>
-            <Text style={s.headerVs}>vs. {opponentName}</Text>
-          </View>
-          <View>
-            {metaLines.map((line, i) => (
-              <Text key={i} style={s.headerMeta}>{line}</Text>
-            ))}
-          </View>
-        </View>
-
-        {/* Batting Order */}
-        <Text style={s.sectionTitle}>Batting Order</Text>
-        <View style={s.batGrid}>
-          {battingOrder.map((b) => (
-            <View key={b.bat_order} style={s.batRow}>
-              <View style={s.batNum}>
-                <Text>{b.bat_order}</Text>
+      {pages.map((pair, pageIdx) => {
+        const [inn1, inn2] = pair as [number | null, number | null];
+        return (
+          <Page key={pageIdx} size="LETTER" style={s.page}>
+            {/* Header */}
+            <View style={s.headerBar}>
+              <View>
+                <Text style={s.headerTeam}>{teamName}</Text>
+                <Text style={s.headerVs}>vs. {opponentName}</Text>
               </View>
-              <Text style={s.batName}>
-                {b.last_name}{b.first_name ? `, ${b.first_name[0]}.` : ""}{b.jersey_number != null ? `  ` : ""}
-              </Text>
-              {b.jersey_number != null && (
-                <Text style={s.batJersey}>#{b.jersey_number}</Text>
-              )}
-            </View>
-          ))}
-        </View>
-      </Page>
-
-      {/* Pages 2–N: Defensive Lineups (2 per page) */}
-      {inningPages.map(([inn1, inn2]) => (
-        <Page key={inn1} size="LETTER" style={s.inningPage}>
-          {/* Repeat mini header */}
-          <View style={s.headerBar}>
-            <Text style={s.headerTeam}>{teamName}</Text>
-            <Text style={s.headerMeta}>
-              vs. {opponentName}{dateStr ? `  ·  ${dateStr}` : ""}
-            </Text>
-          </View>
-
-          <View style={s.inningRow}>
-            {/* Inning 1 of pair */}
-            <View style={s.inningBlock}>
-              <Text style={s.inningTitle}>Inning {inn1}</Text>
-              <FieldDiagram lineup={byInning[inn1] ?? []} />
+              <View>
+                {metaLines.map((line, i) => (
+                  <Text key={i} style={s.headerMeta}>{line}</Text>
+                ))}
+              </View>
             </View>
 
-            {/* Inning 2 of pair (or blank) */}
-            {inn2 != null ? (
-              <View style={s.inningBlock}>
-                <Text style={s.inningTitle}>Inning {inn2}</Text>
-                <FieldDiagram lineup={byInning[inn2] ?? []} />
+            {/* Batting Order — repeated on every page */}
+            <BattingOrderSection battingOrder={battingOrder} />
+
+            {/* Stacked inning diagrams */}
+            {inn1 != null && (
+              <View style={s.inningStack}>
+                <View style={s.inningBlock}>
+                  <Text style={s.inningTitle}>Inning {inn1}</Text>
+                  <FieldDiagram lineup={byInning[inn1] ?? []} />
+                </View>
+
+                {inn2 != null && (
+                  <View style={s.inningBlock}>
+                    <Text style={s.inningTitle}>Inning {inn2}</Text>
+                    <FieldDiagram lineup={byInning[inn2] ?? []} />
+                  </View>
+                )}
               </View>
-            ) : (
-              <View style={s.inningBlock} />
             )}
-          </View>
-
-          <Text style={s.pageFooter}>{footerText}</Text>
-        </Page>
-      ))}
+          </Page>
+        );
+      })}
     </Document>
   );
 }
