@@ -22,6 +22,7 @@ function slugify(s: string | null): string {
 }
 
 export async function generateLineupCardPDF({ game, teamId, battingOrder, defensiveLineup }: GenerateOptions): Promise<void> {
+  if (game.home == null) throw new Error("Game has no home team assigned.");
   const isHome = game.home === teamId;
   const teamName = (isHome ? game.home_team : game.away_team) ?? "Team";
   const opponentName = (isHome ? game.away_team : game.home_team) ?? "Opponent";
@@ -46,6 +47,7 @@ export async function generateLineupCardPDF({ game, teamId, battingOrder, defens
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Defer revocation to ensure the browser has initiated the download
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 }
