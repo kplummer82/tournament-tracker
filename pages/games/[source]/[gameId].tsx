@@ -12,10 +12,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import type { GameDetail } from "@/pages/api/games/[source]/[gameId]";
+import { ReportsTab } from "@/components/games/ReportsTab";
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
-type TabKey = "overview" | "confirmations" | "batting" | "defense";
+type TabKey = "overview" | "confirmations" | "batting" | "defense" | "reports";
 
 type ConfirmationRow = {
   roster_id: number;
@@ -1219,6 +1220,7 @@ export default function GameDetailPage() {
             <TabsTrigger value="confirmations">Confirmations</TabsTrigger>
             <TabsTrigger value="batting">Batting Order</TabsTrigger>
             <TabsTrigger value="defense">Defense</TabsTrigger>
+            <TabsTrigger value="reports">Reports</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
@@ -1244,6 +1246,19 @@ export default function GameDetailPage() {
           <TabsContent value="defense" className="mt-6">
             {Number.isFinite(managingTeamId) ? (
               <DefenseTab source={source!} gameId={gameId} teamId={managingTeamId} />
+            ) : (
+              <TeamPickerCard game={game} manageable={manageable} onSelect={selectTeam} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="reports" className="mt-6">
+            {Number.isFinite(managingTeamId) ? (
+              <ReportsTab
+                game={game}
+                source={source!}
+                gameId={gameId}
+                teamId={managingTeamId}
+              />
             ) : (
               <TeamPickerCard game={game} manageable={manageable} onSelect={selectTeam} />
             )}
