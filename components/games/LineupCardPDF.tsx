@@ -41,35 +41,38 @@ type DiagramPosition = typeof DIAGRAM_POSITIONS[number];
 type PositionCoord = { x: number; y: number; anchor: "start" | "middle" | "end"; fill: string };
 
 const POSITION_COORDS: Record<DiagramPosition, PositionCoord> = {
-  CF:  { x: 140, y: 14,  anchor: "middle", fill: "white" },
-  LF:  { x: 52,  y: 38,  anchor: "middle", fill: "white" },
-  RF:  { x: 228, y: 38,  anchor: "middle", fill: "white" },
-  SS:  { x: 94,  y: 87,  anchor: "middle", fill: "white" },
-  "2B":{ x: 186, y: 87,  anchor: "middle", fill: "white" },
+  CF:  { x: 140, y: 14,  anchor: "middle", fill: "#1a1a1a" },
+  LF:  { x: 52,  y: 38,  anchor: "middle", fill: "#1a1a1a" },
+  RF:  { x: 228, y: 38,  anchor: "middle", fill: "#1a1a1a" },
+  SS:  { x: 94,  y: 87,  anchor: "middle", fill: "#1a1a1a" },
+  "2B":{ x: 186, y: 87,  anchor: "middle", fill: "#1a1a1a" },
   "3B":{ x: 65,  y: 122, anchor: "middle", fill: "#1a1a1a" },
   "1B":{ x: 215, y: 122, anchor: "middle", fill: "#1a1a1a" },
   P:   { x: 140, y: 152, anchor: "middle", fill: "#1a1a1a" },
-  C:   { x: 140, y: 225, anchor: "middle", fill: "white" },
+  C:   { x: 140, y: 225, anchor: "middle", fill: "#1a1a1a" },
 };
+
+// Height of each field diagram SVG (fixed, so rotated label SVG can match)
+const DIAGRAM_HEIGHT = 210;
 
 const s = StyleSheet.create({
   page: { fontFamily: "Helvetica", fontSize: 9, padding: 28, backgroundColor: "white" },
-  // Header bar
-  headerBar: { backgroundColor: "#1a3a1a", padding: "8 12", marginBottom: 14, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  // Header bar — lighter green for less ink
+  headerBar: { backgroundColor: "#2e5c2e", padding: "8 12", marginBottom: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   headerTeam: { color: "white", fontSize: 13, fontFamily: "Helvetica-Bold" },
-  headerVs: { color: "white", fontSize: 8, opacity: 0.8, marginTop: 2 },
+  headerVs: { color: "white", fontSize: 8, opacity: 0.85, marginTop: 2 },
   headerMeta: { color: "white", fontSize: 8, opacity: 0.85, textAlign: "right" },
-  // Section
-  sectionTitle: { fontSize: 7, fontFamily: "Helvetica-Bold", textTransform: "uppercase", letterSpacing: 1, color: "#555555", borderBottomWidth: 1, borderBottomColor: "#dddddd", paddingBottom: 3, marginBottom: 6 },
+  // Section title
+  sectionTitle: { fontSize: 7, fontFamily: "Helvetica-Bold", textTransform: "uppercase", letterSpacing: 1, color: "#555555", borderBottomWidth: 1, borderBottomColor: "#dddddd", paddingBottom: 3, marginBottom: 5 },
   // Batting order
   batGrid: { flexDirection: "row", flexWrap: "wrap" },
   batRow: { width: "50%", flexDirection: "row", alignItems: "center", marginBottom: 3, gap: 5 },
-  batNum: { backgroundColor: "#cc3a00", color: "white", width: 14, height: 14, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", paddingTop: 3 },
+  batNum: { backgroundColor: "#d44f1a", color: "white", width: 14, height: 14, fontSize: 7, fontFamily: "Helvetica-Bold", textAlign: "center", paddingTop: 3 },
   batName: { fontSize: 8.5, flex: 1 },
-  // Inning stack (portrait, full-width diagrams)
-  inningStack: { flexDirection: "column", gap: 8, marginTop: 12 },
-  inningBlock: {},
-  inningTitle: { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#cc3a00", marginBottom: 4 },
+  // Inning section
+  inningStack: { flexDirection: "column", marginTop: 10 },
+  inningRow: { flexDirection: "row", alignItems: "stretch" },
+  inningDivider: { borderTopWidth: 1.5, borderTopColor: "#aaaaaa", marginTop: 8, marginBottom: 8 },
 });
 
 function formatDate(d: string | null): string {
@@ -85,16 +88,18 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
   }
 
   return (
-    <Svg viewBox="0 0 280 240" width="100%" height={240}>
-      {/* Green outfield */}
-      <Rect x={0} y={0} width={280} height={240} fill="#3d7a35" rx={4} />
-      {/* Foul lines */}
-      <Line x1={140} y1={195} x2={5} y2={5} stroke="white" strokeWidth={0.8} strokeDasharray="4 3" opacity={0.35} />
-      <Line x1={140} y1={195} x2={275} y2={5} stroke="white" strokeWidth={0.8} strokeDasharray="4 3" opacity={0.35} />
-      {/* Infield dirt */}
-      <Polygon points="140,195 65,125 140,55 215,125" fill="#c8a84b" stroke="#a07830" strokeWidth={1.5} />
+    <Svg viewBox="0 0 280 240" width="100%" height={DIAGRAM_HEIGHT}>
+      {/* Light green outfield — reduced ink */}
+      <Rect x={0} y={0} width={280} height={240} fill="#7ab870" rx={3} />
+      {/* Foul lines — solid, from home plate tip through bases to outfield corners */}
+      {/* Left foul line: home tip (140,200) → through 3B (65,125) → corner (0,55) */}
+      <Line x1={140} y1={200} x2={0} y2={55} stroke="white" strokeWidth={1.2} opacity={0.6} />
+      {/* Right foul line: home tip (140,200) → through 1B (215,125) → corner (280,55) */}
+      <Line x1={140} y1={200} x2={280} y2={55} stroke="white" strokeWidth={1.2} opacity={0.6} />
+      {/* Infield dirt — lighter tan */}
+      <Polygon points="140,195 65,125 140,55 215,125" fill="#e8d898" stroke="#c8a848" strokeWidth={1.2} />
       {/* Pitcher mound */}
-      <Circle cx={140} cy={130} r={9} fill="#b8985a" />
+      <Circle cx={140} cy={130} r={9} fill="#d4bc78" />
       {/* Home plate */}
       <Polygon points="140,200 133,194 133,187 147,187 147,194" fill="white" />
       {/* Bases */}
@@ -120,6 +125,25 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
           </Text>
         );
       })}
+    </Svg>
+  );
+}
+
+function InningLabel({ inning }: { inning: number }) {
+  const mid = DIAGRAM_HEIGHT / 2;
+  return (
+    <Svg width={24} height={DIAGRAM_HEIGHT}>
+      <Text
+        x={12}
+        y={mid}
+        fill="#cc3a00"
+        textAnchor="middle"
+        transform={`rotate(-90 12 ${mid})`}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        style={{ fontSize: 15, fontFamily: "Helvetica-Bold" } as any}
+      >
+        Inning {inning}
+      </Text>
     </Svg>
   );
 }
@@ -166,7 +190,7 @@ export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defe
     inningPages.push([innings[i], innings[i + 1] ?? null]);
   }
 
-  // Every page repeats: header + batting order + up to 2 stacked inning diagrams.
+  // Every page: header + batting order + up to 2 stacked inning diagrams.
   // If no innings, show just the batting order on one page.
   const pages = inningPages.length > 0 ? inningPages : [[null, null] as [null, null]];
 
@@ -195,16 +219,25 @@ export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defe
             {/* Stacked inning diagrams */}
             {inn1 != null && (
               <View style={s.inningStack}>
-                <View style={s.inningBlock}>
-                  <Text style={s.inningTitle}>Inning {inn1}</Text>
-                  <FieldDiagram lineup={byInning[inn1] ?? []} />
+                {/* Inning 1 */}
+                <View style={s.inningRow}>
+                  <InningLabel inning={inn1} />
+                  <View style={{ flex: 1 }}>
+                    <FieldDiagram lineup={byInning[inn1] ?? []} />
+                  </View>
                 </View>
 
+                {/* Divider + Inning 2 */}
                 {inn2 != null && (
-                  <View style={s.inningBlock}>
-                    <Text style={s.inningTitle}>Inning {inn2}</Text>
-                    <FieldDiagram lineup={byInning[inn2] ?? []} />
-                  </View>
+                  <>
+                    <View style={s.inningDivider} />
+                    <View style={s.inningRow}>
+                      <InningLabel inning={inn2} />
+                      <View style={{ flex: 1 }}>
+                        <FieldDiagram lineup={byInning[inn2] ?? []} />
+                      </View>
+                    </View>
+                  </>
                 )}
               </View>
             )}
