@@ -68,7 +68,7 @@ export function ReportsTab({ game, source, gameId, teamId }: ReportsTabProps) {
 
           <button
             onClick={handleGenerate}
-            disabled={state === "loading"}
+            disabled={state === "loading" || game.home == null}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border border-border hover:border-primary hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {state === "loading" ? (
