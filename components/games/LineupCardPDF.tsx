@@ -98,9 +98,9 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
     <Svg viewBox="0 0 280 240" width="100%" height={DIAGRAM_HEIGHT}>
       {/* Light green outfield */}
       <Rect x={0} y={0} width={280} height={240} fill="#7ab870" rx={3} />
-      {/* Foul lines: from home plate tip through base bags to outfield edge */}
-      <Line x1={140} y1={200} x2={0} y2={55} stroke="white" strokeWidth={1.2} opacity={0.6} />
-      <Line x1={140} y1={200} x2={280} y2={55} stroke="white" strokeWidth={1.2} opacity={0.6} />
+      {/* Foul lines: from home plate tip along outside edge of 3B/1B bags to outfield edge */}
+      <Line x1={140} y1={200} x2={0} y2={70} stroke="white" strokeWidth={1.2} opacity={0.6} />
+      <Line x1={140} y1={200} x2={280} y2={70} stroke="white" strokeWidth={1.2} opacity={0.6} />
       {/* Infield dirt */}
       <Polygon points="140,195 65,125 140,55 215,125" fill="#e8d898" stroke="#c8a848" strokeWidth={1.2} />
       {/* Pitcher mound */}
