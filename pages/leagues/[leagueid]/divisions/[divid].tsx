@@ -26,7 +26,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
   draft:     { bg: "#5a5a5a18", text: "#888",     border: "#5a5a5a40" },
   active:    { bg: "#00c85318", text: "#00c853",  border: "#00c85340" },
   playoffs:  { bg: "#ff8c0018", text: "#ff8c00",  border: "#ff8c0040" },
-  completed: { bg: "#ffe50018", text: "#ffe500",  border: "#ffe50040" },
+  completed: { bg: "var(--badge-completed-bg)", text: "var(--badge-completed-text)", border: "var(--badge-completed-border)" },
   archived:  { bg: "#3a3a3a18", text: "#5a5a5a",  border: "#3a3a3a40" },
 };
 

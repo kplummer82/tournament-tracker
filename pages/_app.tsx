@@ -5,6 +5,7 @@ import type { AppProps } from "next/app";
 import { Barlow_Condensed, DM_Sans } from "next/font/google";
 import AdminLoginRedirect from "@/components/AdminLoginRedirect";
 import AuthGate from "@/components/AuthGate";
+import { ThemeProvider } from "@/components/ThemeProvider";
 
 const barlowCondensed = Barlow_Condensed({
   subsets: ["latin"],
@@ -22,11 +23,13 @@ const dmSans = DM_Sans({
 
 export default function App({ Component, pageProps }: AppProps) {
   return (
-    <main className={`${barlowCondensed.variable} ${dmSans.variable}`}>
-      <AuthGate>
-        <AdminLoginRedirect />
-        <Component {...pageProps} />
-      </AuthGate>
-    </main>
+    <ThemeProvider>
+      <main className={`${barlowCondensed.variable} ${dmSans.variable}`}>
+        <AuthGate>
+          <AdminLoginRedirect />
+          <Component {...pageProps} />
+        </AuthGate>
+      </main>
+    </ThemeProvider>
   );
 }

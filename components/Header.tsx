@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { authClient } from "@/lib/auth/client";
 import { cn } from "@/lib/utils";
-import { Menu, X } from "lucide-react";
+import { Menu, Moon, Sun, X } from "lucide-react";
+import { useTheme } from "@/components/ThemeProvider";
 
 const NAV_LINKS = [
   { href: "/",               label: "Home",            key: "home" },
@@ -35,6 +36,7 @@ export default function Header() {
   const user = session?.user;
   const isAdmin = user?.role === "admin";
   const [menuOpen, setMenuOpen] = useState(false);
+  const { theme, toggleTheme } = useTheme();
 
   const current =
     pathname.startsWith("/tournaments")     ? "tournaments" :
@@ -82,6 +84,16 @@ export default function Header() {
             );
           })}
         </nav>
+
+        {/* Theme toggle — desktop only */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="hidden md:flex items-center justify-center h-10 w-10 text-muted-foreground hover:text-foreground transition-colors duration-100"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
 
         {/* Auth — desktop only */}
         <div className="hidden md:flex items-center gap-3 shrink-0">
@@ -163,14 +175,24 @@ export default function Header() {
                   </span>
                 </div>
               )}
-              <button
-                type="button"
-                className="flex items-center justify-center h-10 w-10 text-muted-foreground hover:text-foreground ml-auto"
-                onClick={() => setMenuOpen(false)}
-                aria-label="Close menu"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-1 ml-auto">
+                <button
+                  type="button"
+                  onClick={toggleTheme}
+                  className="flex items-center justify-center h-10 w-10 text-muted-foreground hover:text-foreground transition-colors duration-100"
+                  aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+                >
+                  {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </button>
+                <button
+                  type="button"
+                  className="flex items-center justify-center h-10 w-10 text-muted-foreground hover:text-foreground"
+                  onClick={() => setMenuOpen(false)}
+                  aria-label="Close menu"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
             {/* Nav links */}

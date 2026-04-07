@@ -11,16 +11,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   res.status(405).end("Method Not Allowed");
 }
 
-// GET /api/tournaments?q=&year=&division=&status=&visibility=&sport=&page=&pageSize=
+// GET /api/tournaments?q=&year=&division=&status=&visibility=&sport=&page=&pageSize=&mine=true
 async function getTournaments(req: NextApiRequest, res: NextApiResponse) {
   const {
-    q, year, division, status, visibility, sport,
+    q, year, division, status, visibility, sport, mine,
     page = "1", pageSize = "12",
   } = req.query as Record<string, string>;
 
   const where: string[] = [];
   const params: any[] = [];
   let i = 1;
+
+  if (mine === "true") {
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const isAdmin = session.user.role === "admin";
+    if (isAdmin) {
+      where.push(`id IN (SELECT tournamentid FROM public.tournaments WHERE created_by = $${i} OR created_by IS NULL)`);
+    } else {
+      where.push(`id IN (SELECT tournamentid FROM public.tournaments WHERE created_by = $${i})`);
+    }
+    params.push(session.user.id); i++;
+  }
 
   if (q) {
     where.push(`(LOWER(name) LIKE $${i} OR LOWER(city) LIKE $${i} OR LOWER(state) LIKE $${i})`);

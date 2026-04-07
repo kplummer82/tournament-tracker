@@ -16,11 +16,17 @@ export default defineConfig({
   projects: [
     {
       name: 'default',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'tests/auth-state.json',
+      },
     },
     {
       name: 'mobile',
-      use: { ...devices['iPhone 14'] },
+      use: {
+        ...devices['iPhone 14'],
+        storageState: 'tests/auth-state.json',
+      },
     },
     {
       name: 'ldqa',

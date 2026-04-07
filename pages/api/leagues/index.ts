@@ -6,74 +6,226 @@ import { assignRole } from "@/lib/auth/permissions";
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === "GET") {
-      const { governing_body_id, sport } = req.query;
+      const { governing_body_id, sport, mine } = req.query;
+
+      // Resolve mine filter once
+      let mineUserId: string | null = null;
+      let mineIncludeNull = false;
+      if (mine === "true") {
+        const session = await requireSession(req, res);
+        if (!session) return;
+        mineUserId = session.user.id;
+        mineIncludeNull = session.user.role === "admin";
+      }
 
       let rows;
       if (governing_body_id && sport) {
         const gbId = Number(governing_body_id);
-        rows = await sql`
-          SELECT
-            l.id, l.name, l.abbreviation, l.city, l.state,
-            l.governing_body_id,
-            gb.name AS governing_body_name,
-            l.sportid,
-            s.sportname AS sport,
-            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
-          FROM leagues l
-          LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
-          LEFT JOIN sport s ON s.id = l.sportid
-          WHERE l.governing_body_id = ${gbId} AND s.sportname = ${String(sport)}
-          ORDER BY l.name ASC
-        `;
+        if (mineUserId && mineIncludeNull) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId} AND s.sportname = ${String(sport)}
+              AND (l.created_by = ${mineUserId} OR l.created_by IS NULL)
+            ORDER BY l.name ASC
+          `;
+        } else if (mineUserId) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId} AND s.sportname = ${String(sport)}
+              AND l.created_by = ${mineUserId}
+            ORDER BY l.name ASC
+          `;
+        } else {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId} AND s.sportname = ${String(sport)}
+            ORDER BY l.name ASC
+          `;
+        }
       } else if (governing_body_id) {
         const gbId = Number(governing_body_id);
-        rows = await sql`
-          SELECT
-            l.id, l.name, l.abbreviation, l.city, l.state,
-            l.governing_body_id,
-            gb.name AS governing_body_name,
-            l.sportid,
-            s.sportname AS sport,
-            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
-          FROM leagues l
-          LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
-          LEFT JOIN sport s ON s.id = l.sportid
-          WHERE l.governing_body_id = ${gbId}
-          ORDER BY l.name ASC
-        `;
+        if (mineUserId && mineIncludeNull) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId}
+              AND (l.created_by = ${mineUserId} OR l.created_by IS NULL)
+            ORDER BY l.name ASC
+          `;
+        } else if (mineUserId) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId}
+              AND l.created_by = ${mineUserId}
+            ORDER BY l.name ASC
+          `;
+        } else {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.governing_body_id = ${gbId}
+            ORDER BY l.name ASC
+          `;
+        }
       } else if (sport) {
-        rows = await sql`
-          SELECT
-            l.id, l.name, l.abbreviation, l.city, l.state,
-            l.governing_body_id,
-            gb.name AS governing_body_name,
-            l.sportid,
-            s.sportname AS sport,
-            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
-          FROM leagues l
-          LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
-          LEFT JOIN sport s ON s.id = l.sportid
-          WHERE s.sportname = ${String(sport)}
-          ORDER BY l.name ASC
-        `;
+        if (mineUserId && mineIncludeNull) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE s.sportname = ${String(sport)}
+              AND (l.created_by = ${mineUserId} OR l.created_by IS NULL)
+            ORDER BY l.name ASC
+          `;
+        } else if (mineUserId) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE s.sportname = ${String(sport)}
+              AND l.created_by = ${mineUserId}
+            ORDER BY l.name ASC
+          `;
+        } else {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE s.sportname = ${String(sport)}
+            ORDER BY l.name ASC
+          `;
+        }
       } else {
-        rows = await sql`
-          SELECT
-            l.id, l.name, l.abbreviation, l.city, l.state,
-            l.governing_body_id,
-            gb.name AS governing_body_name,
-            l.sportid,
-            s.sportname AS sport,
-            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-            (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
-          FROM leagues l
-          LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
-          LEFT JOIN sport s ON s.id = l.sportid
-          ORDER BY l.name ASC
-        `;
+        if (mineUserId && mineIncludeNull) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE (l.created_by = ${mineUserId} OR l.created_by IS NULL)
+            ORDER BY l.name ASC
+          `;
+        } else if (mineUserId) {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            WHERE l.created_by = ${mineUserId}
+            ORDER BY l.name ASC
+          `;
+        } else {
+          rows = await sql`
+            SELECT
+              l.id, l.name, l.abbreviation, l.city, l.state,
+              l.governing_body_id,
+              gb.name AS governing_body_name,
+              l.sportid,
+              s.sportname AS sport,
+              to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+              (SELECT COUNT(*)::int FROM league_divisions ld WHERE ld.league_id = l.id) AS division_count
+            FROM leagues l
+            LEFT JOIN governing_bodies gb ON gb.id = l.governing_body_id
+            LEFT JOIN sport s ON s.id = l.sportid
+            ORDER BY l.name ASC
+          `;
+        }
       }
 
       return res.status(200).json({ rows });

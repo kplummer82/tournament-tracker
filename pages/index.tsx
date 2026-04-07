@@ -2,34 +2,35 @@ import Header from "@/components/Header";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
-type RecentTournament = {
-  id: number;
-  name: string;
-  city?: string;
-  state?: string;
-  year?: number;
-  status?: string;
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  Active:    "#00c853",
-  Draft:     "#5a5a5a",
-  Completed: "#ffe500",
-  Archived:  "#3a3a3a",
-};
+type MinimalItem = { id: number; name: string };
 
 export default function HomePage() {
   const { data: session } = authClient.useSession();
   const user = session?.user;
-  const [recent, setRecent] = useState<RecentTournament[]>([]);
+
+  const [open, setOpen] = useState({ teams: true, leagues: true, tournaments: true });
+  const toggle = (key: keyof typeof open) =>
+    setOpen((p) => ({ ...p, [key]: !p[key] }));
+
+  const [myTeams, setMyTeams]             = useState<MinimalItem[]>([]);
+  const [myLeagues, setMyLeagues]         = useState<MinimalItem[]>([]);
+  const [myTournaments, setMyTournaments] = useState<MinimalItem[]>([]);
 
   useEffect(() => {
     if (!user) return;
-    fetch("/api/tournaments?pageSize=5")
+    fetch("/api/teams?mine=true")
       .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.rows)) setRecent(d.rows.slice(0, 5)); })
+      .then((d) => { if (Array.isArray(d?.rows)) setMyTeams(d.rows); })
+      .catch(() => {});
+    fetch("/api/leagues?mine=true")
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.rows)) setMyLeagues(d.rows); })
+      .catch(() => {});
+    fetch("/api/tournaments?mine=true")
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.rows)) setMyTournaments(d.rows); })
       .catch(() => {});
   }, [user]);
 
@@ -73,38 +74,13 @@ export default function HomePage() {
           >
             Season schedules, live standings, tiebreaker rules, and bracket play — all in one place.
           </p>
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/leagues"
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-6 py-3 text-[11px] font-semibold tracking-[0.1em] uppercase hover:opacity-90 transition-opacity duration-100"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              Browse Leagues
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-            <Link
-              href="/tournaments"
-              className="inline-flex items-center gap-2 border border-foreground/30 text-foreground px-6 py-3 text-[11px] font-semibold tracking-[0.1em] uppercase hover:border-foreground transition-colors duration-100"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              Browse Tournaments
-              <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
-            <Link
-              href="/teams"
-              className="inline-flex items-center gap-2 border border-foreground/30 text-foreground px-6 py-3 text-[11px] font-semibold tracking-[0.1em] uppercase hover:border-foreground transition-colors duration-100"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              Manage Teams
-            </Link>
-          </div>
         </div>
       </section>
 
       {/* ── How it works strip ────────────────────────────── */}
       <section className="border-t border-border animate-fade-up-2">
         <div className="mx-auto max-w-7xl px-4 md:px-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-border">
+          <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 divide-border">
             {[
               { num: "01", label: "Leagues & Seasons", desc: "Organize teams into leagues, divisions, and seasons." },
               { num: "02", label: "Standings",         desc: "Live standings with configurable tiebreaker rules." },
@@ -134,61 +110,61 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── Recent tournaments (logged-in) ────────────────── */}
-      {user && recent.length > 0 && (
+      {/* ── My Teams / My Leagues / My Tournaments (logged-in) ── */}
+      {user && (
         <section className="border-t border-border animate-fade-up-3">
-          <div className="mx-auto max-w-7xl px-4 md:px-6 py-8">
-            <div className="flex items-center justify-between mb-4">
-              <span
-                className="text-[11px] tracking-[0.1em] uppercase text-muted-foreground"
-                style={{ fontFamily: "var(--font-body)" }}
-              >
-                Recent Tournaments
-              </span>
-              <Link
-                href="/tournaments"
-                className="text-[11px] tracking-[0.08em] uppercase text-primary hover:opacity-80 transition-opacity duration-100 flex items-center gap-1"
-                style={{ fontFamily: "var(--font-body)" }}
-              >
-                All <ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
-            <div className="divide-y divide-border">
-              {recent.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/tournaments/${t.id}`}
-                  className="flex items-center justify-between py-3 group hover:bg-elevated transition-colors duration-100 -mx-3 px-3"
+          <div className="mx-auto max-w-7xl px-4 md:px-6 divide-y divide-border">
+            {(
+              [
+                { key: "teams"       as const, label: "My Teams",       items: myTeams,       href: (id: number) => `/teams/${id}` },
+                { key: "leagues"     as const, label: "My Leagues",     items: myLeagues,     href: (id: number) => `/leagues/${id}` },
+                { key: "tournaments" as const, label: "My Tournaments", items: myTournaments, href: (id: number) => `/tournaments/${id}` },
+              ]
+            ).map(({ key, label, items, href }) => (
+              <div key={key}>
+                <button
+                  onClick={() => toggle(key)}
+                  className="flex items-center justify-between w-full py-4 -mx-3 px-3 hover:bg-elevated transition-colors duration-100 cursor-pointer select-none"
                 >
                   <span
-                    className="text-foreground group-hover:text-primary transition-colors duration-100"
-                    style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em" }}
+                    className="text-[11px] tracking-[0.1em] uppercase text-muted-foreground"
+                    style={{ fontFamily: "var(--font-body)" }}
                   >
-                    {t.name}
+                    {label}
                   </span>
-                  <div className="flex items-center gap-4">
-                    {(t.city || t.state) && (
-                      <span className="text-xs text-muted-foreground hidden sm:block" style={{ fontFamily: "var(--font-body)" }}>
-                        {[t.city, t.state].filter(Boolean).join(", ")}
-                        {t.year ? ` · ${t.year}` : ""}
-                      </span>
-                    )}
-                    {t.status && (
-                      <span
-                        className="badge"
-                        style={{
-                          background: `${STATUS_COLORS[t.status] ?? "#5a5a5a"}20`,
-                          color: STATUS_COLORS[t.status] ?? "#5a5a5a",
-                          borderColor: `${STATUS_COLORS[t.status] ?? "#5a5a5a"}40`,
-                        }}
-                      >
-                        {t.status}
-                      </span>
-                    )}
-                  </div>
-                </Link>
-              ))}
-            </div>
+                  <ChevronDown
+                    className={`h-4 w-4 text-muted-foreground transition-transform duration-200${open[key] ? " rotate-180" : ""}`}
+                  />
+                </button>
+                {open[key] && (
+                  items.length === 0 ? (
+                    <p
+                      className="pb-6 text-sm text-muted-foreground"
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      Nothing here yet.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-1 pb-6">
+                      {items.map((item) => (
+                        <Link
+                          key={item.id}
+                          href={href(item.id)}
+                          className="group py-2 border-b border-border/40 hover:border-primary/40 transition-colors duration-100"
+                        >
+                          <span
+                            className="text-foreground group-hover:text-primary transition-colors duration-100 truncate block"
+                            style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.02em" }}
+                          >
+                            {item.name}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
+            ))}
           </div>
         </section>
       )}

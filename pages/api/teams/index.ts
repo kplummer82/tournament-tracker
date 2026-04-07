@@ -31,6 +31,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         season,
         year,
         sport,
+        mine,
         tab = "all",
         page = "1",
         pageSize = "12",
@@ -42,6 +43,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const whereClauses: string[] = [];
       const params: any[] = [];
+
+      if (mine === "true") {
+        const session = await requireSession(req, res);
+        if (!session) return;
+        const isAdmin = session.user.role === "admin";
+        if (isAdmin) {
+          params.push(session.user.id);
+          whereClauses.push(`(t.created_by = $${params.length} OR t.created_by IS NULL)`);
+        } else {
+          params.push(session.user.id);
+          whereClauses.push(`t.created_by = $${params.length}`);
+        }
+      }
 
       if (q) {
         params.push(`%${q}%`);

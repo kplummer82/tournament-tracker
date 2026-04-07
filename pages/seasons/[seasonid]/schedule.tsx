@@ -1,9 +1,9 @@
 // pages/seasons/[seasonid]/schedule.tsx
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import Link from "next/link";
-import { Plus, Pencil, Trash2, Swords, X, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
 
@@ -220,6 +220,26 @@ function ScheduleBody() {
   const [version, setVersion] = useState(0);
   const [filter, setFilter] = useState<GameFilter>("all");
   const [selectedTeamIds, setSelectedTeamIds] = useState<Set<number>>(new Set());
+  const [teamFilterOpen, setTeamFilterOpen] = useState(false);
+  const teamFilterRef = useRef<HTMLDivElement>(null);
+  const loadedForSeason = useRef<string | null>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const today = new Date().toISOString().slice(0, 10);
+  const [dateMode, setDateMode] = useState<"single" | "range">("range");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>(today);
+  const dateDefaultsSet = useRef(false);
+
+  useEffect(() => {
+    if (!teamFilterOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (teamFilterRef.current && !teamFilterRef.current.contains(e.target as Node)) {
+        setTeamFilterOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [teamFilterOpen]);
 
   const toggleTeam = (id: number) =>
     setSelectedTeamIds((prev) => {
@@ -227,6 +247,38 @@ function ScheduleBody() {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
+  useEffect(() => {
+    if (rows.length === 0 || dateDefaultsSet.current) return;
+    const dates = rows.map((g) => g.gamedate).filter(Boolean).map((d) => d!.slice(0, 10));
+    if (dates.length === 0) return;
+    const earliest = dates.reduce((a, b) => (a < b ? a : b));
+    setDateFrom(earliest);
+    dateDefaultsSet.current = true;
+  }, [rows]);
+
+  const earliestDate = rows.reduce<string>((min, g) => {
+    if (!g.gamedate) return min;
+    const d = g.gamedate.slice(0, 10);
+    return !min || d < min ? d : min;
+  }, "");
+
+  const gameDates = Array.from(
+    new Set(rows.map((g) => g.gamedate).filter(Boolean).map((d) => d!.slice(0, 10)))
+  ).sort();
+
+  const resetDateFilter = () => {
+    setDateFrom(earliestDate);
+    setDateTo(today);
+  };
+
+  const handleDateFromChange = (val: string) => {
+    setDateFrom(earliestDate && val < earliestDate ? earliestDate : val);
+  };
+
+  const handleDateToChange = (val: string) => {
+    setDateTo(earliestDate && val < earliestDate ? earliestDate : val);
+  };
 
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<GameForm>(BLANK_FORM);
@@ -242,7 +294,8 @@ function ScheduleBody() {
     if (!seasonId) return;
     let cancelled = false;
     (async () => {
-      setLoading(true); setErr(null);
+      if (loadedForSeason.current !== String(seasonId)) setLoading(true);
+      setErr(null);
       try {
         const [gamesRes, teamsRes, statusRes] = await Promise.all([
           fetch(`/api/seasons/${seasonId}/games?game_type=all`),
@@ -259,6 +312,7 @@ function ScheduleBody() {
           setTeams(Array.isArray(teamsData?.teams) ? teamsData.teams : []);
           const rawStatuses: { id: number; gamestatus: string }[] = Array.isArray(statusData?.statuses) ? statusData.statuses : [];
           setStatuses(rawStatuses.map((s) => ({ id: s.id, name: s.gamestatus })));
+          loadedForSeason.current = String(seasonId);
         }
       } catch (e: unknown) {
         if (!cancelled) setErr((e as Error).message || "Failed to load schedule");
@@ -474,12 +528,23 @@ function ScheduleBody() {
   const playoffCount = rows.filter((g) => g.game_type === "playoff").length;
   const filteredRows = (() => {
     const byType = filter === "all" ? rows : rows.filter((g) => g.game_type === filter);
-    if (selectedTeamIds.size === 0) return byType;
-    return byType.filter(
-      (g) =>
-        (g.home != null && selectedTeamIds.has(g.home)) ||
-        (g.away != null && selectedTeamIds.has(g.away))
-    );
+    const byTeam =
+      selectedTeamIds.size === 0
+        ? byType
+        : byType.filter(
+            (g) =>
+              (g.home != null && selectedTeamIds.has(g.home)) ||
+              (g.away != null && selectedTeamIds.has(g.away))
+          );
+    if (!dateFrom && !dateTo) return byTeam;
+    return byTeam.filter((g) => {
+      if (!g.gamedate) return false;
+      const d = g.gamedate.slice(0, 10);
+      if (dateMode === "single") return d === dateFrom;
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      return true;
+    });
   })();
 
   return (
@@ -508,59 +573,208 @@ function ScheduleBody() {
         )}
       </div>
 
-      {/* Game type filter */}
-      {!loading && !err && playoffCount > 0 && (
-        <div className="flex items-center gap-1 mb-4">
-          {(["all", "regular", "playoff"] as GameFilter[]).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={cn(
-                "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
-                filter === f
-                  ? "border-primary text-primary bg-primary/5"
-                  : "border-border text-muted-foreground hover:border-primary/60"
+      {/* Filter bar */}
+      {!loading && !err && (() => {
+        const filtersActiveCount =
+          (filter !== "all" ? 1 : 0) +
+          (dateFrom !== earliestDate ? 1 : 0) +
+          (dateTo !== today ? 1 : 0);
+        return (
+          <>
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              {/* Teams filter */}
+              {teams.length > 1 && (
+                <div className="relative" ref={teamFilterRef}>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setTeamFilterOpen((o) => !o)}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                        selectedTeamIds.size > 0 || teamFilterOpen
+                          ? "border-primary text-primary bg-primary/5"
+                          : "border-border text-muted-foreground hover:border-primary/60"
+                      )}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      Teams{selectedTeamIds.size > 0 ? ` (${selectedTeamIds.size})` : ""}
+                      <ChevronDown className={cn("h-3 w-3 transition-transform", teamFilterOpen && "rotate-180")} />
+                    </button>
+                    {selectedTeamIds.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedTeamIds(new Set()); setTeamFilterOpen(false); }}
+                        className="px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  {teamFilterOpen && (
+                    <div className="absolute top-full left-0 mt-1 z-20 border border-border bg-card p-2 flex flex-wrap gap-1 min-w-[200px] max-w-[480px] shadow-md">
+                      {teams.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => toggleTeam(t.id)}
+                          className={cn(
+                            "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                            selectedTeamIds.has(t.id)
+                              ? "border-primary text-primary bg-primary/5"
+                              : "border-border text-muted-foreground hover:border-primary/60"
+                          )}
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              {f === "all" ? `All (${rows.length})` : f === "regular" ? `Regular (${regularCount})` : `Playoff (${playoffCount})`}
-            </button>
-          ))}
-        </div>
-      )}
 
-      {/* Team filter */}
-      {!loading && !err && teams.length > 1 && (
-        <div className="flex items-center gap-1 flex-wrap mb-4">
-          {teams.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => toggleTeam(t.id)}
-              className={cn(
-                "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
-                selectedTeamIds.has(t.id)
-                  ? "border-primary text-primary bg-primary/5"
-                  : "border-border text-muted-foreground hover:border-primary/60"
-              )}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              {t.name}
-            </button>
-          ))}
-          {selectedTeamIds.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setSelectedTeamIds(new Set())}
-              className="px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              Clear
-            </button>
-          )}
-        </div>
-      )}
+              {/* Filters button */}
+              <button
+                type="button"
+                onClick={() => setFiltersOpen((o) => !o)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                  filtersOpen || filtersActiveCount > 0
+                    ? "border-primary text-primary bg-primary/5"
+                    : "border-border text-muted-foreground hover:border-primary/60"
+                )}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <SlidersHorizontal className="h-3 w-3" />
+                Filters{filtersActiveCount > 0 ? ` (${filtersActiveCount})` : ""}
+                <ChevronDown className={cn("h-3 w-3 transition-transform", filtersOpen && "rotate-180")} />
+              </button>
+            </div>
+
+            {/* Filters panel */}
+            {filtersOpen && (
+              <div className="mb-4 border border-border bg-card p-4 space-y-4">
+                {/* Game Type */}
+                {playoffCount > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground mb-2" style={{ fontFamily: "var(--font-body)" }}>
+                      Game Type
+                    </p>
+                    <div className="flex items-center gap-1">
+                      {(["all", "regular", "playoff"] as GameFilter[]).map((f) => (
+                        <button
+                          key={f}
+                          type="button"
+                          onClick={() => setFilter(f)}
+                          className={cn(
+                            "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                            filter === f
+                              ? "border-primary text-primary bg-primary/5"
+                              : "border-border text-muted-foreground hover:border-primary/60"
+                          )}
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          {f === "all" ? `All (${rows.length})` : f === "regular" ? `Regular (${regularCount})` : `Playoff (${playoffCount})`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Date */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                      Date
+                    </p>
+                    {(dateFrom || dateTo) && (
+                      <button
+                        type="button"
+                        onClick={() => { setDateFrom(""); setDateTo(""); }}
+                        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {(["single", "range"] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          setDateMode(m);
+                          if (m === "single" && !gameDates.includes(dateFrom)) {
+                            setDateFrom(gameDates[0] ?? "");
+                          }
+                        }}
+                        className={cn(
+                          "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border transition-colors",
+                          dateMode === m
+                            ? "border-primary text-primary bg-primary/5"
+                            : "border-border text-muted-foreground hover:border-primary/60"
+                        )}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                    <div className="w-px h-4 bg-border mx-0.5" />
+                    {dateMode === "single" ? (
+                      <select
+                        value={dateFrom}
+                        onChange={(e) => setDateFrom(e.target.value)}
+                        className="border border-border bg-input px-2 py-1 text-[10px] text-foreground focus:outline-none focus:border-primary transition-colors"
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {gameDates.map((d) => (
+                          <option key={d} value={d}>{formatMMDDYY(d)}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <>
+                        <input
+                          type="date"
+                          value={dateFrom}
+                          min={earliestDate || undefined}
+                          onChange={(e) => handleDateFromChange(e.target.value)}
+                          className="border border-border bg-transparent px-2 py-1 text-[10px] text-foreground focus:outline-none focus:border-primary transition-colors"
+                          style={{ fontFamily: "var(--font-body)" }}
+                        />
+                        <span className="text-[10px] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>to</span>
+                        <input
+                          type="date"
+                          value={dateTo}
+                          min={earliestDate || undefined}
+                          onChange={(e) => handleDateToChange(e.target.value)}
+                          className="border border-border bg-transparent px-2 py-1 text-[10px] text-foreground focus:outline-none focus:border-primary transition-colors"
+                          style={{ fontFamily: "var(--font-body)" }}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                {filtersActiveCount > 0 && (
+                  <div className="flex justify-end pt-2 border-t border-border">
+                    <button
+                      type="button"
+                      onClick={() => { setFilter("all"); resetDateFilter(); setFiltersOpen(false); }}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      Clear all filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {showAdd && (
         <GameFormPanel

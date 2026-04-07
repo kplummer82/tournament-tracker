@@ -4,10 +4,92 @@
 @custom-variant dark (&:is(.dark *));
 
 /* ═══════════════════════════════════════════════════════
-   CHAMPIONSHIP BOARD — Athletic dark theme
-   Near-black + electric yellow + sharp geometry
+   CHAMPIONSHIP BOARD — Athletic theme system
+   Light: daylight scoreboard | Dark: near-black electric
    ═══════════════════════════════════════════════════════ */
+
+/* ─── Light theme (default) ──────────────────────────── */
 :root {
+  /* Backgrounds */
+  --background: #f7f7f5;
+  --surface:    #efefed;
+  --card:       #ffffff;
+  --elevated:   #f2f2f0;
+
+  /* Foreground */
+  --foreground:         #0c0c0c;
+  --card-foreground:    #0c0c0c;
+  --popover:            #ffffff;
+  --popover-foreground: #0c0c0c;
+
+  /* Primary: electric orange — interactive text, buttons, underlines */
+  --primary:            #ff4b00;
+  --primary-foreground: #0c0c0c;
+
+  /* Secondary */
+  --secondary:            #e8e8e6;
+  --secondary-foreground: #0c0c0c;
+
+  /* Muted */
+  --muted:            #efefed;
+  --muted-foreground: #6a6a68;
+
+  /* Accent: championship yellow — highlights, badges, backgrounds */
+  --accent:            #ffe500;
+  --accent-foreground: #0c0c0c;
+
+  /* Status */
+  --success:            #00a843;
+  --success-foreground: #ffffff;
+  --warning:            #e07800;
+  --warning-foreground: #ffffff;
+
+  /* Destructive */
+  --destructive:            #d42020;
+  --destructive-foreground: #ffffff;
+
+  /* Structure */
+  --border: #d8d8d6;
+  --input:  #efefed;
+  --ring:   #ff4b00;
+
+  /* Sharp geometry — nearly square */
+  --radius: 2px;
+
+  /* Chart */
+  --chart-1: #ff4b00;
+  --chart-2: #ffe500;
+  --chart-3: #00a843;
+  --chart-4: #9a9a98;
+  --chart-5: #0c0c0c;
+
+  /* Sidebar */
+  --sidebar:                    #f2f2f0;
+  --sidebar-foreground:         #0c0c0c;
+  --sidebar-primary:            #ff4b00;
+  --sidebar-primary-foreground: #0c0c0c;
+  --sidebar-accent:             #e8e8e6;
+  --sidebar-accent-foreground:  #0c0c0c;
+  --sidebar-border:             #d8d8d6;
+  --sidebar-ring:               #ff4b00;
+
+  /* Typography */
+  --font-display: var(--font-barlow, "Barlow Condensed", sans-serif);
+  --font-body:    var(--font-dm-sans, "DM Sans", sans-serif);
+
+  /* Hardcoded-value replacements */
+  --grid-color:      rgba(0, 0, 0, 0.04);
+  --border-hover:    #b0b0ae;
+  --scrollbar-hover: #a0a0a0;
+
+  /* Badge-completed (yellow text only works on dark bg) */
+  --badge-completed-text:   #7a6000;
+  --badge-completed-bg:     #ffe50020;
+  --badge-completed-border: #c4a00050;
+}
+
+/* ─── Dark theme ──────────────────────────────────────── */
+.dark {
   /* Backgrounds */
   --background: #0c0c0c;
   --surface:    #131313;
@@ -15,13 +97,13 @@
   --elevated:   #222222;
 
   /* Foreground */
-  --foreground:       #f2f2f2;
-  --card-foreground:  #f2f2f2;
-  --popover:          #1a1a1a;
+  --foreground:         #f2f2f2;
+  --card-foreground:    #f2f2f2;
+  --popover:            #1a1a1a;
   --popover-foreground: #f2f2f2;
 
-  /* Primary: electric championship yellow */
-  --primary:            #ffe500;
+  /* Primary: electric orange — interactive text, buttons, underlines */
+  --primary:            #ff4b00;
   --primary-foreground: #0c0c0c;
 
   /* Secondary */
@@ -32,8 +114,8 @@
   --muted:            #1a1a1a;
   --muted-foreground: #5a5a5a;
 
-  /* Accent: electric orange */
-  --accent:            #ff4b00;
+  /* Accent: championship yellow — highlights, badges, backgrounds */
+  --accent:            #ffe500;
   --accent-foreground: #0c0c0c;
 
   /* Status */
@@ -49,31 +131,34 @@
   /* Structure */
   --border: #272727;
   --input:  #1a1a1a;
-  --ring:   #ffe500;
-
-  /* Sharp geometry — nearly square */
-  --radius: 2px;
+  --ring:   #ff4b00;
 
   /* Chart */
-  --chart-1: #ffe500;
-  --chart-2: #ff4b00;
+  --chart-1: #ff4b00;
+  --chart-2: #ffe500;
   --chart-3: #00c853;
   --chart-4: #5a5a5a;
   --chart-5: #f2f2f2;
 
   /* Sidebar */
-  --sidebar:                  #131313;
-  --sidebar-foreground:       #f2f2f2;
-  --sidebar-primary:          #ffe500;
+  --sidebar:                    #131313;
+  --sidebar-foreground:         #f2f2f2;
+  --sidebar-primary:            #ff4b00;
   --sidebar-primary-foreground: #0c0c0c;
-  --sidebar-accent:           #222222;
-  --sidebar-accent-foreground: #f2f2f2;
-  --sidebar-border:           #272727;
-  --sidebar-ring:             #ffe500;
+  --sidebar-accent:             #222222;
+  --sidebar-accent-foreground:  #f2f2f2;
+  --sidebar-border:             #272727;
+  --sidebar-ring:               #ff4b00;
 
-  /* Typography */
-  --font-display: var(--font-barlow, "Barlow Condensed", sans-serif);
-  --font-body:    var(--font-dm-sans, "DM Sans", sans-serif);
+  /* Hardcoded-value replacements */
+  --grid-color:      rgba(255, 255, 255, 0.018);
+  --border-hover:    #3a3a3a;
+  --scrollbar-hover: #3a3a3a;
+
+  /* Badge-completed */
+  --badge-completed-text:   #ffe500;
+  --badge-completed-bg:     #ffe50020;
+  --badge-completed-border: #ffe50040;
 }
 
 @theme inline {
@@ -145,8 +230,8 @@
     -webkit-font-smoothing: antialiased;
     /* Subtle grid texture — depth without blobs */
     background-image:
-      linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
     background-size: 40px 40px;
   }
 
@@ -194,7 +279,7 @@ select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary), transparent 75%);
 }
-select:hover { border-color: #3a3a3a; }
+select:hover { border-color: var(--border-hover); }
 
 input,
 textarea {
@@ -229,7 +314,7 @@ textarea:focus {
 }
 .badge-active    { background: #00c85320; color: #00c853; border-color: #00c85340; }
 .badge-draft     { background: #5a5a5a20; color: #5a5a5a; border-color: #5a5a5a40; }
-.badge-completed { background: #ffe50020; color: #ffe500; border-color: #ffe50040; }
+.badge-completed { background: var(--badge-completed-bg); color: var(--badge-completed-text); border-color: var(--badge-completed-border); }
 .badge-archived  { background: #3a3a3a20; color: #3a3a3a; border-color: #3a3a3a40; }
 
 /* Section label */
@@ -274,4 +359,4 @@ textarea:focus {
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 0; }
-::-webkit-scrollbar-thumb:hover { background: #3a3a3a; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }

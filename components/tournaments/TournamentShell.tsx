@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Active:    { bg: "#00c85318", text: "#00c853", border: "#00c85340" },
   Draft:     { bg: "#5a5a5a18", text: "#5a5a5a", border: "#5a5a5a40" },
-  Completed: { bg: "#ffe50018", text: "#ffe500", border: "#ffe50040" },
+  Completed: { bg: "var(--badge-completed-bg)", text: "var(--badge-completed-text)", border: "var(--badge-completed-border)" },
   Archived:  { bg: "#3a3a3a18", text: "#3a3a3a", border: "#3a3a3a40" },
 };
 

@@ -509,11 +509,17 @@ function PlayerCombobox({
   players,
   value,
   usedIds,
+  isDuplicate,
+  cellKey,
+  onTab,
   onChange,
 }: {
   players: ConfirmationRow[];
   value: number | null;
   usedIds: Set<number>;
+  isDuplicate: boolean;
+  cellKey: string;
+  onTab: (shiftKey: boolean) => void;
   onChange: (id: number | null) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -560,6 +566,9 @@ function PlayerCombobox({
         e.preventDefault();
         setOpen(true);
         setHlIdx(0);
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        onTab(e.shiftKey);
       }
       return;
     }
@@ -576,10 +585,7 @@ function PlayerCombobox({
       case "Enter":
         e.preventDefault();
         if (filtered.length > 0 && hlIdx < filtered.length) {
-          const pick = filtered[hlIdx];
-          if (!usedIds.has(pick.roster_id) || pick.roster_id === value) {
-            selectPlayer(pick.roster_id);
-          }
+          selectPlayer(filtered[hlIdx].roster_id);
         }
         break;
       case "Escape":
@@ -588,15 +594,13 @@ function PlayerCombobox({
         setQuery("");
         break;
       case "Tab":
-        // On Tab, select the highlighted item if dropdown is open, then let focus advance naturally
         if (filtered.length > 0 && hlIdx < filtered.length && query) {
-          const pick = filtered[hlIdx];
-          if (!usedIds.has(pick.roster_id) || pick.roster_id === value) {
-            onChange(pick.roster_id);
-          }
+          onChange(filtered[hlIdx].roster_id);
         }
         setOpen(false);
         setQuery("");
+        e.preventDefault();
+        onTab(e.shiftKey);
         break;
       case "Backspace":
         if (!query && value != null) {
@@ -618,7 +622,7 @@ function PlayerCombobox({
   }, [hlIdx, open]);
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} data-cell={cellKey} className="relative">
       <input
         ref={inputRef}
         type="text"
@@ -629,13 +633,28 @@ function PlayerCombobox({
         onKeyDown={handleKeyDown}
         placeholder="—"
         className={cn(
-          "w-full px-1.5 py-1 text-xs border border-border bg-transparent",
-          "focus:outline-none focus:border-primary transition-colors",
-          value != null ? "text-foreground" : "text-muted-foreground"
+          "w-full px-1.5 py-1 text-xs border bg-transparent",
+          "focus:outline-none transition-colors",
+          isDuplicate
+            ? "border-destructive text-destructive focus:border-destructive bg-transparent"
+            : [
+                "border-border focus:border-primary",
+                value != null ? "text-foreground" : "text-muted-foreground",
+              ]
         )}
       />
       {open && (
         <div className="absolute z-20 left-0 right-0 top-full mt-0.5 bg-card border border-border shadow-lg max-h-40 overflow-y-auto">
+          {value != null && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={(e) => { e.preventDefault(); selectPlayer(null); }}
+              className="w-full text-left px-2 py-1 text-xs text-muted-foreground hover:bg-elevated/50 border-b border-border/40"
+            >
+              — Unassigned
+            </button>
+          )}
           {filtered.length === 0 ? (
             <div className="px-2 py-1.5 text-[10px] text-muted-foreground">No match</div>
           ) : (
@@ -650,19 +669,17 @@ function PlayerCombobox({
                   data-hl={isHl ? "true" : undefined}
                   onMouseDown={(e) => {
                     e.preventDefault(); // prevent blur
-                    if (!isUsed) selectPlayer(p.roster_id);
+                    selectPlayer(p.roster_id);
                   }}
                   onMouseEnter={() => setHlIdx(i)}
                   className={cn(
                     "w-full text-left px-2 py-1 text-xs transition-colors",
-                    isHl && !isUsed && "bg-elevated",
-                    isUsed && "text-muted-foreground/40 cursor-not-allowed",
-                    !isUsed && !isHl && "hover:bg-elevated/50"
+                    isHl && "bg-primary/25 text-foreground",
+                    !isHl && "hover:bg-elevated/50",
+                    isUsed && "line-through text-muted-foreground"
                   )}
-                  disabled={isUsed}
                 >
                   {playerLabel(p)}
-                  {isUsed && <span className="ml-1 text-[9px]">(in use)</span>}
                 </button>
               );
             })
@@ -728,11 +745,6 @@ function DefenseTab({
       if (rosterId === null) {
         delete next[key];
       } else {
-        // Remove this player from any other position in this inning
-        for (const pos of POSITIONS) {
-          const k = `${inning}-${pos}`;
-          if (next[k] === rosterId && k !== key) delete next[k];
-        }
         next[key] = rosterId;
       }
       return next;
@@ -789,6 +801,31 @@ function DefenseTab({
     return used;
   };
 
+  const duplicatesInInning = (inning: number): Set<number> => {
+    const seen = new Set<number>();
+    const dupes = new Set<number>();
+    for (const pos of POSITIONS) {
+      const id = lineup[`${inning}-${pos}`];
+      if (id != null) {
+        if (seen.has(id)) dupes.add(id);
+        else seen.add(id);
+      }
+    }
+    return dupes;
+  };
+
+  const hasDuplicates = activeInnings.some((inn) => duplicatesInInning(inn).size > 0);
+
+  const cellOrder = activeInnings.flatMap((inn) => POSITIONS.map((p) => `${inn}-${p}`));
+
+  const handleCellTab = (currentKey: string, shiftKey: boolean) => {
+    const idx = cellOrder.indexOf(currentKey);
+    const nextKey = cellOrder[shiftKey ? idx - 1 : idx + 1];
+    if (nextKey) {
+      document.querySelector<HTMLInputElement>(`[data-cell="${nextKey}"] input`)?.focus();
+    }
+  };
+
   if (loading) return <p className="text-sm text-muted-foreground py-4">Loading…</p>;
 
   if (confirmed.length === 0) {
@@ -826,19 +863,24 @@ function DefenseTab({
             ))}
           </div>
         </div>
-        <button
-          onClick={save}
-          disabled={!dirty || saving}
-          className={cn(
-            "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors",
-            dirty
-              ? "border-primary text-primary hover:bg-primary/10"
-              : "border-border text-muted-foreground cursor-not-allowed opacity-50"
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={save}
+            disabled={!dirty || saving || hasDuplicates}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors",
+              dirty && !hasDuplicates
+                ? "border-primary text-primary hover:bg-primary/10"
+                : "border-border text-muted-foreground cursor-not-allowed opacity-50"
+            )}
+          >
+            <Save className="h-3 w-3" />
+            {saving ? "Saving…" : "Save"}
+          </button>
+          {hasDuplicates && (
+            <p className="text-[10px] text-destructive">Fix duplicate players before saving.</p>
           )}
-        >
-          <Save className="h-3 w-3" />
-          {saving ? "Saving…" : "Save"}
-        </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -884,13 +926,18 @@ function DefenseTab({
                       const key = `${inn}-${pos}`;
                       const assigned = lineup[key] ?? null;
                       const usedInInning = playersInInning(inn);
+                      const dupes = duplicatesInInning(inn);
+                      const isDuplicate = assigned != null && dupes.has(assigned);
 
                       return (
-                        <td key={key} className="p-1">
+                        <td key={key} className={cn("p-1", isDuplicate && "bg-destructive/10")}>
                           <PlayerCombobox
                             players={confirmed}
                             value={assigned}
                             usedIds={usedInInning}
+                            isDuplicate={isDuplicate}
+                            cellKey={key}
+                            onTab={(shiftKey) => handleCellTab(key, shiftKey)}
                             onChange={(id) => assign(inn, pos, id)}
                           />
                         </td>

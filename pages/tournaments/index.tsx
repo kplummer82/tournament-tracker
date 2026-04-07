@@ -41,7 +41,7 @@ type FilterState = {
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string; left: string }> = {
   Active:    { bg: "#00c85318", text: "#00c853", border: "#00c85340", left: "#00c853" },
   Draft:     { bg: "#5a5a5a18", text: "#5a5a5a", border: "#5a5a5a40", left: "#5a5a5a" },
-  Completed: { bg: "#ffe50018", text: "#ffe500", border: "#ffe50040", left: "#ffe500" },
+  Completed: { bg: "var(--badge-completed-bg)", text: "var(--badge-completed-text)", border: "var(--badge-completed-border)", left: "#ffe500" },
   Archived:  { bg: "#3a3a3a18", text: "#3a3a3a", border: "#3a3a3a40", left: "#3a3a3a" },
 };
 const STATUSES = ["Active", "Draft", "Completed", "Archived"] as const;
