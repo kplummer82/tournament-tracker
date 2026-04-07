@@ -88,7 +88,7 @@ function FieldDiagram({ lineup }: { lineup: DefenseEntry[] }) {
   }
 
   return (
-    <Svg viewBox="0 0 280 240" width="100%" height={200}>
+    <Svg viewBox="0 0 280 240" width="100%" height={220}>
       {/* Green outfield */}
       <Rect x={0} y={0} width={280} height={240} fill="#3d7a35" rx={4} />
       {/* Foul lines */}
@@ -177,7 +177,7 @@ export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defe
                 <Text>{b.bat_order}</Text>
               </View>
               <Text style={s.batName}>
-                {b.last_name}, {b.first_name[0]}.{b.jersey_number != null ? `  ` : ""}
+                {b.last_name}{b.first_name ? `, ${b.first_name[0]}.` : ""}{b.jersey_number != null ? `  ` : ""}
               </Text>
               {b.jersey_number != null && (
                 <Text style={s.batJersey}>#{b.jersey_number}</Text>
