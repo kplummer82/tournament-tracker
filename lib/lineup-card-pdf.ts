@@ -1,6 +1,7 @@
 import { pdf } from "@react-pdf/renderer";
 import { LineupCardPDF } from "@/components/games/LineupCardPDF";
 import type { BattingEntry, DefenseEntry } from "@/components/games/LineupCardPDF";
+import { BattingOrderCardPDF } from "@/components/games/BattingOrderCardPDF";
 import type { GameDetail } from "@/pages/api/games/[source]/[gameId]";
 
 export type { BattingEntry, DefenseEntry };
@@ -19,6 +20,40 @@ function isIOS(): boolean {
 
 function slugify(s: string | null): string {
   return (s ?? "team").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+interface BattingOrderCardOptions {
+  game: GameDetail;
+  teamId: number;
+  battingOrder: BattingEntry[];
+}
+
+export async function generateBattingOrderCardPDF({ game, teamId, battingOrder }: BattingOrderCardOptions): Promise<void> {
+  if (game.home == null) throw new Error("Game has no home team assigned.");
+  const isHome = game.home === teamId;
+  const teamName = (isHome ? game.home_team : game.away_team) ?? "Team";
+  const opponentName = (isHome ? game.away_team : game.home_team) ?? "Opponent";
+  const dateSlug = game.gamedate ?? "game";
+
+  const blob = await pdf(
+    BattingOrderCardPDF({ game, teamName, opponentName, battingOrder })
+  ).toBlob();
+
+  const url = URL.createObjectURL(blob);
+  const filename = `batting-order-${dateSlug}-${slugify(teamName)}.pdf`;
+
+  if (isIOS()) {
+    window.open(url);
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  } else {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
 
 export async function generateLineupCardPDF({ game, teamId, battingOrder, defensiveLineup }: GenerateOptions): Promise<void> {
