@@ -80,7 +80,20 @@ const s = StyleSheet.create({
   batRowSingle: { flexDirection: "row", alignItems: "center", marginBottom: 3, gap: 5 },
   batNameSingle: { fontSize: 8, flex: 1 },
   inningDivider: { borderTopWidth: 1.5, borderTopColor: "#bbbbbb", marginTop: 8, marginBottom: 8 },
+  benchLine: { fontSize: 8, color: "#555555", marginTop: 4 },
+  benchLabel: { fontFamily: "Helvetica-Bold", color: "#333333" },
 });
+
+function getBenchPlayers(battingOrder: BattingEntry[], lineup: DefenseEntry[]): string[] {
+  const fieldedNames = new Set(
+    lineup
+      .filter((e) => (DIAGRAM_POSITIONS as readonly string[]).includes(e.position))
+      .map((e) => `${e.first_name} ${e.last_name}`)
+  );
+  return battingOrder
+    .filter((b) => !fieldedNames.has(`${b.first_name} ${b.last_name}`))
+    .map((b) => `${b.first_name} ${b.last_name}`);
+}
 
 function formatDate(d: string | null): string {
   if (!d) return "";
@@ -217,32 +230,50 @@ export function LineupCardPDF({ game, teamName, opponentName, battingOrder, defe
 
             <View style={s.inningStack}>
               {/* Inning 1 row: label | diagram | batting order */}
-              {inn1 != null ? (
-                <View style={s.inningRow}>
-                  <InningLabel inning={inn1} />
-                  <View style={s.diagramContainer}>
-                    <FieldDiagram lineup={byInning[inn1] ?? []} />
+              {inn1 != null ? (() => {
+                const bench1 = getBenchPlayers(battingOrder, byInning[inn1] ?? []);
+                return (
+                  <View style={s.inningRow}>
+                    <InningLabel inning={inn1} />
+                    <View style={s.diagramContainer}>
+                      <FieldDiagram lineup={byInning[inn1] ?? []} />
+                      {bench1.length > 0 && (
+                        <Text style={s.benchLine}>
+                          <Text style={s.benchLabel}>Bench: </Text>
+                          {bench1.join("  ·  ")}
+                        </Text>
+                      )}
+                    </View>
+                    <BattingOrderColumn battingOrder={battingOrder} />
                   </View>
-                  <BattingOrderColumn battingOrder={battingOrder} />
-                </View>
-              ) : (
+                );
+              })() : (
                 /* No innings — show batting order only */
                 <BattingOrderColumn battingOrder={battingOrder} />
               )}
 
               {/* Divider + Inning 2 row */}
-              {inn2 != null && (
-                <>
-                  <View style={s.inningDivider} />
-                  <View style={s.inningRow}>
-                    <InningLabel inning={inn2} />
-                    <View style={s.diagramContainer}>
-                      <FieldDiagram lineup={byInning[inn2] ?? []} />
+              {inn2 != null && (() => {
+                const bench2 = getBenchPlayers(battingOrder, byInning[inn2] ?? []);
+                return (
+                  <>
+                    <View style={s.inningDivider} />
+                    <View style={s.inningRow}>
+                      <InningLabel inning={inn2} />
+                      <View style={s.diagramContainer}>
+                        <FieldDiagram lineup={byInning[inn2] ?? []} />
+                        {bench2.length > 0 && (
+                          <Text style={s.benchLine}>
+                            <Text style={s.benchLabel}>Bench: </Text>
+                            {bench2.join("  ·  ")}
+                          </Text>
+                        )}
+                      </View>
+                      <BattingOrderColumn battingOrder={battingOrder} />
                     </View>
-                    <BattingOrderColumn battingOrder={battingOrder} />
-                  </View>
-                </>
-              )}
+                  </>
+                );
+              })()}
             </View>
           </Page>
         );
