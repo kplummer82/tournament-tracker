@@ -96,7 +96,7 @@ export function ReportsTab({ game, source, gameId, teamId }: ReportsTabProps) {
             Batting Order Card
           </h2>
           <p className="text-sm text-muted-foreground">
-            Batting order with jersey numbers for <span className="text-foreground font-medium">{teamName}</span>. Hand off to the opposing team's scorekeeper.
+            Batting order with jersey numbers for <span className="text-foreground font-medium">{teamName}</span>. Hand off to the opposing team&apos;s scorekeeper.
           </p>
           <button
             onClick={battingCard.trigger}
