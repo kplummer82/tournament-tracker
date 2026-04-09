@@ -283,90 +283,155 @@ BEGIN
           m.teamid,
           /* H2H metrics now read from sandbox "games" */
           CASE
-            WHEN c.code IN ('head_to_head_strict','head_to_head_permissive') THEN (
-              WITH g AS (
+            WHEN c.code = 'head_to_head' THEN (
+              /*
+               * Head-to-Head with dominant-team fallback.
+               *
+               * Case A: All N*(N-1)/2 pairs have played → use H2H win%.
+               * Case B: Not all pairs played, exactly 1 dominant team (can reach all N-1
+               *         others via transitive "beats" chain up to depth 4) → dominant gets
+               *         1.0, everyone else 0.0.
+               * Case C: 0 or 2+ dominant teams → all return NULL → all rank equal → skip.
+               *
+               * Depth-4 expansion handles groups of up to 5 teams cleanly.
+               * Pool games have no forfeits/winner_side — score comparison only.
+               */
+              WITH
+              g AS (
                 SELECT tg.home, tg.away, tg.homescore, tg.awayscore
                 FROM games tg
                 WHERE tg.poolorbracket = 'Pool'
-                  AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
                   AND tg.homescore IS NOT NULL
                   AND tg.awayscore IS NOT NULL
+                  AND tg.home = ANY(r.members)
+                  AND tg.away = ANY(r.members)
               ),
-              h2h AS (
-                SELECT
-                  CASE WHEN m.teamid = g.home THEN g.away
-                       WHEN m.teamid = g.away THEN g.home END AS opp,
-                  CASE WHEN m.teamid = g.home THEN (g.homescore - g.awayscore)
-                       WHEN m.teamid = g.away THEN (g.awayscore - g.homescore) END AS score_delta
+              /* Win points per game, per team perspective */
+              game_pts AS (
+                SELECT g.home AS team, g.away AS opp,
+                  CASE WHEN g.homescore > g.awayscore THEN 1.0
+                       WHEN g.homescore < g.awayscore THEN 0.0
+                       ELSE 0.5 END AS win_pt
                 FROM g
-                WHERE (g.home = m.teamid AND g.away = ANY(r.members))
-                   OR (g.away = m.teamid AND g.home = ANY(r.members))
+                UNION ALL
+                SELECT g.away, g.home,
+                  CASE WHEN g.awayscore > g.homescore THEN 1.0
+                       WHEN g.awayscore < g.homescore THEN 0.0
+                       ELSE 0.5 END
+                FROM g
               ),
-              faced AS (SELECT COUNT(DISTINCT opp) AS opp_count FROM h2h WHERE opp IS NOT NULL),
-              group_size AS (SELECT array_length(r.members, 1) AS n)
-              SELECT CASE
-                WHEN c.code = 'head_to_head_strict' THEN
+              /* Total win pts per ordered pair */
+              pair_totals AS (
+                SELECT p.team, p.opp, SUM(p.win_pt) AS total_pts
+                FROM game_pts p GROUP BY p.team, p.opp
+              ),
+              /* Directed edge: X beats Y if X's series total strictly exceeds Y's */
+              direct_beats AS (
+                SELECT a.team AS winner, a.opp AS loser
+                FROM pair_totals a
+                JOIN pair_totals b ON b.team = a.opp AND b.opp = a.team
+                WHERE a.total_pts > b.total_pts
+              ),
+              /* Count distinct unordered pairs that have played at least once */
+              pairs_played AS (
+                SELECT LEAST(p.team, p.opp) AS t1, GREATEST(p.team, p.opp) AS t2
+                FROM pair_totals p GROUP BY 1, 2
+              ),
+              group_size AS (SELECT array_length(r.members, 1) AS n),
+              all_pairs_played AS (
+                SELECT COUNT(*) >= ((SELECT n FROM group_size) * ((SELECT n FROM group_size) - 1) / 2)
+                  AS all_played FROM pairs_played
+              ),
+              /* Transitive reachability, depth 1–4 */
+              reach1 AS (SELECT winner AS src, loser AS dst FROM direct_beats),
+              reach2 AS (
+                SELECT r1.src, db2.loser AS dst FROM reach1 r1
+                JOIN direct_beats db2 ON db2.winner = r1.dst WHERE db2.loser <> r1.src
+              ),
+              reach3 AS (
+                SELECT r2.src, db3.loser AS dst FROM reach2 r2
+                JOIN direct_beats db3 ON db3.winner = r2.dst WHERE db3.loser <> r2.src
+              ),
+              reach4 AS (
+                SELECT r3.src, db4.loser AS dst FROM reach3 r3
+                JOIN direct_beats db4 ON db4.winner = r3.dst WHERE db4.loser <> r3.src
+              ),
+              all_reachable AS (
+                SELECT src, dst FROM reach1 UNION
+                SELECT src, dst FROM reach2 UNION
+                SELECT src, dst FROM reach3 UNION
+                SELECT src, dst FROM reach4
+              ),
+              /* How many tied group members can each team reach? */
+              reach_counts AS (
+                SELECT gm.teamid, COUNT(ar.dst) AS reach_count
+                FROM (SELECT unnest(r.members) AS teamid) gm
+                LEFT JOIN all_reachable ar
+                  ON ar.src = gm.teamid AND ar.dst = ANY(r.members) AND ar.dst <> gm.teamid
+                GROUP BY gm.teamid
+              ),
+              dominant_count AS (
+                SELECT COUNT(*) AS cnt FROM reach_counts
+                WHERE reach_count = (SELECT n - 1 FROM group_size)
+              ),
+              final_val AS (
+                SELECT gm.teamid,
                   CASE
-                    WHEN (SELECT n FROM group_size) = 2
-                         AND (SELECT opp_count FROM faced) >= 1
-                      THEN ROUND((SELECT AVG(CASE WHEN score_delta > 0 THEN 1.0 WHEN score_delta = 0 THEN 0.5 ELSE 0.0 END) FROM h2h)::numeric, 6)
-                    WHEN (SELECT n FROM group_size) >= 3
-                         AND (SELECT opp_count FROM faced) = (SELECT n FROM group_size) - 1
-                      THEN ROUND((SELECT AVG(CASE WHEN score_delta > 0 THEN 1.0 WHEN score_delta = 0 THEN 0.5 ELSE 0.0 END) FROM h2h)::numeric, 6)
+                    /* Case A: full round-robin played → use win% */
+                    WHEN (SELECT all_played FROM all_pairs_played) THEN
+                      ROUND(COALESCE((
+                        SELECT AVG(gp.win_pt) FROM game_pts gp WHERE gp.team = gm.teamid
+                      ), 0.0)::numeric, 6)
+                    /* Case B: exactly one dominant team */
+                    WHEN (SELECT cnt FROM dominant_count) = 1 THEN
+                      CASE WHEN rc.reach_count = (SELECT n - 1 FROM group_size)
+                           THEN 1.0::numeric ELSE 0.0::numeric END
+                    /* Case C: unresolvable — NULL for all → all rank equal → skip */
                     ELSE NULL
-                  END
-                WHEN c.code = 'head_to_head_permissive' THEN
-                  CASE
-                    WHEN (SELECT COUNT(*) FROM h2h) > 0
-                      THEN ROUND((SELECT AVG(CASE WHEN score_delta > 0 THEN 1.0 WHEN score_delta = 0 THEN 0.5 ELSE 0.0 END) FROM h2h)::numeric, 6)
-                    ELSE NULL
-                  END
-              END
+                  END AS val
+                FROM (SELECT unnest(r.members) AS teamid) gm
+                JOIN reach_counts rc USING (teamid)
+              )
+              SELECT fv.val FROM final_val fv WHERE fv.teamid = m.teamid
             )
-            WHEN c.code IN ('head_to_head_rundiff_strict','head_to_head_rundiff_permissive') THEN (
-              WITH g AS (
+            WHEN c.code = 'head_to_head_rundiff' THEN (
+              /*
+               * H2H Run Differential (permissive).
+               * Sum capped run differential vs any tied opponent actually played.
+               * Returns NULL only if the team has played zero games against group members.
+               * Pool games have no forfeits — score comparison only.
+               */
+              WITH
+              tour AS (SELECT t.maxrundiff AS cap FROM tournaments t WHERE t.tournamentid = r.tournamentid),
+              g AS (
                 SELECT tg.home, tg.away, tg.homescore, tg.awayscore
                 FROM games tg
                 WHERE tg.poolorbracket = 'Pool'
-                  AND (p_include_in_progress OR (tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL))
                   AND tg.homescore IS NOT NULL
                   AND tg.awayscore IS NOT NULL
+                  AND tg.home = ANY(r.members)
+                  AND tg.away = ANY(r.members)
               ),
-              tour AS (SELECT t.maxrundiff AS cap FROM tournaments t WHERE t.tournamentid = r.tournamentid),
-              rf AS (
-                SELECT
-                  CASE
-                    WHEN m.teamid = g.home AND g.away = ANY(r.members)
-                      THEN GREATEST(LEAST(g.homescore - g.awayscore, (SELECT cap FROM tour)), - (SELECT cap FROM tour))
-                    WHEN m.teamid = g.away AND g.home = ANY(r.members)
-                      THEN GREATEST(LEAST(g.awayscore - g.homescore, (SELECT cap FROM tour)), - (SELECT cap FROM tour))
-                  END AS rd,
-                  CASE WHEN m.teamid = g.home THEN g.away
-                       WHEN m.teamid = g.away THEN g.home END AS opp
+              rd_rows AS (
+                SELECT g.home AS team,
+                  GREATEST(LEAST(g.homescore - g.awayscore, (SELECT cap FROM tour)),
+                          -(SELECT cap FROM tour)) AS rd
                 FROM g
-                WHERE (g.home = m.teamid AND g.away = ANY(r.members))
-                   OR (g.away = m.teamid AND g.home = ANY(r.members))
+                UNION ALL
+                SELECT g.away,
+                  GREATEST(LEAST(g.awayscore - g.homescore, (SELECT cap FROM tour)),
+                          -(SELECT cap FROM tour)) AS rd
+                FROM g
               ),
-              faced AS (SELECT COUNT(DISTINCT opp) AS opp_count FROM rf WHERE opp IS NOT NULL),
-              group_size AS (SELECT array_length(r.members, 1) AS n)
-              SELECT CASE
-                WHEN c.code = 'head_to_head_rundiff_strict' THEN
-                  CASE
-                    WHEN (SELECT n FROM group_size) = 2
-                         AND (SELECT opp_count FROM faced) >= 1
-                      THEN (SELECT SUM(rd)::numeric FROM rf)
-                    WHEN (SELECT n FROM group_size) >= 3
-                         AND (SELECT opp_count FROM faced) = (SELECT n FROM group_size) - 1
-                      THEN (SELECT SUM(rd)::numeric FROM rf)
-                    ELSE NULL
-                  END
-                WHEN c.code = 'head_to_head_rundiff_permissive' THEN
-                  CASE
-                    WHEN (SELECT COUNT(rd) FROM rf WHERE rd IS NOT NULL) > 0
-                      THEN (SELECT SUM(rd)::numeric FROM rf)
-                    ELSE NULL
-                  END
-              END
+              team_rd AS (
+                SELECT rr.team AS teamid, SUM(rr.rd) AS total_rd, COUNT(*) AS game_count
+                FROM rd_rows rr WHERE rr.team = ANY(r.members)
+                GROUP BY rr.team
+              )
+              SELECT CASE WHEN COALESCE(tr.game_count, 0) > 0 THEN tr.total_rd::numeric ELSE NULL END
+              FROM (SELECT unnest(r.members) AS teamid) gm
+              LEFT JOIN team_rd tr ON tr.teamid = gm.teamid
+              WHERE gm.teamid = m.teamid
             )
             /* Fallback to static snapshot */
             ELSE COALESCE(NULLIF((s.js ->> c.code), '')::numeric, 0::numeric)
