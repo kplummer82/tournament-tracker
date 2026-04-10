@@ -24,10 +24,10 @@ export function computeBaseStats(
   // Initialize counters for every team (includes teams with zero games)
   const acc = new Map<
     number,
-    { team: string; wins: number; games: number; scored: number; against: number; rundiff: number }
+    { team: string; wins: number; losses: number; ties: number; games: number; scored: number; against: number; rundiff: number }
   >();
   for (const t of teams) {
-    acc.set(t.teamid, { team: t.team, wins: 0, games: 0, scored: 0, against: 0, rundiff: 0 });
+    acc.set(t.teamid, { team: t.team, wins: 0, losses: 0, ties: 0, games: 0, scored: 0, against: 0, rundiff: 0 });
   }
 
   for (const g of games) {
@@ -43,14 +43,14 @@ export function computeBaseStats(
         // runs scored/against stay 0 for forfeits
       }
       if (away) {
-        away.wins += 0;
+        away.losses += 1;
         away.games += 1;
         away.rundiff -= forfeit_run_diff;
       }
     } else if (g.winnerSide === "away") {
       // Home team forfeited — away wins
       if (home) {
-        home.wins += 0;
+        home.losses += 1;
         home.games += 1;
         home.rundiff -= forfeit_run_diff;
       }
@@ -66,11 +66,13 @@ export function computeBaseStats(
       const rawDiff = hs - as_;
       const cappedDiff = Math.max(-maxrundiff, Math.min(maxrundiff, rawDiff));
 
-      const homeWins = hs > as_ ? 1 : hs === as_ ? 0.5 : 0;
+      const isTie = hs === as_;
+      const homeWins = hs > as_ ? 1 : isTie ? 0.5 : 0;
       const awayWins = 1 - homeWins;
 
       if (home) {
         home.wins += homeWins;
+        if (isTie) home.ties += 1; else if (hs < as_) home.losses += 1;
         home.games += 1;
         home.scored += hs;
         home.against += as_;
@@ -78,6 +80,7 @@ export function computeBaseStats(
       }
       if (away) {
         away.wins += awayWins;
+        if (isTie) away.ties += 1; else if (as_ < hs) away.losses += 1;
         away.games += 1;
         away.scored += as_;
         away.against += hs;
@@ -96,6 +99,8 @@ export function computeBaseStats(
       teamid,
       team: c.team,
       wins: c.wins,
+      losses: c.losses,
+      ties: c.ties,
       games: c.games,
       wltpct,
       runsscored: c.scored,

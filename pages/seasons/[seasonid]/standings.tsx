@@ -13,6 +13,8 @@ type StandingsRow = {
   seasonid: number;
   seasonname: string;
   wins: number;
+  losses: number;
+  ties: number;
   games: number;
   wltpct: number | null;
   runsscored: number;
@@ -24,14 +26,6 @@ type StandingsRow = {
 type ViewMode = "standings" | "sos";
 type SosMode = "full" | "remaining";
 
-/** Derive W/L/T from the DB's win_pts (wins=1, ties=0.5) and games played */
-function derivedRecord(wins: number, games: number) {
-  const ties = Math.round((wins % 1) * 2);
-  const w = Math.floor(wins);
-  const l = games - w - ties;
-  return { w, l, t: ties };
-}
-
 const formatWLPct = (wltpct: unknown, games: number): string => {
   const n = Number(wltpct);
   if (!Number.isFinite(n) || games === 0) return "—";
@@ -42,12 +36,13 @@ const formatWLPct = (wltpct: unknown, games: number): string => {
 function computeGB(rows: StandingsRow[]) {
   const leader = rows.find((r) => r.rank_final === 1);
   if (!leader) return new Map<number, number | null>();
-  const { w: lw, l: ll } = derivedRecord(leader.wins, leader.games);
+  const lw = leader.games - leader.losses - leader.ties;
+  const ll = leader.losses;
   return new Map(
     rows.map((r) => {
       if (r.rank_final === 1) return [r.teamid, null];
-      const { w, l } = derivedRecord(r.wins, r.games);
-      return [r.teamid, ((lw - w) + (l - ll)) / 2];
+      const w = r.games - r.losses - r.ties;
+      return [r.teamid, ((lw - w) + (r.losses - ll)) / 2];
     })
   );
 }
@@ -131,7 +126,7 @@ function StandingsTable({
             const advances = advancesToPlayoffs !== null && r.rank_final <= advancesToPlayoffs;
             const isTop = r.rank_final === 1;
             const diff = r.rundifferential;
-            const { w, l, t } = derivedRecord(r.wins, r.games);
+            const { losses: l, ties: t } = r; const w = r.games - l - t;
             return (
               <tr
                 key={r.teamid}
@@ -244,7 +239,7 @@ function StandingsCardList({
         const isTop = r.rank_final === 1;
         const highlighted = advances || (isTop && advancesToPlayoffs === null);
         const diff = r.rundifferential;
-        const { w, l, t } = derivedRecord(r.wins, r.games);
+        const { losses: l, ties: t } = r; const w = r.games - l - t;
         const gb = gbMap.get(r.teamid) ?? null;
 
         return (

@@ -23,7 +23,9 @@ export type SeasonConfig = {
 export type TeamStats = {
   teamid: number;
   team: string;
-  wins: number;
+  wins: number;   // win_pts (1 per win, 0.5 per tie) — used for PCT/tiebreakers
+  losses: number; // integer loss count — display only
+  ties: number;   // integer tie count — display only
   games: number;
   wltpct: number;
   runsscored: number;
