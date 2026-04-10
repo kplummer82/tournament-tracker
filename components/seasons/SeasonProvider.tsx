@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { usePermissions } from "@/lib/hooks/usePermissions";
+import type { ScheduleConfig } from "@/lib/auto-schedule";
 
 export type Season = {
   id: number;
@@ -11,6 +12,7 @@ export type Season = {
   maxrundiff: number | null;
   forfeit_run_diff: number | null;
   advances_to_playoffs: number | null;
+  schedule_config: ScheduleConfig | null;
   league_division_id: number;
   division_name: string;
   division_age_range: string | null;
@@ -100,6 +102,7 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
           maxrundiff: season.maxrundiff,
           forfeit_run_diff: season.forfeit_run_diff,
           advances_to_playoffs: season.advances_to_playoffs,
+          schedule_config: season.schedule_config,
         }),
       });
       const json = await res.json();
