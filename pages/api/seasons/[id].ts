@@ -21,6 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         SELECT
           s.id, s.name, s.year, s.season_type, s.status,
           s.maxrundiff, s.forfeit_run_diff, s.advances_to_playoffs,
+          s.schedule_config,
           s.league_division_id,
           ld.name          AS division_name,
           ld.age_range     AS division_age_range,
@@ -49,6 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         name, year, season_type, status,
         maxrundiff, forfeit_run_diff, advances_to_playoffs,
+        schedule_config,
       } = req.body ?? {};
 
       if (season_type && !VALID_SEASON_TYPES.includes(season_type)) {
@@ -66,10 +68,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           status              = COALESCE(${status ?? null}, status),
           maxrundiff           = CASE WHEN ${maxrundiff !== undefined} THEN ${maxrundiff != null && maxrundiff !== "" ? Number(maxrundiff) : null} ELSE maxrundiff END,
           forfeit_run_diff     = CASE WHEN ${forfeit_run_diff !== undefined} THEN ${forfeit_run_diff != null && forfeit_run_diff !== "" ? Number(forfeit_run_diff) : null} ELSE forfeit_run_diff END,
-          advances_to_playoffs = CASE WHEN ${advances_to_playoffs !== undefined} THEN ${advances_to_playoffs != null && advances_to_playoffs !== "" ? Number(advances_to_playoffs) : null} ELSE advances_to_playoffs END
+          advances_to_playoffs = CASE WHEN ${advances_to_playoffs !== undefined} THEN ${advances_to_playoffs != null && advances_to_playoffs !== "" ? Number(advances_to_playoffs) : null} ELSE advances_to_playoffs END,
+          schedule_config      = CASE WHEN ${schedule_config !== undefined} THEN ${schedule_config != null ? JSON.stringify(schedule_config) : null}::jsonb ELSE schedule_config END
         WHERE id = ${id}
         RETURNING id, league_division_id, name, year, season_type, status,
-          maxrundiff, forfeit_run_diff, advances_to_playoffs,
+          maxrundiff, forfeit_run_diff, advances_to_playoffs, schedule_config,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       if (!rows.length) return res.status(404).json({ error: "Not found" });
