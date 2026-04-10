@@ -3,9 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import Link from "next/link";
-import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal } from "lucide-react";
+import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal, CalendarDays } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import AutoScheduleModal from "@/components/seasons/AutoScheduleModal";
 
 // Games API returns: { id, gamedate, gametime, home (id), home_team (name), away (id), away_team (name), ... }
 type GameRow = {
@@ -211,7 +212,7 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
 type GameFilter = "all" | "regular" | "playoff";
 
 function ScheduleBody() {
-  const { seasonId, canEdit } = useSeason();
+  const { seasonId, season, canEdit } = useSeason();
   const [rows, setRows] = useState<GameRow[]>([]);
   const [teams, setTeams] = useState<TeamOpt[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
@@ -227,8 +228,7 @@ function ScheduleBody() {
   const today = new Date().toISOString().slice(0, 10);
   const [dateMode, setDateMode] = useState<"single" | "range">("range");
   const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>(today);
-  const dateDefaultsSet = useRef(false);
+  const [dateTo, setDateTo] = useState<string>("");
 
   useEffect(() => {
     if (!teamFilterOpen) return;
@@ -248,14 +248,6 @@ function ScheduleBody() {
       return next;
     });
 
-  useEffect(() => {
-    if (rows.length === 0 || dateDefaultsSet.current) return;
-    const dates = rows.map((g) => g.gamedate).filter(Boolean).map((d) => d!.slice(0, 10));
-    if (dates.length === 0) return;
-    const earliest = dates.reduce((a, b) => (a < b ? a : b));
-    setDateFrom(earliest);
-    dateDefaultsSet.current = true;
-  }, [rows]);
 
   const earliestDate = rows.reduce<string>((min, g) => {
     if (!g.gamedate) return min;
@@ -268,8 +260,8 @@ function ScheduleBody() {
   ).sort();
 
   const resetDateFilter = () => {
-    setDateFrom(earliestDate);
-    setDateTo(today);
+    setDateFrom("");
+    setDateTo("");
   };
 
   const handleDateFromChange = (val: string) => {
@@ -280,6 +272,7 @@ function ScheduleBody() {
     setDateTo(earliestDate && val < earliestDate ? earliestDate : val);
   };
 
+  const [showAutoSchedule, setShowAutoSchedule] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<GameForm>(BLANK_FORM);
   const [adding, setAdding] = useState(false);
@@ -561,15 +554,26 @@ function ScheduleBody() {
           )}
         </div>
         {canEdit && (
-          <button
-            type="button"
-            onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
-            className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Game
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAutoSchedule(true)}
+              className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              <CalendarDays className="h-3.5 w-3.5" />
+              Auto-Schedule
+            </button>
+            <button
+              type="button"
+              onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
+              className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Game
+            </button>
+          </div>
         )}
       </div>
 
@@ -577,8 +581,8 @@ function ScheduleBody() {
       {!loading && !err && (() => {
         const filtersActiveCount =
           (filter !== "all" ? 1 : 0) +
-          (dateFrom !== earliestDate ? 1 : 0) +
-          (dateTo !== today ? 1 : 0);
+          (dateFrom !== "" ? 1 : 0) +
+          (dateTo !== "" ? 1 : 0);
         return (
           <>
             <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -955,6 +959,15 @@ function ScheduleBody() {
             })}
           </div>
         </>
+      )}
+
+      {showAutoSchedule && season && (
+        <AutoScheduleModal
+          seasonId={seasonId!}
+          initialConfig={season.schedule_config}
+          onClose={() => setShowAutoSchedule(false)}
+          onCreated={() => { setShowAutoSchedule(false); setVersion(v => v + 1); }}
+        />
       )}
     </div>
   );
