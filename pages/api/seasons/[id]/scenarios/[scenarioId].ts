@@ -19,7 +19,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = await sql`
         SELECT
-          sq.*, t1.name AS team_name, t2.name AS opponent_team_name
+          sq.id, sq.entity_type, sq.entity_id, sq.question_type,
+          sq.team_id, t1.name AS team_name,
+          sq.opponent_team_id, t2.name AS opponent_team_name,
+          sq.target_seed, sq.seed_mode,
+          sq.is_possible, sq.probability, sq.simulations_run,
+          sq.sample_scenario,
+          sq.most_likely_seed, sq.seed_distribution,
+          sq.status, sq.error_message,
+          sq.created_at, sq.updated_at
         FROM scenario_questions sq
         LEFT JOIN teams t1 ON t1.teamid = sq.team_id
         LEFT JOIN teams t2 ON t2.teamid = sq.opponent_team_id

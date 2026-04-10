@@ -43,6 +43,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# superpowers AI assistant config
+.superpowers/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

@@ -1,20 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { sql } from "@/lib/db";
+import { fetchSeasonStandingsData, computeStandings } from "@/lib/standings";
+import type { StandingsRow } from "@/lib/standings";
 
-export type SeasonStandingsRow = {
-  seasonid: number;
-  seasonname: string | null;
-  teamid: number;
-  team: string | null;
-  runsscored: number;
-  wins: number;
-  games: number;
-  wltpct: number;
-  rundifferential: number;
-  runsagainst: number;
-  rank_final: number;
-  lexi_key: number;
-  details: Record<string, unknown> | null;
+export type SeasonStandingsRow = StandingsRow & {
+  seasonid?: number;
+  seasonname?: string | null;
 };
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -29,33 +19,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Invalid season id" });
   }
 
-  const includeInProgress = req.query.includeInProgress !== "false";
-
   try {
-    const standings = (await sql`
-      SELECT
-        seasonid,
-        seasonname,
-        teamid,
-        team,
-        runsscored,
-        wins,
-        games,
-        wltpct,
-        rundifferential,
-        runsagainst,
-        rank_final,
-        lexi_key,
-        details
-      FROM public.fn_season_standings_lexi_noorder(
-        ${seasonId},
-        ${includeInProgress},
-        false,
-        ${null}
-      )
-      ORDER BY rank_final ASC
-    `) as SeasonStandingsRow[];
-
+    const data = await fetchSeasonStandingsData(seasonId);
+    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config);
+    const standings = [...rows].sort((a, b) => a.rank_final - b.rank_final);
     return res.status(200).json({ standings });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";

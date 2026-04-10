@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { waitUntil } from "@vercel/functions";
 import { sql } from "@/lib/db";
-import { runScenarioAnalysis, runFirstRoundMatchupAnalysis } from "@/lib/scenarios/engine";
+import { runScenarioAnalysis, runFirstRoundMatchupAnalysis, runMostLikelySeedAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { seasonId: number; scenarioId: number } | null {
   const rawSeason = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -64,19 +64,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               scenario.opponent_team_id,
               onProgress
             )
+          : scenario.question_type === "most_likely_seed"
+          ? await runMostLikelySeedAnalysis(seasonId, scenario.team_id, onProgress)
           : await runScenarioAnalysis(
               seasonId,
               scenario.team_id,
               scenario.target_seed,
-              scenario.seed_mode as "exact" | "or_better",
+              scenario.seed_mode as "exact" | "or_better" | "or_worse",
               onProgress
             );
+
+        const sampleJson = result.sampleWinningScenario !== null
+          ? JSON.stringify(result.sampleWinningScenario)
+          : null;
+        const distJson = result.seedDistribution !== null
+          ? JSON.stringify(result.seedDistribution)
+          : null;
 
         await sql`
           UPDATE scenario_questions
           SET is_possible = ${result.isPossible},
               probability = ${result.probability},
               simulations_run = ${result.simulationsRun},
+              sample_scenario = ${sampleJson}::jsonb,
+              most_likely_seed = ${result.mostLikelySeed},
+              seed_distribution = ${distJson}::jsonb,
               status = 'completed',
               error_message = NULL,
               updated_at = NOW()

@@ -20,6 +20,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.opponent_team_id, t2.name AS opponent_team_name,
           sq.target_seed, sq.seed_mode,
           sq.is_possible, sq.probability, sq.simulations_run,
+          sq.sample_scenario,
+          sq.most_likely_seed, sq.seed_distribution,
           sq.status, sq.error_message,
           sq.created_at, sq.updated_at
         FROM scenario_questions sq
@@ -33,7 +35,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === "POST") {
       const { questionType, teamId, targetSeed, seedMode, opponentTeamId } = req.body ?? {};
-      const qType = questionType === "first_round_matchup" ? "first_round_matchup" : "seed_achievable";
+      const qType = questionType === "first_round_matchup"
+        ? "first_round_matchup"
+        : questionType === "most_likely_seed"
+        ? "most_likely_seed"
+        : "seed_achievable";
 
       if (!teamId) {
         return res.status(400).json({ error: "teamId is required" });
@@ -51,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         if (!targetSeed) {
           return res.status(400).json({ error: "targetSeed is required for seed_achievable" });
         }
-        const mode = seedMode === "exact" ? "exact" : "or_better";
+        const mode = seedMode === "exact" ? "exact" : seedMode === "or_worse" ? "or_worse" : "or_better";
         const seed = parseInt(targetSeed, 10);
         if (!Number.isFinite(seed) || seed < 1) {
           return res.status(400).json({ error: "targetSeed must be a positive integer" });
@@ -65,6 +71,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const rows = await sql`
           INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode)
           VALUES ('season', ${seasonId}, 'seed_achievable', ${teamId}, ${seed}, ${mode})
+          RETURNING *
+        `;
+        return res.status(201).json({ scenario: rows[0] });
+      }
+
+      if (qType === "most_likely_seed") {
+        const rows = await sql`
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
+          VALUES ('season', ${seasonId}, 'most_likely_seed', ${teamId})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });

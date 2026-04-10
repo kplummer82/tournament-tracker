@@ -1,21 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { sql } from "@/lib/db";
+import { fetchTournamentStandingsData, computeStandings } from "@/lib/standings";
+import type { StandingsRow } from "@/lib/standings";
 
-/** Row shape from fn_pool_standings_lexi_noorder, with pool_group attached */
-export type StandingsRow = {
-  tournamentid: number;
-  tournamentname: string | null;
-  teamid: number;
-  team: string | null;
-  runsscored: number;
-  wins: number;
-  games: number;
-  wltpct: number;
-  rundifferential: number;
-  runsagainst: number;
-  rank_final: number;
-  lexi_key: number;
-  details: Record<string, unknown> | null;
+export type { StandingsRow };
+
+export type TournamentStandingsRow = StandingsRow & {
   pool_group: string | null;
 };
 
@@ -33,8 +22,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Invalid tournamentid" });
   }
 
-  const includeInProgress = req.query.includeInProgress !== "false";
-
   // Optional group filter: ?pool_group=A
   const filterGroup =
     typeof req.query.pool_group === "string" && req.query.pool_group.trim() !== ""
@@ -42,32 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       : null;
 
   try {
-    // 1. Get all standings from the function
-    const standingsRaw = (await sql`
-      SELECT
-        tournamentid,
-        tournamentname,
-        teamid,
-        team,
-        runsscored,
-        wins,
-        games,
-        wltpct,
-        rundifferential,
-        runsagainst,
-        rank_final,
-        lexi_key,
-        details
-      FROM public.fn_pool_standings_lexi_noorder(
-        ${tournamentId},
-        ${includeInProgress},
-        false,
-        ${null}
-      )
-      ORDER BY rank_final ASC
-    `) as Omit<StandingsRow, "pool_group">[];
+    const data = await fetchTournamentStandingsData(tournamentId);
+    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config);
 
-    // 2. Fetch pool_group for all teams in this tournament
+    // Fetch pool_group assignments for each team
+    const { sql } = await import("@/lib/db");
     const teamGroups = (await sql`
       SELECT teamid, pool_group
       FROM public.tournamentteams
@@ -76,21 +42,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const groupMap = new Map(teamGroups.map((r) => [r.teamid, r.pool_group ?? null]));
 
-    // 3. Attach pool_group to each standings row
-    let rows: StandingsRow[] = standingsRaw.map((r) => ({
-      ...r,
-      pool_group: groupMap.get(r.teamid) ?? null,
-    }));
+    let standings: TournamentStandingsRow[] = rows
+      .sort((a, b) => a.rank_final - b.rank_final)
+      .map((r) => ({ ...r, pool_group: groupMap.get(r.teamid) ?? null }));
 
-    // 4. If a group filter was requested, filter to that group and re-rank 1..N
     if (filterGroup !== null) {
-      rows = rows.filter((r) => r.pool_group === filterGroup);
-      // Re-rank: rows are already ordered by rank_final (within-group order is preserved
-      // because same-tournament games between group members produce correct relative rankings)
-      rows = rows.map((r, idx) => ({ ...r, rank_final: idx + 1 }));
+      standings = standings.filter((r) => r.pool_group === filterGroup);
+      standings = standings.map((r, idx) => ({ ...r, rank_final: idx + 1 }));
     }
 
-    return res.status(200).json({ standings: rows });
+    return res.status(200).json({ standings });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[standings API]", err);

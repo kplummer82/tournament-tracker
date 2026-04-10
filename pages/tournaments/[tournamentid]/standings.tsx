@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
-import type { StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
+import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 

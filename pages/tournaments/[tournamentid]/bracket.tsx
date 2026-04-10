@@ -8,7 +8,7 @@ import { seedLabelsFromAssignments } from "@/components/bracket/SeedAssignment";
 import { Button } from "@/components/ui/button";
 import type { BracketStructure } from "@/components/bracket/types";
 import { validateFirstRoundSeeds } from "@/components/bracket/types";
-import type { StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
+import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
 import { GitBranch, AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 
 type TeamOpt = { id: number; name: string };

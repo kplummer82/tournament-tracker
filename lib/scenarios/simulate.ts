@@ -15,6 +15,29 @@ export type SimulatedOutcome = {
   awayscore: number;
 };
 
+/**
+ * A single game in the sample winning path, with team names and display category.
+ * - "target_game": the tracked team is playing
+ * - "key_game": a game where at least one team ended up within ±2 seeds of the
+ *   target seed in this specific simulation — direction-agnostic (covers climbing,
+ *   holding position, and falling scenarios)
+ * - "other": neither; not shown in the UI
+ */
+export type SampleGameOutcome = {
+  gameId: number;
+  home: number;
+  homeName: string;
+  /** Where the home team ended up in this simulated scenario. */
+  homeEndedAt: number;
+  away: number;
+  awayName: string;
+  /** Where the away team ended up in this simulated scenario. */
+  awayEndedAt: number;
+  homescore: number;
+  awayscore: number;
+  category: "target_game" | "key_game" | "other";
+};
+
 export type StandingsRow = {
   teamid: number;
   team: string | null;
@@ -188,12 +211,37 @@ export function meetsSeedTarget(
   standings: StandingsRow[],
   teamId: number,
   targetSeed: number,
-  seedMode: "exact" | "or_better"
+  seedMode: "exact" | "or_better" | "or_worse"
 ): boolean {
   const row = standings.find((r) => r.teamid === teamId);
   if (!row) return false;
   if (seedMode === "exact") return row.rank_final === targetSeed;
-  return row.rank_final <= targetSeed;
+  if (seedMode === "or_worse") return row.rank_final >= targetSeed;
+  return row.rank_final <= targetSeed; // or_better
+}
+
+/**
+ * Upgrade win/loss-only outcomes (1-0 scores) to realistic random scores while
+ * preserving the same winner for each game. Used when the sample scenario was
+ * captured from a Layer 1 (win/loss-only) simulation.
+ */
+export function addScoresToOutcomes(
+  outcomes: SimulatedOutcome[],
+  maxRunDiff: number
+): SimulatedOutcome[] {
+  const maxDiff = maxRunDiff > 0 ? maxRunDiff : 10;
+  return outcomes.map((o) => {
+    if (o.homescore === o.awayscore) return o; // tie — leave as-is
+    const homeWon = o.homescore > o.awayscore;
+    const winnerRuns = Math.floor(Math.random() * 10) + 1; // 1–10
+    const rawLoserRuns = Math.floor(Math.random() * winnerRuns); // 0 to winner-1
+    const loserRuns = Math.max(rawLoserRuns, winnerRuns - maxDiff); // respect run diff cap
+    return {
+      ...o,
+      homescore: homeWon ? winnerRuns : loserRuns,
+      awayscore: homeWon ? loserRuns : winnerRuns,
+    };
+  });
 }
 
 /**
@@ -205,15 +253,20 @@ export function isAmbiguous(
   standings: StandingsRow[],
   teamId: number,
   targetSeed: number,
-  seedMode: "exact" | "or_better"
+  seedMode: "exact" | "or_better" | "or_worse"
 ): boolean {
   const teamRow = standings.find((r) => r.teamid === teamId);
   if (!teamRow) return false;
 
-  // Find teams at the boundary seed(s)
+  // Find teams at the boundary seed(s) — the seeds on either side of the cutoff
+  // or_better: boundary is between targetSeed and targetSeed+1
+  // or_worse:  boundary is between targetSeed-1 and targetSeed
+  // exact:     only targetSeed matters
   const boundarySeeds = seedMode === "exact"
     ? [targetSeed]
-    : [targetSeed, targetSeed + 1]; // teams just inside and just outside the cutoff
+    : seedMode === "or_worse"
+    ? [targetSeed - 1, targetSeed]
+    : [targetSeed, targetSeed + 1];
 
   const boundaryTeams = standings.filter((r) => boundarySeeds.includes(r.rank_final));
 
