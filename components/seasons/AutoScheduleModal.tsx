@@ -353,17 +353,17 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                                     <span className="text-muted-foreground/40 select-none">|</span>
                                     <input
                                       type="text"
-                                      placeholder="Field"
-                                      value={gs.fieldName}
-                                      onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
-                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-20"
-                                    />
-                                    <input
-                                      type="text"
                                       placeholder="Location"
                                       value={gs.fieldLocation}
                                       onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
-                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-24"
+                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-36"
+                                    />
+                                    <input
+                                      type="text"
+                                      placeholder="Field"
+                                      value={gs.fieldName}
+                                      onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-[120px]"
                                     />
                                     <button type="button" onClick={() => removeSlotFromDay(dow, i)}>
                                       <X className="h-3 w-3" />

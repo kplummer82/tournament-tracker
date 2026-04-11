@@ -318,14 +318,14 @@ function SchedulingRules({
                                   onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
                                   className="bg-transparent text-xs focus:outline-none w-[100px]" />
                                 <span className="text-muted-foreground/40 select-none">|</span>
-                                <input type="text" placeholder="Field"
-                                  value={gs.fieldName}
-                                  onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
-                                  className={cn(FIELD_INPUT, "w-20 py-0")} />
                                 <input type="text" placeholder="Location"
                                   value={gs.fieldLocation}
                                   onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
-                                  className={cn(FIELD_INPUT, "w-24 py-0")} />
+                                  className={cn(FIELD_INPUT, "w-36 py-0")} />
+                                <input type="text" placeholder="Field"
+                                  value={gs.fieldName}
+                                  onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                  className={cn(FIELD_INPUT, "w-[120px] py-0")} />
                                 <button type="button" onClick={() => removeSlotFromDay(dow, i)}><X className="h-3 w-3" /></button>
                               </span>
                             ))}
@@ -346,12 +346,20 @@ function SchedulingRules({
           {/* Matchup Rules */}
           <div>
             <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Matchup Rules</h4>
-            <label className="flex items-center gap-3">
-              <span className="text-xs">Max times two teams play each other</span>
-              <input type="number" min={1} max={10} value={config.maxRepeatMatchups}
-                onChange={e => setConfig({ ...config, maxRepeatMatchups: Number(e.target.value) })}
-                className={cn(FIELD_INPUT, "w-16")} />
-            </label>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3">
+                <span className="text-xs">Max times two teams play each other</span>
+                <input type="number" min={1} max={10} value={config.maxRepeatMatchups}
+                  onChange={e => setConfig({ ...config, maxRepeatMatchups: Number(e.target.value) })}
+                  className={cn(FIELD_INPUT, "w-16")} />
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.allowDoubleHeaders ?? false}
+                  onChange={e => setConfig({ ...config, allowDoubleHeaders: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Allow a team to play multiple games on the same day</span>
+              </label>
+            </div>
           </div>
 
           {/* Actions */}
@@ -442,19 +450,35 @@ function SchedulerWorkspace({
 
     const { slotId, position } = overData;
 
-    if (activeData?.type === 'slot-team') {
-      const srcSlotId: string = activeData.slotId;
-      const srcPosition: 'home' | 'away' = activeData.position;
-      if (srcSlotId === slotId && srcPosition === position) return;
-      setSlots(prev => prev.map(s => s.id === srcSlotId ? { ...s, [srcPosition]: null } : s));
-    }
+    const isSrcMove = activeData?.type === 'slot-team';
+    const srcSlotId: string | null = isSrcMove ? activeData.slotId : null;
+    const srcPosition: 'home' | 'away' | null = isSrcMove ? activeData.position : null;
 
-    setSlots(prev => prev.map(s => {
-      if (s.id !== slotId) return s;
-      const other = position === 'home' ? s.away : s.home;
-      if (other?.id === draggedTeam.id) return s;
-      return { ...s, [position]: draggedTeam };
-    }));
+    if (isSrcMove && srcSlotId === slotId && srcPosition === position) return;
+
+    setSlots(prev => {
+      const destSlot = prev.find(s => s.id === slotId);
+      if (!destSlot) return prev;
+
+      // Enforce no double-headers: block if team already plays on this date
+      if (!(config.allowDoubleHeaders ?? false)) {
+        const alreadyPlays = prev.some(s => {
+          if (s.date !== destSlot.date) return false;
+          if (s.id === slotId) return false;
+          if (srcSlotId && s.id === srcSlotId) return false; // source being vacated
+          return s.home?.id === draggedTeam.id || s.away?.id === draggedTeam.id;
+        });
+        if (alreadyPlays) return prev;
+      }
+
+      return prev.map(s => {
+        if (srcSlotId && s.id === srcSlotId) return { ...s, [srcPosition!]: null };
+        if (s.id !== slotId) return s;
+        const other = position === 'home' ? s.away : s.home;
+        if (other?.id === draggedTeam.id) return s;
+        return { ...s, [position]: draggedTeam };
+      });
+    });
   }
 
   function clearPosition(slotId: string, position: 'home' | 'away') {
@@ -629,8 +653,8 @@ function SchedulerWorkspace({
                             {slot.time.replace(/^0/, '')}
                           </span>
                           {(slot.fieldName || slot.fieldLocation) && (
-                            <span className="text-[11px] text-muted-foreground w-24 shrink-0 truncate">
-                              {slot.fieldName || slot.fieldLocation}
+                            <span className="text-[11px] text-muted-foreground w-32 shrink-0 truncate">
+                              {[slot.fieldLocation, slot.fieldName].filter(Boolean).join(' · ')}
                             </span>
                           )}
                           <SlotPosition slotId={slot.id} position="home" team={slot.home}

@@ -27,6 +27,7 @@ export interface ScheduleConfig {
   dayRules: DayRule[];
   fields: FieldConfig[];    // kept for backward compat; no longer used by buildSlots
   maxRepeatMatchups: number;// max times the same two teams play each other (1 = single round-robin)
+  allowDoubleHeaders?: boolean; // if false (default), teams may not play more than once per calendar day
 }
 
 /**
@@ -65,6 +66,7 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     dayRules,
     fields: (config.fields as FieldConfig[]) ?? [],
     maxRepeatMatchups: (config.maxRepeatMatchups as number) ?? 1,
+    allowDoubleHeaders: (config.allowDoubleHeaders as boolean | undefined),
   };
 }
 
