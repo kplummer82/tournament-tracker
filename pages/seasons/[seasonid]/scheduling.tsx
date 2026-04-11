@@ -507,23 +507,21 @@ function SchedulerWorkspace({
   }
 
   function handleAutoFill() {
-    const result = generateSchedule(config, teams);
-    const remaining = [...result.games];
+    const generatedGames = generateSchedule(config, teams).games;
     setSlots(prev => {
-      const next = [...prev];
-      for (let i = 0; i < next.length; i++) {
-        if (next[i].home && next[i].away) continue;
-        if (remaining.length === 0) break;
+      // Create a fresh copy inside the updater so React StrictMode's
+      // double-invocation doesn't exhaust the list on the first (discarded) call.
+      const remaining = [...generatedGames];
+      return prev.map(slot => {
+        if (slot.home && slot.away) return slot;
+        if (remaining.length === 0) return slot;
         const [g] = remaining.splice(0, 1);
-        const homeTeam = teams.find(t => t.id === g.home) ?? null;
-        const awayTeam = teams.find(t => t.id === g.away) ?? null;
-        next[i] = {
-          ...next[i],
-          home: next[i].home ?? homeTeam,
-          away: next[i].away ?? awayTeam,
+        return {
+          ...slot,
+          home: slot.home ?? (teams.find(t => t.id === g.home) ?? null),
+          away: slot.away ?? (teams.find(t => t.id === g.away) ?? null),
         };
-      }
-      return next;
+      });
     });
   }
 
