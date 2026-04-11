@@ -71,7 +71,8 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
 
   function addSlotToDay(dow: number) {
     const existing = getDayRule(dow)?.gameSlots ?? [];
-    updateDayRule(dow, { gameSlots: [...existing, { time: '12:00', fieldName: '', fieldLocation: '' }] });
+    const next = [...existing, { time: '12:00', fieldName: '', fieldLocation: '' }];
+    updateDayRule(dow, { gameSlots: next, maxGamesPerDay: next.length });
   }
 
   function updateSlotOnDay(dow: number, idx: number, patch: Partial<GameTimeSlot>) {
@@ -83,7 +84,8 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
   function removeSlotFromDay(dow: number, idx: number) {
     const rule = getDayRule(dow);
     if (!rule) return;
-    updateDayRule(dow, { gameSlots: rule.gameSlots.filter((_, i) => i !== idx) });
+    const next = rule.gameSlots.filter((_, i) => i !== idx);
+    updateDayRule(dow, { gameSlots: next, maxGamesPerDay: next.length });
   }
 
   function addBlackout() {

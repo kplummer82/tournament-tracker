@@ -43,7 +43,12 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     (r: unknown): DayRule => {
       const rule = r as Record<string, unknown>;
       if (Array.isArray(rule.gameSlots)) {
-        return rule as unknown as DayRule;
+        const typed = rule as unknown as DayRule;
+        // Ensure maxGamesPerDay is never less than the number of defined slots
+        if (typed.maxGamesPerDay < typed.gameSlots.length) {
+          return { ...typed, maxGamesPerDay: typed.gameSlots.length };
+        }
+        return typed;
       }
       const oldTimes: string[] = Array.isArray(rule.gameTimes)
         ? (rule.gameTimes as string[])
