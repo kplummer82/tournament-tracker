@@ -206,6 +206,9 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
   const games: GeneratedGame[] = [];
   // date → teamId → games-played-on-that-date
   const teamsPerDate = new Map<string, Map<number, number>>();
+  // teamId → total games scheduled so far (for target enforcement and load balancing)
+  const gamesPerTeam = new Map<number, number>();
+  for (const t of teams) gamesPerTeam.set(t.id, 0);
 
   // Build ordered unique game dates for back-to-back detection
   const gameDates = [...new Set(slots.map(s => s.date))].sort();
@@ -220,22 +223,35 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
     const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
     const prevDate = prevGameDate.get(slot.date);
 
-    const idx = pending.findIndex(m => {
+    // Select the valid matchup where both teams have the fewest total games so far.
+    // This balances game counts across teams instead of taking the first shuffled match.
+    let bestIdx = -1;
+    let bestScore = Infinity;
+    for (let i = 0; i < pending.length; i++) {
+      const m = pending[i];
       const h = dateMap.get(m.home.id) ?? 0;
       const a = dateMap.get(m.away.id) ?? 0;
-      if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) return false;
+      if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) continue;
+      const hTotal = gamesPerTeam.get(m.home.id) ?? 0;
+      const aTotal = gamesPerTeam.get(m.away.id) ?? 0;
+      if (config.targetGamesPerTeam) {
+        if (hTotal >= config.targetGamesPerTeam || aTotal >= config.targetGamesPerTeam) continue;
+      }
       if (config.noBackToBackMatchups && prevDate) {
         const key = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
-        if (matchupLastDate.get(key) === prevDate) return false;
+        if (matchupLastDate.get(key) === prevDate) continue;
       }
-      return true;
-    });
+      const score = hTotal + aTotal;
+      if (score < bestScore) { bestScore = score; bestIdx = i; }
+    }
 
-    if (idx === -1) continue;
-    const [matchup] = pending.splice(idx, 1);
+    if (bestIdx === -1) continue;
+    const [matchup] = pending.splice(bestIdx, 1);
 
     const pairKey = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
     matchupLastDate.set(pairKey, slot.date);
+    gamesPerTeam.set(matchup.home.id, (gamesPerTeam.get(matchup.home.id) ?? 0) + 1);
+    gamesPerTeam.set(matchup.away.id, (gamesPerTeam.get(matchup.away.id) ?? 0) + 1);
 
     games.push({
       gamedate: slot.date,
