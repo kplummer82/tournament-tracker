@@ -19,8 +19,8 @@ import {
   Wand2, CalendarCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ScheduleConfig, DayRule, Team } from "@/lib/auto-schedule";
-import { buildSlots, generateSchedule } from "@/lib/auto-schedule";
+import type { ScheduleConfig, DayRule, Team, GameTimeSlot } from "@/lib/auto-schedule";
+import { buildSlots, generateSchedule, normalizeScheduleConfig } from "@/lib/auto-schedule";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ const BLANK_CONFIG: ScheduleConfig = {
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
-  return { dayOfWeek: dow, maxGamesPerDay: 2, gameTimes: ['10:00'], maxGamesPerTeamOnDay: 1 };
+  return { dayOfWeek: dow, maxGamesPerDay: 2, gameSlots: [{ time: '10:00', fieldName: '', fieldLocation: '' }], maxGamesPerTeamOnDay: 1 };
 }
 
 const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] border transition-colors";
@@ -182,8 +182,6 @@ function SchedulingRules({
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [newBlackout, setNewBlackout] = useState('');
-  const [newFieldName, setNewFieldName] = useState('');
-  const [newFieldLocation, setNewFieldLocation] = useState('');
 
   function isDayEnabled(dow: number) { return config.dayRules.some(r => r.dayOfWeek === dow); }
   function getDayRule(dow: number): DayRule | undefined { return config.dayRules.find(r => r.dayOfWeek === dow); }
@@ -197,32 +195,25 @@ function SchedulingRules({
   function updateDayRule(dow: number, patch: Partial<DayRule>) {
     setConfig({ ...config, dayRules: config.dayRules.map(r => r.dayOfWeek === dow ? { ...r, ...patch } : r) });
   }
-  function addTimeToDay(dow: number) {
-    updateDayRule(dow, { gameTimes: [...(getDayRule(dow)?.gameTimes ?? []), '12:00'] });
+  function addSlotToDay(dow: number) {
+    const existing = getDayRule(dow)?.gameSlots ?? [];
+    updateDayRule(dow, { gameSlots: [...existing, { time: '12:00', fieldName: '', fieldLocation: '' }] });
   }
-  function updateTimeOnDay(dow: number, idx: number, value: string) {
+  function updateSlotOnDay(dow: number, idx: number, patch: Partial<GameTimeSlot>) {
     const rule = getDayRule(dow);
     if (!rule) return;
-    const times = [...rule.gameTimes];
-    times[idx] = value;
-    updateDayRule(dow, { gameTimes: times });
+    updateDayRule(dow, { gameSlots: rule.gameSlots.map((gs, i) => i === idx ? { ...gs, ...patch } : gs) });
   }
-  function removeTimeFromDay(dow: number, idx: number) {
+  function removeSlotFromDay(dow: number, idx: number) {
     const rule = getDayRule(dow);
     if (!rule) return;
-    updateDayRule(dow, { gameTimes: rule.gameTimes.filter((_, i) => i !== idx) });
+    updateDayRule(dow, { gameSlots: rule.gameSlots.filter((_, i) => i !== idx) });
   }
   function addBlackout() {
     if (!newBlackout || config.blackoutDates.includes(newBlackout)) return;
     setConfig({ ...config, blackoutDates: [...config.blackoutDates, newBlackout].sort() });
     setNewBlackout('');
   }
-  function addField() {
-    if (!newFieldName.trim()) return;
-    setConfig({ ...config, fields: [...config.fields, { name: newFieldName.trim(), location: newFieldLocation.trim() }] });
-    setNewFieldName(''); setNewFieldLocation('');
-  }
-
   return (
     <div className="border border-border mb-4" style={{ fontFamily: 'var(--font-body)' }}>
       <button
@@ -319,19 +310,28 @@ function SchedulingRules({
                           </label>
                         </div>
                         <div>
-                          <span className="text-[10px] text-muted-foreground block mb-1.5">Game Times</span>
+                          <span className="text-[10px] text-muted-foreground block mb-1.5">Game Slots</span>
                           <div className="flex items-center gap-2 flex-wrap">
-                            {rule.gameTimes.map((t, i) => (
-                              <span key={i} className="inline-flex items-center gap-1 border border-border bg-muted px-2 py-0.5 text-xs">
-                                <input type="time" value={t}
-                                  onChange={e => updateTimeOnDay(dow, i, e.target.value)}
-                                  className="bg-transparent text-xs focus:outline-none w-[70px]" />
-                                <button type="button" onClick={() => removeTimeFromDay(dow, i)}><X className="h-3 w-3" /></button>
+                            {rule.gameSlots.map((gs, i) => (
+                              <span key={i} className="inline-flex items-center gap-1.5 border border-border bg-muted px-2 py-0.5 text-xs">
+                                <input type="time" value={gs.time}
+                                  onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
+                                  className="bg-transparent text-xs focus:outline-none w-[100px]" />
+                                <span className="text-muted-foreground/40 select-none">|</span>
+                                <input type="text" placeholder="Field"
+                                  value={gs.fieldName}
+                                  onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                  className={cn(FIELD_INPUT, "w-20 py-0")} />
+                                <input type="text" placeholder="Location"
+                                  value={gs.fieldLocation}
+                                  onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
+                                  className={cn(FIELD_INPUT, "w-24 py-0")} />
+                                <button type="button" onClick={() => removeSlotFromDay(dow, i)}><X className="h-3 w-3" /></button>
                               </span>
                             ))}
-                            <button type="button" onClick={() => addTimeToDay(dow)}
+                            <button type="button" onClick={() => addSlotToDay(dow)}
                               className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary text-[10px] px-2 py-0.5")}>
-                              <Plus className="h-3 w-3" /> Time
+                              <Plus className="h-3 w-3" /> Slot
                             </button>
                           </div>
                         </div>
@@ -340,37 +340,6 @@ function SchedulingRules({
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Fields */}
-          <div>
-            <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1">
-              Fields <span className="normal-case font-normal">(optional)</span>
-            </h4>
-            <p className="text-[10px] text-muted-foreground mb-2">Games distributed across fields in order. Leave empty to skip field assignment.</p>
-            <div className="space-y-1.5 mb-2">
-              {config.fields.map((f, i) => (
-                <div key={i} className="flex items-center gap-2 text-xs">
-                  {f.location && <span className="text-muted-foreground">{f.location} —</span>}
-                  <span className="font-medium">{f.name}</span>
-                  <button type="button"
-                    onClick={() => setConfig({ ...config, fields: config.fields.filter((_, j) => j !== i) })}
-                    className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <input placeholder="Location (e.g. Main Park)" value={newFieldLocation}
-                onChange={e => setNewFieldLocation(e.target.value)} className={cn(FIELD_INPUT, "w-40")} />
-              <input placeholder="Field name (e.g. Field 1)" value={newFieldName}
-                onChange={e => setNewFieldName(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addField()}
-                className={cn(FIELD_INPUT, "w-36")} />
-              <button type="button" onClick={addField}
-                className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}>
-                <Plus className="h-3 w-3" /> Add Field
-              </button>
             </div>
           </div>
 
@@ -738,7 +707,7 @@ function SchedulingBody() {
   const [teamsErr, setTeamsErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (season?.schedule_config) setConfig(season.schedule_config);
+    if (season?.schedule_config) setConfig(normalizeScheduleConfig(season.schedule_config));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [season?.id]);
 
