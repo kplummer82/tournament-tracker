@@ -27,6 +27,8 @@ export interface ScheduleConfig {
   dayRules: DayRule[];
   fields: FieldConfig[];    // kept for backward compat; no longer used by buildSlots
   maxRepeatMatchups: number;// max times the same two teams play each other (1 = single round-robin)
+  targetGamesPerTeam?: number; // desired total games per team for the season (drives repeat matchups)
+  noBackToBackMatchups?: boolean; // if true, same two teams cannot play on consecutive game dates
   allowDoubleHeaders?: boolean; // if false (default), teams may not play more than once per calendar day
 }
 
@@ -71,6 +73,8 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     dayRules,
     fields: (config.fields as FieldConfig[]) ?? [],
     maxRepeatMatchups: (config.maxRepeatMatchups as number) ?? 1,
+    targetGamesPerTeam: (config.targetGamesPerTeam as number | undefined),
+    noBackToBackMatchups: (config.noBackToBackMatchups as boolean | undefined),
     allowDoubleHeaders: (config.allowDoubleHeaders as boolean | undefined),
   };
 }
@@ -192,23 +196,46 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
     };
   }
 
+  // If the user specified a per-team game target, derive maxRepeatMatchups from it.
+  const effectiveRepeat = config.targetGamesPerTeam
+    ? Math.max(1, Math.ceil(config.targetGamesPerTeam / (teams.length - 1)))
+    : config.maxRepeatMatchups;
+
   const slots = buildSlots(config);
-  const pending = buildMatchups(teams, config.maxRepeatMatchups);
+  const pending = buildMatchups(teams, effectiveRepeat);
   const games: GeneratedGame[] = [];
   // date → teamId → games-played-on-that-date
   const teamsPerDate = new Map<string, Map<number, number>>();
 
+  // Build ordered unique game dates for back-to-back detection
+  const gameDates = [...new Set(slots.map(s => s.date))].sort();
+  const prevGameDate = new Map<string, string>();
+  for (let i = 1; i < gameDates.length; i++) {
+    prevGameDate.set(gameDates[i], gameDates[i - 1]);
+  }
+  // matchup key → date of most recent game between that pair
+  const matchupLastDate = new Map<string, string>();
+
   for (const slot of slots) {
     const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
+    const prevDate = prevGameDate.get(slot.date);
 
     const idx = pending.findIndex(m => {
       const h = dateMap.get(m.home.id) ?? 0;
       const a = dateMap.get(m.away.id) ?? 0;
-      return h < slot.rule.maxGamesPerTeamOnDay && a < slot.rule.maxGamesPerTeamOnDay;
+      if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) return false;
+      if (config.noBackToBackMatchups && prevDate) {
+        const key = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
+        if (matchupLastDate.get(key) === prevDate) return false;
+      }
+      return true;
     });
 
     if (idx === -1) continue;
     const [matchup] = pending.splice(idx, 1);
+
+    const pairKey = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
+    matchupLastDate.set(pairKey, slot.date);
 
     games.push({
       gamedate: slot.date,

@@ -51,6 +51,9 @@ const BLANK_CONFIG: ScheduleConfig = {
   dayRules: [],
   fields: [],
   maxRepeatMatchups: 1,
+  targetGamesPerTeam: undefined,
+  noBackToBackMatchups: false,
+  allowDoubleHeaders: false,
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
@@ -280,6 +283,33 @@ function SchedulingRules({
             </div>
           </div>
 
+          {/* Matchup Rules */}
+          <div>
+            <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Matchup Rules</h4>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3">
+                <span className="text-xs">Games each team plays in the season</span>
+                <input type="number" min={1} max={100}
+                  value={config.targetGamesPerTeam ?? ''}
+                  placeholder="—"
+                  onChange={e => setConfig({ ...config, targetGamesPerTeam: e.target.value ? Number(e.target.value) : undefined })}
+                  className={cn(FIELD_INPUT, "w-16")} />
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.noBackToBackMatchups ?? false}
+                  onChange={e => setConfig({ ...config, noBackToBackMatchups: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Prevent same two teams from playing on back-to-back game days</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.allowDoubleHeaders ?? false}
+                  onChange={e => setConfig({ ...config, allowDoubleHeaders: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Allow a team to play multiple games on the same day</span>
+              </label>
+            </div>
+          </div>
+
           {/* Day Rules */}
           <div>
             <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Day Rules</h4>
@@ -350,25 +380,6 @@ function SchedulingRules({
                   </div>
                 );
               })}
-            </div>
-          </div>
-
-          {/* Matchup Rules */}
-          <div>
-            <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Matchup Rules</h4>
-            <div className="space-y-2">
-              <label className="flex items-center gap-3">
-                <span className="text-xs">Max times two teams play each other</span>
-                <input type="number" min={1} max={10} value={config.maxRepeatMatchups}
-                  onChange={e => setConfig({ ...config, maxRepeatMatchups: Number(e.target.value) })}
-                  className={cn(FIELD_INPUT, "w-16")} />
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={config.allowDoubleHeaders ?? false}
-                  onChange={e => setConfig({ ...config, allowDoubleHeaders: e.target.checked })}
-                  className="accent-primary" />
-                <span className="text-xs">Allow a team to play multiple games on the same day</span>
-              </label>
             </div>
           </div>
 
