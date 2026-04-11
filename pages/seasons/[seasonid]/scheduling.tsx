@@ -658,20 +658,20 @@ function SchedulerWorkspace({
                         : false;
 
                       return (
-                        <div key={slot.id} className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[11px] text-muted-foreground w-12 shrink-0 tabular-nums">
-                            {fmt12h(slot.time)}
-                          </span>
-                          {(slot.fieldName || slot.fieldLocation) && (
-                            <span className="text-[11px] text-muted-foreground w-32 shrink-0 truncate">
-                              {[slot.fieldLocation, slot.fieldName].filter(Boolean).join(' · ')}
-                            </span>
-                          )}
+                        <div key={slot.id} className="flex items-center gap-2">
                           <SlotPosition slotId={slot.id} position="home" team={slot.home}
                             onClear={() => clearPosition(slot.id, 'home')} conflicted={homeConflict} />
                           <span className="text-[10px] text-muted-foreground font-bold">vs</span>
                           <SlotPosition slotId={slot.id} position="away" team={slot.away}
                             onClear={() => clearPosition(slot.id, 'away')} conflicted={awayConflict} />
+                          <span className="text-[11px] text-muted-foreground w-20 shrink-0 tabular-nums">
+                            {fmt12h(slot.time)}
+                          </span>
+                          {(slot.fieldName || slot.fieldLocation) && (
+                            <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate">
+                              {[slot.fieldLocation, slot.fieldName].filter(Boolean).join(' · ')}
+                            </span>
+                          )}
                         </div>
                       );
                     })}
