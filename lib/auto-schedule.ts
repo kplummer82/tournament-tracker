@@ -53,7 +53,7 @@ export interface Team {
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-interface Slot {
+export interface Slot {
   date: string;
   time: string;
   field: FieldConfig;
@@ -78,7 +78,7 @@ function formatUTCDate(d: Date): string {
 }
 
 /** Enumerate every available game slot in the date range. */
-function buildSlots(config: ScheduleConfig): Slot[] {
+export function buildSlots(config: ScheduleConfig): Slot[] {
   const slots: Slot[] = [];
   const fields = config.fields.length > 0 ? config.fields : [{ name: '', location: '' }];
   const end = parseUTCDate(config.lastGameDate);
