@@ -1,10 +1,16 @@
 // Types and pure scheduling algorithm for auto-schedule feature.
 // No DB access — pure TypeScript, safe to call from API routes.
 
+export interface GameTimeSlot {
+  time: string;         // "HH:MM" 24h
+  fieldName: string;
+  fieldLocation: string;
+}
+
 export interface DayRule {
   dayOfWeek: 0 | 1 | 2 | 3 | 4 | 5 | 6; // 0 = Sunday, 6 = Saturday
   maxGamesPerDay: number;              // total games scheduled on this calendar day
-  gameTimes: string[];                 // ["17:00", "19:00"] — HH:MM 24h
+  gameSlots: GameTimeSlot[];           // explicit time+field pairs for each slot
   maxGamesPerTeamOnDay: number;        // max games a single team can play on one calendar day (usually 1)
   targetGamesPerTeamForSeason?: number;// optional: desired total per team on this weekday across full season
 }
@@ -19,8 +25,47 @@ export interface ScheduleConfig {
   lastGameDate: string;     // "YYYY-MM-DD"
   blackoutDates: string[];  // "YYYY-MM-DD"[]
   dayRules: DayRule[];
-  fields: FieldConfig[];    // empty = no field assigned
+  fields: FieldConfig[];    // kept for backward compat; no longer used by buildSlots
   maxRepeatMatchups: number;// max times the same two teams play each other (1 = single round-robin)
+}
+
+/**
+ * Normalize a ScheduleConfig loaded from the DB.
+ * Old records use `gameTimes: string[]` on each DayRule.
+ * New records use `gameSlots: GameTimeSlot[]`.
+ * Idempotent — safe to call on already-normalized configs.
+ */
+export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
+  const config = (raw ?? {}) as Record<string, unknown>;
+
+  const dayRules: DayRule[] = ((config.dayRules as unknown[]) ?? []).map(
+    (r: unknown): DayRule => {
+      const rule = r as Record<string, unknown>;
+      if (Array.isArray(rule.gameSlots)) {
+        return rule as unknown as DayRule;
+      }
+      const oldTimes: string[] = Array.isArray(rule.gameTimes)
+        ? (rule.gameTimes as string[])
+        : [];
+      const gameSlots: GameTimeSlot[] = oldTimes.map(t => ({
+        time: t,
+        fieldName: '',
+        fieldLocation: '',
+      }));
+      const { gameTimes: _dropped, ...rest } = rule;
+      void _dropped;
+      return { ...(rest as Omit<DayRule, 'gameSlots'>), gameSlots };
+    }
+  );
+
+  return {
+    firstGameDate: (config.firstGameDate as string) ?? '',
+    lastGameDate: (config.lastGameDate as string) ?? '',
+    blackoutDates: (config.blackoutDates as string[]) ?? [],
+    dayRules,
+    fields: (config.fields as FieldConfig[]) ?? [],
+    maxRepeatMatchups: (config.maxRepeatMatchups as number) ?? 1,
+  };
 }
 
 export interface GeneratedGame {
@@ -80,7 +125,6 @@ function formatUTCDate(d: Date): string {
 /** Enumerate every available game slot in the date range. */
 export function buildSlots(config: ScheduleConfig): Slot[] {
   const slots: Slot[] = [];
-  const fields = config.fields.length > 0 ? config.fields : [{ name: '', location: '' }];
   const end = parseUTCDate(config.lastGameDate);
   const cursor = parseUTCDate(config.firstGameDate);
 
@@ -90,13 +134,15 @@ export function buildSlots(config: ScheduleConfig): Slot[] {
       const dow = cursor.getUTCDay() as DayRule['dayOfWeek'];
       const rule = config.dayRules.find(r => r.dayOfWeek === dow);
       if (rule) {
-        let created = 0;
-        outer: for (const time of rule.gameTimes) {
-          for (const field of fields) {
-            if (created >= rule.maxGamesPerDay) break outer;
-            slots.push({ date: dateStr, time, field, rule });
-            created++;
-          }
+        const limit = Math.min(rule.gameSlots.length, rule.maxGamesPerDay);
+        for (let i = 0; i < limit; i++) {
+          const gs = rule.gameSlots[i];
+          slots.push({
+            date: dateStr,
+            time: gs.time,
+            field: { name: gs.fieldName, location: gs.fieldLocation },
+            rule,
+          });
         }
       }
     }
