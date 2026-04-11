@@ -36,6 +36,14 @@ interface DraftSlot {
 
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function fmt12h(time: string): string {
+  const [hStr, mStr] = time.split(':');
+  const h = parseInt(hStr, 10);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${mStr} ${suffix}`;
+}
+
 const BLANK_CONFIG: ScheduleConfig = {
   firstGameDate: '',
   lastGameDate: '',
@@ -652,7 +660,7 @@ function SchedulerWorkspace({
                       return (
                         <div key={slot.id} className="flex items-center gap-2 flex-wrap">
                           <span className="text-[11px] text-muted-foreground w-12 shrink-0 tabular-nums">
-                            {slot.time.replace(/^0/, '')}
+                            {fmt12h(slot.time)}
                           </span>
                           {(slot.fieldName || slot.fieldLocation) && (
                             <span className="text-[11px] text-muted-foreground w-32 shrink-0 truncate">
