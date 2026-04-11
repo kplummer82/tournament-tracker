@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { X, Plus, CalendarDays, ChevronLeft, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { ScheduleConfig, DayRule, FieldConfig, ScheduleResult } from "@/lib/auto-schedule";
+import type { ScheduleConfig, DayRule, GameTimeSlot, ScheduleResult } from "@/lib/auto-schedule";
+import { normalizeScheduleConfig } from "@/lib/auto-schedule";
 
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -15,7 +16,7 @@ const BLANK_CONFIG: ScheduleConfig = {
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
-  return { dayOfWeek: dow, maxGamesPerDay: 2, gameTimes: ['10:00'], maxGamesPerTeamOnDay: 1 };
+  return { dayOfWeek: dow, maxGamesPerDay: 2, gameSlots: [{ time: '10:00', fieldName: '', fieldLocation: '' }], maxGamesPerTeamOnDay: 1 };
 }
 
 type PreviewData = ScheduleResult & { existingGameCount: number };
@@ -31,14 +32,14 @@ const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semib
 
 export default function AutoScheduleModal({ seasonId, initialConfig, onClose, onCreated }: Props) {
   const [step, setStep] = useState<'config' | 'preview'>('config');
-  const [config, setConfig] = useState<ScheduleConfig>(initialConfig ?? BLANK_CONFIG);
+  const [config, setConfig] = useState<ScheduleConfig>(
+    normalizeScheduleConfig(initialConfig ?? BLANK_CONFIG)
+  );
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [mode, setMode] = useState<'add' | 'replace'>('add');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newBlackout, setNewBlackout] = useState('');
-  const [newFieldName, setNewFieldName] = useState('');
-  const [newFieldLocation, setNewFieldLocation] = useState('');
 
   // ── Config helpers ────────────────────────────────────────────────────────
 
@@ -68,38 +69,27 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
     }));
   }
 
-  function addTimeToDay(dow: number) {
-    updateDayRule(dow, { gameTimes: [...(getDayRule(dow)?.gameTimes ?? []), '12:00'] });
+  function addSlotToDay(dow: number) {
+    const existing = getDayRule(dow)?.gameSlots ?? [];
+    updateDayRule(dow, { gameSlots: [...existing, { time: '12:00', fieldName: '', fieldLocation: '' }] });
   }
 
-  function updateTimeOnDay(dow: number, idx: number, value: string) {
+  function updateSlotOnDay(dow: number, idx: number, patch: Partial<GameTimeSlot>) {
     const rule = getDayRule(dow);
     if (!rule) return;
-    const times = [...rule.gameTimes];
-    times[idx] = value;
-    updateDayRule(dow, { gameTimes: times });
+    updateDayRule(dow, { gameSlots: rule.gameSlots.map((gs, i) => i === idx ? { ...gs, ...patch } : gs) });
   }
 
-  function removeTimeFromDay(dow: number, idx: number) {
+  function removeSlotFromDay(dow: number, idx: number) {
     const rule = getDayRule(dow);
     if (!rule) return;
-    updateDayRule(dow, { gameTimes: rule.gameTimes.filter((_, i) => i !== idx) });
+    updateDayRule(dow, { gameSlots: rule.gameSlots.filter((_, i) => i !== idx) });
   }
 
   function addBlackout() {
     if (!newBlackout || config.blackoutDates.includes(newBlackout)) return;
     setConfig(c => ({ ...c, blackoutDates: [...c.blackoutDates, newBlackout].sort() }));
     setNewBlackout('');
-  }
-
-  function addField() {
-    if (!newFieldName.trim()) return;
-    setConfig(c => ({
-      ...c,
-      fields: [...c.fields, { name: newFieldName.trim(), location: newFieldLocation.trim() }],
-    }));
-    setNewFieldName('');
-    setNewFieldLocation('');
   }
 
   // ── API calls ────────────────────────────────────────────────────────────
@@ -346,34 +336,49 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                             </div>
                             <div>
                               <span className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1.5">
-                                Game Times
+                                Game Slots
                               </span>
                               <div className="flex items-center gap-2 flex-wrap">
-                                {rule.gameTimes.map((t, i) => (
+                                {rule.gameSlots.map((gs, i) => (
                                   <span
                                     key={i}
-                                    className="inline-flex items-center gap-1 border border-border bg-muted px-2 py-0.5 text-xs"
+                                    className="inline-flex items-center gap-1.5 border border-border bg-muted px-2 py-0.5 text-xs"
                                   >
                                     <input
                                       type="time"
-                                      value={t}
-                                      onChange={e => updateTimeOnDay(dow, i, e.target.value)}
-                                      className="bg-transparent text-xs focus:outline-none w-[70px]"
+                                      value={gs.time}
+                                      onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
+                                      className="bg-transparent text-xs focus:outline-none w-[100px]"
                                     />
-                                    <button type="button" onClick={() => removeTimeFromDay(dow, i)}>
+                                    <span className="text-muted-foreground/40 select-none">|</span>
+                                    <input
+                                      type="text"
+                                      placeholder="Field"
+                                      value={gs.fieldName}
+                                      onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-20"
+                                    />
+                                    <input
+                                      type="text"
+                                      placeholder="Location"
+                                      value={gs.fieldLocation}
+                                      onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
+                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-24"
+                                    />
+                                    <button type="button" onClick={() => removeSlotFromDay(dow, i)}>
                                       <X className="h-3 w-3" />
                                     </button>
                                   </span>
                                 ))}
                                 <button
                                   type="button"
-                                  onClick={() => addTimeToDay(dow)}
+                                  onClick={() => addSlotToDay(dow)}
                                   className={cn(
                                     BTN,
                                     "border-border text-muted-foreground hover:border-primary hover:text-primary text-[10px] px-2 py-0.5"
                                   )}
                                 >
-                                  <Plus className="h-3 w-3" /> Time
+                                  <Plus className="h-3 w-3" /> Slot
                                 </button>
                               </div>
                             </div>
@@ -382,53 +387,6 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                       </div>
                     );
                   })}
-                </div>
-              </section>
-
-              {/* Fields */}
-              <section>
-                <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1">
-                  Fields <span className="normal-case font-normal">(optional)</span>
-                </h3>
-                <p className="text-[10px] text-muted-foreground mb-3">
-                  Games are distributed across fields in round-robin order. Leave empty to skip field assignment.
-                </p>
-                <div className="space-y-1.5 mb-3">
-                  {config.fields.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      {f.location && <span className="text-muted-foreground">{f.location} —</span>}
-                      <span className="font-medium">{f.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setConfig(c => ({ ...c, fields: c.fields.filter((_, j) => j !== i) }))}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <input
-                    placeholder="Location (e.g. Main Park)"
-                    value={newFieldLocation}
-                    onChange={e => setNewFieldLocation(e.target.value)}
-                    className="border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:border-primary w-40"
-                  />
-                  <input
-                    placeholder="Field name (e.g. Field 1)"
-                    value={newFieldName}
-                    onChange={e => setNewFieldName(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addField()}
-                    className="border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:border-primary w-36"
-                  />
-                  <button
-                    type="button"
-                    onClick={addField}
-                    className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}
-                  >
-                    <Plus className="h-3 w-3" /> Add Field
-                  </button>
                 </div>
               </section>
 
