@@ -162,8 +162,10 @@ export function buildSlots(config: ScheduleConfig): Slot[] {
   return slots;
 }
 
+export type { Matchup };
+
 /** Generate all matchup pairs up to maxRepeat times, shuffled. */
-function buildMatchups(teams: Team[], maxRepeat: number): Matchup[] {
+export function buildMatchups(teams: Team[], maxRepeat: number): Matchup[] {
   const pairs: Matchup[] = [];
   for (let i = 0; i < teams.length; i++) {
     for (let j = i + 1; j < teams.length; j++) {

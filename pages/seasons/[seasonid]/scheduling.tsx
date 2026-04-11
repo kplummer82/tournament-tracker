@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot } from "@/lib/auto-schedule";
-import { buildSlots, generateSchedule, normalizeScheduleConfig } from "@/lib/auto-schedule";
+import { buildSlots, normalizeScheduleConfig, buildMatchups } from "@/lib/auto-schedule";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -507,19 +507,92 @@ function SchedulerWorkspace({
   }
 
   function handleAutoFill() {
-    const generatedGames = generateSchedule(config, teams).games;
+    const effectiveRepeat = config.targetGamesPerTeam
+      ? Math.max(1, Math.ceil(config.targetGamesPerTeam / Math.max(1, teams.length - 1)))
+      : config.maxRepeatMatchups;
+    const allMatchups = buildMatchups(teams, effectiveRepeat);
+
     setSlots(prev => {
-      // Create a fresh copy inside the updater so React StrictMode's
-      // double-invocation doesn't exhaust the list on the first (discarded) call.
-      const remaining = [...generatedGames];
+      // Fresh copy per invocation — StrictMode safe.
+      const pending = [...allMatchups];
+
+      // Seed tracking from already-assigned slots.
+      const teamsPerDate = new Map<string, Map<number, number>>();
+      const gamesPerTeam = new Map<number, number>();
+      const matchupLastDate = new Map<string, string>();
+      for (const t of teams) gamesPerTeam.set(t.id, 0);
+
+      for (const s of prev) {
+        for (const team of [s.home, s.away]) {
+          if (!team) continue;
+          gamesPerTeam.set(team.id, (gamesPerTeam.get(team.id) ?? 0) + 1);
+          if (!teamsPerDate.has(s.date)) teamsPerDate.set(s.date, new Map());
+          const dm = teamsPerDate.get(s.date)!;
+          dm.set(team.id, (dm.get(team.id) ?? 0) + 1);
+        }
+        if (s.home && s.away) {
+          const k = `${Math.min(s.home.id, s.away.id)}-${Math.max(s.home.id, s.away.id)}`;
+          // Track most recent date per pair for back-to-back enforcement.
+          if (!matchupLastDate.has(k) || s.date > matchupLastDate.get(k)!) {
+            matchupLastDate.set(k, s.date);
+          }
+        }
+      }
+
+      // Ordered unique game dates for back-to-back detection.
+      const gameDates = [...new Set(prev.map(s => s.date))].sort();
+      const prevGameDate = new Map<string, string>();
+      for (let i = 1; i < gameDates.length; i++) {
+        prevGameDate.set(gameDates[i], gameDates[i - 1]);
+      }
+
       return prev.map(slot => {
         if (slot.home && slot.away) return slot;
-        if (remaining.length === 0) return slot;
-        const [g] = remaining.splice(0, 1);
+
+        const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
+        const dow = new Date(slot.date + 'T00:00:00Z').getUTCDay() as DayRule['dayOfWeek'];
+        const dayRule = config.dayRules.find(r => r.dayOfWeek === dow);
+        const maxPerDay = (config.allowDoubleHeaders ?? false)
+          ? (dayRule?.maxGamesPerTeamOnDay ?? 1)
+          : 1;
+        const prevDate = prevGameDate.get(slot.date);
+
+        // Pick the valid matchup where both teams have the fewest total games (balanced).
+        let bestIdx = -1;
+        let bestScore = Infinity;
+        for (let i = 0; i < pending.length; i++) {
+          const m = pending[i];
+          if ((dateMap.get(m.home.id) ?? 0) >= maxPerDay) continue;
+          if ((dateMap.get(m.away.id) ?? 0) >= maxPerDay) continue;
+          const hTotal = gamesPerTeam.get(m.home.id) ?? 0;
+          const aTotal = gamesPerTeam.get(m.away.id) ?? 0;
+          if (config.targetGamesPerTeam) {
+            if (hTotal >= config.targetGamesPerTeam || aTotal >= config.targetGamesPerTeam) continue;
+          }
+          if (config.noBackToBackMatchups && prevDate) {
+            const k = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
+            if (matchupLastDate.get(k) === prevDate) continue;
+          }
+          const score = hTotal + aTotal;
+          if (score < bestScore) { bestScore = score; bestIdx = i; }
+        }
+
+        if (bestIdx === -1) return slot;
+        const [matchup] = pending.splice(bestIdx, 1);
+
+        gamesPerTeam.set(matchup.home.id, (gamesPerTeam.get(matchup.home.id) ?? 0) + 1);
+        gamesPerTeam.set(matchup.away.id, (gamesPerTeam.get(matchup.away.id) ?? 0) + 1);
+        if (!teamsPerDate.has(slot.date)) teamsPerDate.set(slot.date, new Map());
+        const dm = teamsPerDate.get(slot.date)!;
+        dm.set(matchup.home.id, (dm.get(matchup.home.id) ?? 0) + 1);
+        dm.set(matchup.away.id, (dm.get(matchup.away.id) ?? 0) + 1);
+        const pk = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
+        matchupLastDate.set(pk, slot.date);
+
         return {
           ...slot,
-          home: slot.home ?? (teams.find(t => t.id === g.home) ?? null),
-          away: slot.away ?? (teams.find(t => t.id === g.away) ?? null),
+          home: slot.home ?? matchup.home,
+          away: slot.away ?? matchup.away,
         };
       });
     });
