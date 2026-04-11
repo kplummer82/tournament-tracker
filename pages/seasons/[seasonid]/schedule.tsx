@@ -3,10 +3,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import Link from "next/link";
-import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal, CalendarDays } from "lucide-react";
+import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import AutoScheduleModal from "@/components/seasons/AutoScheduleModal";
 
 // Games API returns: { id, gamedate, gametime, home (id), home_team (name), away (id), away_team (name), ... }
 type GameRow = {
@@ -212,7 +211,7 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
 type GameFilter = "all" | "regular" | "playoff";
 
 function ScheduleBody() {
-  const { seasonId, season, canEdit } = useSeason();
+  const { seasonId, canEdit } = useSeason();
   const [rows, setRows] = useState<GameRow[]>([]);
   const [teams, setTeams] = useState<TeamOpt[]>([]);
   const [statuses, setStatuses] = useState<StatusOpt[]>([]);
@@ -272,7 +271,6 @@ function ScheduleBody() {
     setDateTo(earliestDate && val < earliestDate ? earliestDate : val);
   };
 
-  const [showAutoSchedule, setShowAutoSchedule] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<GameForm>(BLANK_FORM);
   const [adding, setAdding] = useState(false);
@@ -554,26 +552,15 @@ function ScheduleBody() {
           )}
         </div>
         {canEdit && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setShowAutoSchedule(true)}
-              className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <CalendarDays className="h-3.5 w-3.5" />
-              Auto-Schedule
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
-              className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add Game
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => { setShowAdd((s) => !s); setAddForm(BLANK_FORM); setAddErr(null); }}
+            className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Game
+          </button>
         )}
       </div>
 
@@ -961,14 +948,6 @@ function ScheduleBody() {
         </>
       )}
 
-      {showAutoSchedule && season && (
-        <AutoScheduleModal
-          seasonId={seasonId!}
-          initialConfig={season.schedule_config}
-          onClose={() => setShowAutoSchedule(false)}
-          onCreated={() => { setShowAutoSchedule(false); setVersion(v => v + 1); }}
-        />
-      )}
     </div>
   );
 }
