@@ -54,6 +54,9 @@ const BLANK_CONFIG: ScheduleConfig = {
   targetGamesPerTeam: undefined,
   noBackToBackMatchups: false,
   allowDoubleHeaders: false,
+  evenHomeAway: true,
+  evenFields: true,
+  evenTimes: true,
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
@@ -307,6 +310,24 @@ function SchedulingRules({
                   className="accent-primary" />
                 <span className="text-xs">Allow a team to play multiple games on the same day</span>
               </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.evenHomeAway ?? true}
+                  onChange={e => setConfig({ ...config, evenHomeAway: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Balance home and away games evenly per team</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.evenFields ?? true}
+                  onChange={e => setConfig({ ...config, evenFields: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Balance games across fields evenly per team</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={config.evenTimes ?? true}
+                  onChange={e => setConfig({ ...config, evenTimes: e.target.checked })}
+                  className="accent-primary" />
+                <span className="text-xs">Balance games across time slots evenly per team</span>
+              </label>
             </div>
           </div>
 
@@ -519,23 +540,37 @@ function SchedulerWorkspace({
       // Seed tracking from already-assigned slots.
       const teamsPerDate = new Map<string, Map<number, number>>();
       const gamesPerTeam = new Map<number, number>();
+      const homeCount    = new Map<number, number>();
+      const awayCount    = new Map<number, number>();
+      const fieldCount   = new Map<number, Map<string, number>>();
+      const timeCount    = new Map<number, Map<string, number>>();
       const matchupLastDate = new Map<string, string>();
-      for (const t of teams) gamesPerTeam.set(t.id, 0);
+      for (const t of teams) {
+        gamesPerTeam.set(t.id, 0); homeCount.set(t.id, 0); awayCount.set(t.id, 0);
+        fieldCount.set(t.id, new Map()); timeCount.set(t.id, new Map());
+      }
 
       for (const s of prev) {
-        for (const team of [s.home, s.away]) {
-          if (!team) continue;
-          gamesPerTeam.set(team.id, (gamesPerTeam.get(team.id) ?? 0) + 1);
+        const sfk = `${s.fieldName}|${s.fieldLocation}`;
+        if (s.home) {
+          gamesPerTeam.set(s.home.id, (gamesPerTeam.get(s.home.id) ?? 0) + 1);
+          homeCount.set(s.home.id, (homeCount.get(s.home.id) ?? 0) + 1);
           if (!teamsPerDate.has(s.date)) teamsPerDate.set(s.date, new Map());
-          const dm = teamsPerDate.get(s.date)!;
-          dm.set(team.id, (dm.get(team.id) ?? 0) + 1);
+          teamsPerDate.get(s.date)!.set(s.home.id, (teamsPerDate.get(s.date)!.get(s.home.id) ?? 0) + 1);
+          const hfm = fieldCount.get(s.home.id)!; hfm.set(sfk, (hfm.get(sfk) ?? 0) + 1);
+          const htm = timeCount.get(s.home.id)!;  htm.set(s.time, (htm.get(s.time) ?? 0) + 1);
+        }
+        if (s.away) {
+          gamesPerTeam.set(s.away.id, (gamesPerTeam.get(s.away.id) ?? 0) + 1);
+          awayCount.set(s.away.id, (awayCount.get(s.away.id) ?? 0) + 1);
+          if (!teamsPerDate.has(s.date)) teamsPerDate.set(s.date, new Map());
+          teamsPerDate.get(s.date)!.set(s.away.id, (teamsPerDate.get(s.date)!.get(s.away.id) ?? 0) + 1);
+          const afm = fieldCount.get(s.away.id)!; afm.set(sfk, (afm.get(sfk) ?? 0) + 1);
+          const atm = timeCount.get(s.away.id)!;  atm.set(s.time, (atm.get(s.time) ?? 0) + 1);
         }
         if (s.home && s.away) {
           const k = `${Math.min(s.home.id, s.away.id)}-${Math.max(s.home.id, s.away.id)}`;
-          // Track most recent date per pair for back-to-back enforcement.
-          if (!matchupLastDate.has(k) || s.date > matchupLastDate.get(k)!) {
-            matchupLastDate.set(k, s.date);
-          }
+          if (!matchupLastDate.has(k) || s.date > matchupLastDate.get(k)!) matchupLastDate.set(k, s.date);
         }
       }
 
@@ -556,36 +591,51 @@ function SchedulerWorkspace({
           ? (dayRule?.maxGamesPerTeamOnDay ?? 1)
           : 1;
         const prevDate = prevGameDate.get(slot.date);
+        const fk = `${slot.fieldName}|${slot.fieldLocation}`;
 
-        // Pick the valid matchup where both teams have the fewest total games (balanced).
-        let bestIdx = -1;
-        let bestScore = Infinity;
+        function scoreOrientation(home: Team, away: Team): number {
+          let s = (gamesPerTeam.get(home.id) ?? 0) + (gamesPerTeam.get(away.id) ?? 0);
+          if (config.evenHomeAway ?? true) s += (homeCount.get(home.id) ?? 0) + (awayCount.get(away.id) ?? 0);
+          if (config.evenFields  ?? true) s += (fieldCount.get(home.id)?.get(fk) ?? 0) + (fieldCount.get(away.id)?.get(fk) ?? 0);
+          if (config.evenTimes   ?? true) s += (timeCount.get(home.id)?.get(slot.time) ?? 0) + (timeCount.get(away.id)?.get(slot.time) ?? 0);
+          return s;
+        }
+
+        let bestIdx = -1, bestScore = Infinity, bestFlipped = false;
         for (let i = 0; i < pending.length; i++) {
           const m = pending[i];
           if ((dateMap.get(m.home.id) ?? 0) >= maxPerDay) continue;
           if ((dateMap.get(m.away.id) ?? 0) >= maxPerDay) continue;
-          const hTotal = gamesPerTeam.get(m.home.id) ?? 0;
-          const aTotal = gamesPerTeam.get(m.away.id) ?? 0;
           if (config.targetGamesPerTeam) {
-            if (hTotal >= config.targetGamesPerTeam || aTotal >= config.targetGamesPerTeam) continue;
+            if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) continue;
+            if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) continue;
           }
           if (config.noBackToBackMatchups && prevDate) {
             const k = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
             if (matchupLastDate.get(k) === prevDate) continue;
           }
-          const score = hTotal + aTotal;
-          if (score < bestScore) { bestScore = score; bestIdx = i; }
+          const sA = scoreOrientation(m.home, m.away);
+          const sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+          const best = Math.min(sA, sB);
+          if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
         }
 
         if (bestIdx === -1) return slot;
-        const [matchup] = pending.splice(bestIdx, 1);
+        const raw = pending.splice(bestIdx, 1)[0];
+        const matchup = bestFlipped ? { home: raw.away, away: raw.home } : raw;
 
         gamesPerTeam.set(matchup.home.id, (gamesPerTeam.get(matchup.home.id) ?? 0) + 1);
         gamesPerTeam.set(matchup.away.id, (gamesPerTeam.get(matchup.away.id) ?? 0) + 1);
+        homeCount.set(matchup.home.id, (homeCount.get(matchup.home.id) ?? 0) + 1);
+        awayCount.set(matchup.away.id, (awayCount.get(matchup.away.id) ?? 0) + 1);
         if (!teamsPerDate.has(slot.date)) teamsPerDate.set(slot.date, new Map());
         const dm = teamsPerDate.get(slot.date)!;
         dm.set(matchup.home.id, (dm.get(matchup.home.id) ?? 0) + 1);
         dm.set(matchup.away.id, (dm.get(matchup.away.id) ?? 0) + 1);
+        const hfm = fieldCount.get(matchup.home.id)!; hfm.set(fk, (hfm.get(fk) ?? 0) + 1);
+        const afm = fieldCount.get(matchup.away.id)!; afm.set(fk, (afm.get(fk) ?? 0) + 1);
+        const htm = timeCount.get(matchup.home.id)!;  htm.set(slot.time, (htm.get(slot.time) ?? 0) + 1);
+        const atm = timeCount.get(matchup.away.id)!;  atm.set(slot.time, (atm.get(slot.time) ?? 0) + 1);
         const pk = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
         matchupLastDate.set(pk, slot.date);
 

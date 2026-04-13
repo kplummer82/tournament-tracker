@@ -30,6 +30,9 @@ export interface ScheduleConfig {
   targetGamesPerTeam?: number; // desired total games per team for the season (drives repeat matchups)
   noBackToBackMatchups?: boolean; // if true, same two teams cannot play on consecutive game dates
   allowDoubleHeaders?: boolean; // if false (default), teams may not play more than once per calendar day
+  evenHomeAway?: boolean; // if true (default), spread home/away games evenly per team
+  evenFields?: boolean;   // if true (default), spread games across fields evenly per team
+  evenTimes?: boolean;    // if true (default), spread games across time slots evenly per team
 }
 
 /**
@@ -76,6 +79,9 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     targetGamesPerTeam: (config.targetGamesPerTeam as number | undefined),
     noBackToBackMatchups: (config.noBackToBackMatchups as boolean | undefined),
     allowDoubleHeaders: (config.allowDoubleHeaders as boolean | undefined),
+    evenHomeAway: (config.evenHomeAway as boolean | undefined),
+    evenFields:   (config.evenFields   as boolean | undefined),
+    evenTimes:    (config.evenTimes    as boolean | undefined),
   };
 }
 
@@ -210,7 +216,14 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
   const teamsPerDate = new Map<string, Map<number, number>>();
   // teamId → total games scheduled so far (for target enforcement and load balancing)
   const gamesPerTeam = new Map<number, number>();
-  for (const t of teams) gamesPerTeam.set(t.id, 0);
+  const homeCount    = new Map<number, number>();
+  const awayCount    = new Map<number, number>();
+  const fieldCount   = new Map<number, Map<string, number>>();
+  const timeCount    = new Map<number, Map<string, number>>();
+  for (const t of teams) {
+    gamesPerTeam.set(t.id, 0); homeCount.set(t.id, 0); awayCount.set(t.id, 0);
+    fieldCount.set(t.id, new Map()); timeCount.set(t.id, new Map());
+  }
 
   // Build ordered unique game dates for back-to-back detection
   const gameDates = [...new Set(slots.map(s => s.date))].sort();
@@ -224,36 +237,50 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
   for (const slot of slots) {
     const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
     const prevDate = prevGameDate.get(slot.date);
+    const fk = `${slot.field.name}|${slot.field.location}`;
 
-    // Select the valid matchup where both teams have the fewest total games so far.
-    // This balances game counts across teams instead of taking the first shuffled match.
-    let bestIdx = -1;
-    let bestScore = Infinity;
+    function scoreOrientation(home: Team, away: Team): number {
+      let s = (gamesPerTeam.get(home.id) ?? 0) + (gamesPerTeam.get(away.id) ?? 0);
+      if (config.evenHomeAway ?? true) s += (homeCount.get(home.id) ?? 0) + (awayCount.get(away.id) ?? 0);
+      if (config.evenFields  ?? true) s += (fieldCount.get(home.id)?.get(fk) ?? 0) + (fieldCount.get(away.id)?.get(fk) ?? 0);
+      if (config.evenTimes   ?? true) s += (timeCount.get(home.id)?.get(slot.time) ?? 0) + (timeCount.get(away.id)?.get(slot.time) ?? 0);
+      return s;
+    }
+
+    let bestIdx = -1, bestScore = Infinity, bestFlipped = false;
     for (let i = 0; i < pending.length; i++) {
       const m = pending[i];
       const h = dateMap.get(m.home.id) ?? 0;
       const a = dateMap.get(m.away.id) ?? 0;
       if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) continue;
-      const hTotal = gamesPerTeam.get(m.home.id) ?? 0;
-      const aTotal = gamesPerTeam.get(m.away.id) ?? 0;
       if (config.targetGamesPerTeam) {
-        if (hTotal >= config.targetGamesPerTeam || aTotal >= config.targetGamesPerTeam) continue;
+        if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) continue;
+        if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) continue;
       }
       if (config.noBackToBackMatchups && prevDate) {
         const key = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
         if (matchupLastDate.get(key) === prevDate) continue;
       }
-      const score = hTotal + aTotal;
-      if (score < bestScore) { bestScore = score; bestIdx = i; }
+      const sA = scoreOrientation(m.home, m.away);
+      const sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+      const best = Math.min(sA, sB);
+      if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
     }
 
     if (bestIdx === -1) continue;
-    const [matchup] = pending.splice(bestIdx, 1);
+    const raw = pending.splice(bestIdx, 1)[0];
+    const matchup = bestFlipped ? { home: raw.away, away: raw.home } : raw;
 
     const pairKey = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
     matchupLastDate.set(pairKey, slot.date);
     gamesPerTeam.set(matchup.home.id, (gamesPerTeam.get(matchup.home.id) ?? 0) + 1);
     gamesPerTeam.set(matchup.away.id, (gamesPerTeam.get(matchup.away.id) ?? 0) + 1);
+    homeCount.set(matchup.home.id, (homeCount.get(matchup.home.id) ?? 0) + 1);
+    awayCount.set(matchup.away.id, (awayCount.get(matchup.away.id) ?? 0) + 1);
+    const hfm = fieldCount.get(matchup.home.id)!; hfm.set(fk, (hfm.get(fk) ?? 0) + 1);
+    const afm = fieldCount.get(matchup.away.id)!; afm.set(fk, (afm.get(fk) ?? 0) + 1);
+    const htm = timeCount.get(matchup.home.id)!;  htm.set(slot.time, (htm.get(slot.time) ?? 0) + 1);
+    const atm = timeCount.get(matchup.away.id)!;  atm.set(slot.time, (atm.get(slot.time) ?? 0) + 1);
 
     games.push({
       gamedate: slot.date,
@@ -267,9 +294,9 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
     });
 
     if (!teamsPerDate.has(slot.date)) teamsPerDate.set(slot.date, new Map());
-    const m = teamsPerDate.get(slot.date)!;
-    m.set(matchup.home.id, (m.get(matchup.home.id) ?? 0) + 1);
-    m.set(matchup.away.id, (m.get(matchup.away.id) ?? 0) + 1);
+    const dm = teamsPerDate.get(slot.date)!;
+    dm.set(matchup.home.id, (dm.get(matchup.home.id) ?? 0) + 1);
+    dm.set(matchup.away.id, (dm.get(matchup.away.id) ?? 0) + 1);
   }
 
   const warnings: string[] = [];
