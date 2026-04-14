@@ -847,7 +847,7 @@ function SchedulerWorkspace({
       <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border">
         <CalendarCheck className="h-8 w-8 text-muted-foreground mb-3" />
         <p className="text-sm font-medium text-muted-foreground">No slots generated yet</p>
-        <p className="text-xs text-muted-foreground mt-1">Configure rules above and click "Generate Slots →" to begin scheduling.</p>
+        <p className="text-xs text-muted-foreground mt-1">Configure rules above and click &quot;Generate Slots →&quot; to begin scheduling.</p>
       </div>
     );
   }
