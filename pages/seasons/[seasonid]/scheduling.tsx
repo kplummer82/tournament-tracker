@@ -16,11 +16,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, X, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
-  Wand2, CalendarCheck,
+  Wand2, CalendarCheck, Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot } from "@/lib/auto-schedule";
-import { buildSlots, normalizeScheduleConfig, buildMatchups } from "@/lib/auto-schedule";
+import { buildSlots, normalizeScheduleConfig, buildMatchups, weekMonday } from "@/lib/auto-schedule";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +44,16 @@ function fmt12h(time: string): string {
   return `${h12}:${mStr} ${suffix}`;
 }
 
+function fmtDateTS(date: string): string {
+  const [y, m, d] = date.split('-');
+  return `${parseInt(m)}/${parseInt(d)}/${y}`;
+}
+
+function csvCell(val: string): string {
+  if (/[",\n\r]/.test(val)) return `"${val.replace(/"/g, '""')}"`;
+  return val;
+}
+
 const BLANK_CONFIG: ScheduleConfig = {
   firstGameDate: '',
   lastGameDate: '',
@@ -57,6 +67,11 @@ const BLANK_CONFIG: ScheduleConfig = {
   evenHomeAway: true,
   evenFields: true,
   evenTimes: true,
+  maxWeekdayGamesPerWeek: undefined,
+  minWeekendGamesPerWeek: 1,
+  enforceRoundCompletion: true,
+  roundCompletionX: 1,
+  roundCompletionY: 2,
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
@@ -304,6 +319,40 @@ function SchedulingRules({
                   className="accent-primary" />
                 <span className="text-xs">Prevent same two teams from playing on back-to-back game days</span>
               </label>
+              <label className="flex items-center gap-3">
+                <span className="text-xs">Max weekday (Mon–Fri) games per team per week</span>
+                <input type="number" min={1} max={10}
+                  value={config.maxWeekdayGamesPerWeek ?? ''}
+                  placeholder="—"
+                  onChange={e => setConfig({ ...config, maxWeekdayGamesPerWeek: e.target.value ? Number(e.target.value) : undefined })}
+                  className={cn(FIELD_INPUT, "w-16")} />
+              </label>
+              <label className="flex items-center gap-3">
+                <span className="text-xs">Min weekend (Sat–Sun) games per team per week</span>
+                <input type="number" min={1} max={10}
+                  value={config.minWeekendGamesPerWeek ?? ''}
+                  placeholder="—"
+                  onChange={e => setConfig({ ...config, minWeekendGamesPerWeek: e.target.value ? Number(e.target.value) : undefined })}
+                  className={cn(FIELD_INPUT, "w-16")} />
+              </label>
+              <div className="space-y-1.5">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={config.enforceRoundCompletion ?? true}
+                    onChange={e => setConfig({ ...config, enforceRoundCompletion: e.target.checked })}
+                    className="accent-primary" />
+                  <span className="text-xs">Schedule all pairings before repeating matchups</span>
+                </label>
+                {(config.enforceRoundCompletion ?? true) && (
+                  <div className="flex items-center gap-2 ml-5 flex-wrap">
+                    <span className="text-xs text-muted-foreground">Enforce starting at game</span>
+                    <input type="number" min={2} max={10}
+                      value={config.roundCompletionY ?? 2}
+                      onChange={e => setConfig({ ...config, roundCompletionY: Math.max(2, Number(e.target.value)) })}
+                      className={cn(FIELD_INPUT, "w-12")} />
+                    <span className="text-xs text-muted-foreground">against the same opponent</span>
+                  </div>
+                )}
+              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={config.allowDoubleHeaders ?? false}
                   onChange={e => setConfig({ ...config, allowDoubleHeaders: e.target.checked })}
@@ -529,7 +578,7 @@ function SchedulerWorkspace({
 
   function handleAutoFill() {
     const effectiveRepeat = config.targetGamesPerTeam
-      ? Math.max(1, Math.ceil(config.targetGamesPerTeam / Math.max(1, teams.length - 1)))
+      ? Math.max(1, Math.ceil(config.targetGamesPerTeam / Math.max(1, teams.length - 1)) + 1)
       : config.maxRepeatMatchups;
     const allMatchups = buildMatchups(teams, effectiveRepeat);
 
@@ -545,6 +594,9 @@ function SchedulerWorkspace({
       const fieldCount   = new Map<number, Map<string, number>>();
       const timeCount    = new Map<number, Map<string, number>>();
       const matchupLastDate = new Map<string, string>();
+      const matchupCount    = new Map<string, number>();
+      const weekdayGamesPerTeamWeek = new Map<string, number>();
+      const weekendGamesPerTeamWeek = new Map<string, number>();
       for (const t of teams) {
         gamesPerTeam.set(t.id, 0); homeCount.set(t.id, 0); awayCount.set(t.id, 0);
         fieldCount.set(t.id, new Map()); timeCount.set(t.id, new Map());
@@ -571,6 +623,20 @@ function SchedulerWorkspace({
         if (s.home && s.away) {
           const k = `${Math.min(s.home.id, s.away.id)}-${Math.max(s.home.id, s.away.id)}`;
           if (!matchupLastDate.has(k) || s.date > matchupLastDate.get(k)!) matchupLastDate.set(k, s.date);
+          matchupCount.set(k, (matchupCount.get(k) ?? 0) + 1);
+          const sDow = new Date(s.date + 'T00:00:00Z').getUTCDay();
+          if (sDow >= 1 && sDow <= 5) {
+            const wk = weekMonday(s.date);
+            const hWK = `${s.home.id}|${wk}`, aWK = `${s.away.id}|${wk}`;
+            weekdayGamesPerTeamWeek.set(hWK, (weekdayGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+            weekdayGamesPerTeamWeek.set(aWK, (weekdayGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+          }
+          if (sDow === 0 || sDow === 6) {
+            const wk = weekMonday(s.date);
+            const hWK = `${s.home.id}|${wk}`, aWK = `${s.away.id}|${wk}`;
+            weekendGamesPerTeamWeek.set(hWK, (weekendGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+            weekendGamesPerTeamWeek.set(aWK, (weekendGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+          }
         }
       }
 
@@ -586,6 +652,8 @@ function SchedulerWorkspace({
 
         const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
         const dow = new Date(slot.date + 'T00:00:00Z').getUTCDay() as DayRule['dayOfWeek'];
+        const isWeekday = dow >= 1 && dow <= 5;
+        const slotWeek = weekMonday(slot.date);
         const dayRule = config.dayRules.find(r => r.dayOfWeek === dow);
         const maxPerDay = (config.allowDoubleHeaders ?? false)
           ? (dayRule?.maxGamesPerTeamOnDay ?? 1)
@@ -598,26 +666,62 @@ function SchedulerWorkspace({
           if (config.evenHomeAway ?? true) s += (homeCount.get(home.id) ?? 0) + (awayCount.get(away.id) ?? 0);
           if (config.evenFields  ?? true) s += (fieldCount.get(home.id)?.get(fk) ?? 0) + (fieldCount.get(away.id)?.get(fk) ?? 0);
           if (config.evenTimes   ?? true) s += (timeCount.get(home.id)?.get(slot.time) ?? 0) + (timeCount.get(away.id)?.get(slot.time) ?? 0);
+          if (!isWeekday && config.minWeekendGamesPerWeek) {
+            if ((weekendGamesPerTeamWeek.get(`${home.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
+            if ((weekendGamesPerTeamWeek.get(`${away.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
+          }
           return s;
         }
 
-        let bestIdx = -1, bestScore = Infinity, bestFlipped = false;
-        for (let i = 0; i < pending.length; i++) {
-          const m = pending[i];
-          if ((dateMap.get(m.home.id) ?? 0) >= maxPerDay) continue;
-          if ((dateMap.get(m.away.id) ?? 0) >= maxPerDay) continue;
+        function passesConstraints(m: { home: Team; away: Team }, relaxBtB: boolean): boolean {
+          if ((dateMap.get(m.home.id) ?? 0) >= maxPerDay) return false;
+          if ((dateMap.get(m.away.id) ?? 0) >= maxPerDay) return false;
           if (config.targetGamesPerTeam) {
-            if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) continue;
-            if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) continue;
+            if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) return false;
+            if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) return false;
           }
-          if (config.noBackToBackMatchups && prevDate) {
+          if (!relaxBtB && config.noBackToBackMatchups && prevDate) {
             const k = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
-            if (matchupLastDate.get(k) === prevDate) continue;
+            if (matchupLastDate.get(k) === prevDate) return false;
           }
-          const sA = scoreOrientation(m.home, m.away);
-          const sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
-          const best = Math.min(sA, sB);
-          if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
+          if (config.maxWeekdayGamesPerWeek && isWeekday) {
+            if ((weekdayGamesPerTeamWeek.get(`${m.home.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) return false;
+            if ((weekdayGamesPerTeamWeek.get(`${m.away.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) return false;
+          }
+          return true;
+        }
+
+        let bestIdx = -1, bestScore = Infinity, bestFlipped = false;
+        for (let pass = 0; pass < 2 && bestIdx === -1; pass++) {
+          const relaxBtB = pass >= 1;
+          if (pass === 1 && !config.noBackToBackMatchups) continue;
+          for (let i = 0; i < pending.length; i++) {
+            const m = pending[i];
+            if (!passesConstraints(m, relaxBtB)) continue;
+            let sA = scoreOrientation(m.home, m.away);
+            let sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+            // RC soft penalty: heavily deprioritize repeats when opponents remain unplayed.
+            // Penalty = 0 once all unique pairings are covered (self-extinguishing).
+            if ((config.enforceRoundCompletion ?? true) && teams.length > 2) {
+              const rcY = config.roundCompletionY ?? 2;
+              const rcKey = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
+              const currentCount = matchupCount.get(rcKey) ?? 0;
+              if (currentCount + 1 >= rcY) {
+                let penalty = 0;
+                for (const t of teams) {
+                  if (t.id === m.home.id || t.id === m.away.id) continue;
+                  const hk = `${Math.min(m.home.id, t.id)}-${Math.max(m.home.id, t.id)}`;
+                  const ak = `${Math.min(m.away.id, t.id)}-${Math.max(m.away.id, t.id)}`;
+                  if ((matchupCount.get(hk) ?? 0) < currentCount) penalty += 1000;
+                  if ((matchupCount.get(ak) ?? 0) < currentCount) penalty += 1000;
+                }
+                sA += penalty;
+                sB += penalty;
+              }
+            }
+            const best = Math.min(sA, sB);
+            if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
+          }
         }
 
         if (bestIdx === -1) return slot;
@@ -638,6 +742,18 @@ function SchedulerWorkspace({
         const atm = timeCount.get(matchup.away.id)!;  atm.set(slot.time, (atm.get(slot.time) ?? 0) + 1);
         const pk = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
         matchupLastDate.set(pk, slot.date);
+        matchupCount.set(pk, (matchupCount.get(pk) ?? 0) + 1);
+        if (isWeekday) {
+          const hWK = `${matchup.home.id}|${slotWeek}`;
+          const aWK = `${matchup.away.id}|${slotWeek}`;
+          weekdayGamesPerTeamWeek.set(hWK, (weekdayGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+          weekdayGamesPerTeamWeek.set(aWK, (weekdayGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+        } else {
+          const hWK = `${matchup.home.id}|${slotWeek}`;
+          const aWK = `${matchup.away.id}|${slotWeek}`;
+          weekendGamesPerTeamWeek.set(hWK, (weekendGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+          weekendGamesPerTeamWeek.set(aWK, (weekendGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+        }
 
         return {
           ...slot,
@@ -646,6 +762,33 @@ function SchedulerWorkspace({
         };
       });
     });
+  }
+
+  function handleExport() {
+    const complete = slots.filter(s => s.home && s.away);
+    if (complete.length === 0) return;
+
+    const headers = ['Schedule Name', 'Home Team', 'Away Team', 'Game Date', 'Game Time', 'Location', 'Field'];
+    const rows = complete.map(s => [
+      s.fieldLocation,
+      s.home!.name,
+      s.away!.name,
+      fmtDateTS(s.date),
+      fmt12h(s.time),
+      s.fieldLocation,
+      s.fieldName,
+    ].map(csvCell).join(','));
+
+    const csv = [headers.join(','), ...rows].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'schedule-teamsideline.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   useEffect(() => {
@@ -844,6 +987,11 @@ function SchedulerWorkspace({
                 className={cn(BTN, "border-border text-muted-foreground hover:border-foreground hover:text-foreground text-[10px]")}>
                 Clear All
               </button>
+              <button type="button" onClick={handleExport}
+                disabled={assignedCount === 0}
+                className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-40")}>
+                <Download className="h-3.5 w-3.5" /> Export CSV
+              </button>
               <button type="button" onClick={handleCommit}
                 disabled={committing || assignedCount === 0}
                 className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-50")}>
@@ -862,6 +1010,523 @@ function SchedulerWorkspace({
   );
 }
 
+// ─── Schedule Balance Report ────────────────────────────────────────────────────
+
+const DAY_ORDER: Record<string, number> = {
+  Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3,
+  Friday: 4, Saturday: 5, Sunday: 6,
+};
+
+function parseTimeSlotKey(key: string): number {
+  const commaIdx = key.indexOf(', ');
+  if (commaIdx === -1) return 9999;
+  const dayPart  = key.slice(0, commaIdx);
+  const timePart = key.slice(commaIdx + 2); // "h:mm AM/PM"
+  const dayIdx   = DAY_ORDER[dayPart] ?? 7;
+  const [timeStr, meridiem] = timePart.split(' ');
+  const [hStr, mStr] = timeStr.split(':');
+  let h = parseInt(hStr, 10);
+  const m = parseInt(mStr, 10);
+  if (meridiem === 'PM' && h !== 12) h += 12;
+  if (meridiem === 'AM' && h === 12) h = 0;
+  return dayIdx * 10000 + h * 60 + m;
+}
+
+interface TeamStats {
+  team: Team;
+  total: number;
+  home:      { total: number; fields: Map<string, number>; times: Map<string, number> };
+  away:      { total: number; fields: Map<string, number>; times: Map<string, number> };
+  season:    { total: number; fields: Map<string, number>; times: Map<string, number> };
+  allFields: string[]; // sorted union, alphabetical
+  allTimes:  string[]; // sorted union, Mon→Sun then chronological
+}
+
+interface ScorecardRow {
+  team: Team;
+  gamesActual:    number;
+  homeCount:      number;
+  awayCount:      number;
+  gamesRating:    'green' | 'amber' | 'red';
+  homeAwayRating: 'green' | 'amber' | 'red';
+  fieldRating:    'green' | 'amber' | 'red';
+  timeRating:     'green' | 'amber' | 'red';
+  oppRating:      'green' | 'amber' | 'red';
+}
+interface TimelineRow { team: Team; games: { date: string; isHome: boolean }[]; }
+interface RestDaysRow  { team: Team; gaps: number[]; buckets: { label: string; count: number; color: string }[]; }
+
+function StatBlock({ label, keys, counts }: {
+  label: string;
+  keys: string[];
+  counts: Map<string, number>;
+}) {
+  if (keys.length === 0) return null;
+  return (
+    <div>
+      <div className="text-[9px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-1">{label}</div>
+      <div className="space-y-0.5">
+        {keys.map(key => {
+          const count = counts.get(key) ?? 0;
+          return (
+            <div key={key} className="flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground truncate">{key}</span>
+              <span className={cn(
+                "text-[11px] tabular-nums shrink-0",
+                count === 0 ? "text-muted-foreground/30" : "font-semibold"
+              )}>
+                {count}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function RatingDot({ r }: { r: 'green' | 'amber' | 'red' }) {
+  return (
+    <span className={cn(
+      "inline-block w-2 h-2 rounded-full",
+      r === 'green' ? "bg-green-500" : r === 'amber' ? "bg-amber-400" : "bg-red-500"
+    )} />
+  );
+}
+
+function abbrevTeam(name: string): string {
+  const words = name.trim().split(/\s+/);
+  return words.length > 1 ? words[words.length - 1].slice(0, 9) : name.slice(0, 9);
+}
+
+function matrixCellCn(count: number): string {
+  if (count === 0) return "text-muted-foreground/30";
+  if (count === 1) return "text-foreground";
+  if (count === 2) return "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30";
+  return "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30";
+}
+
+function ScheduleReport({ slots, teams, config }: {
+  slots: DraftSlot[];
+  teams: Team[];
+  config: ScheduleConfig;
+}) {
+  const [reportView, setReportView] = useState<'breakdown' | 'scorecard' | 'timeline' | 'matrix' | 'restdays'>('breakdown');
+  const hasGames = slots.some(s => s.home && s.away);
+
+  // ── Breakdown stats ──────────────────────────────────────────────────────────
+  const stats = useMemo<TeamStats[]>(() => {
+    return teams.map(team => {
+      const homeSlots = slots.filter(s => s.home?.id === team.id && !!s.away);
+      const awaySlots = slots.filter(s => s.away?.id === team.id && !!s.home);
+
+      function breakdown(ss: DraftSlot[]) {
+        const fields = new Map<string, number>();
+        const times  = new Map<string, number>();
+        for (const s of ss) {
+          const fk = [s.fieldLocation, s.fieldName].filter(Boolean).join(' · ') || '(no location)';
+          const dow = new Date(s.date + 'T00:00:00Z').getUTCDay();
+          const tk  = `${DAY_FULL[dow]}, ${fmt12h(s.time)}`;
+          fields.set(fk, (fields.get(fk) ?? 0) + 1);
+          times.set(tk,  (times.get(tk)  ?? 0) + 1);
+        }
+        return { total: ss.length, fields, times };
+      }
+
+      const home   = breakdown(homeSlots);
+      const away   = breakdown(awaySlots);
+      const season = breakdown([...homeSlots, ...awaySlots]);
+
+      const allFields = [...season.fields.keys()].sort();
+      const allTimes  = [...season.times.keys()].sort(
+        (a, b) => parseTimeSlotKey(a) - parseTimeSlotKey(b)
+      );
+
+      return { team, total: homeSlots.length + awaySlots.length, home, away, season, allFields, allTimes };
+    });
+  }, [slots, teams]);
+
+  // ── Fairness stats ────────────────────────────────────────────────────────────
+  const fairness = useMemo(() => {
+    const done = slots.filter(s => s.home && s.away);
+    const target = config.targetGamesPerTeam;
+    const avgGames = teams.length > 0 ? (done.length * 2) / teams.length : 0;
+
+    function daysBetween(d1: string, d2: string): number {
+      return Math.round(Math.abs(
+        new Date(d2 + 'T00:00:00Z').getTime() -
+        new Date(d1 + 'T00:00:00Z').getTime()
+      ) / 86400000);
+    }
+
+    function tl(diff: number, green: number, amber: number): 'green' | 'amber' | 'red' {
+      return diff <= green ? 'green' : diff <= amber ? 'amber' : 'red';
+    }
+
+    // Scorecard
+    const scorecard: ScorecardRow[] = teams.map(team => {
+      const allGames  = done.filter(s => s.home!.id === team.id || s.away!.id === team.id);
+      const homeCount = done.filter(s => s.home!.id === team.id).length;
+      const awayCount = allGames.length - homeCount;
+      const gamesActual = allGames.length;
+      const idealGames  = target ?? avgGames;
+
+      const fieldMap = new Map<string, number>();
+      const timeMap  = new Map<string, number>();
+      for (const s of allGames) {
+        const fk = [s.fieldLocation, s.fieldName].filter(Boolean).join(' · ') || '(no location)';
+        fieldMap.set(fk, (fieldMap.get(fk) ?? 0) + 1);
+        const dow = new Date(s.date + 'T00:00:00Z').getUTCDay();
+        const tk  = `${DAY_FULL[dow]}, ${fmt12h(s.time)}`;
+        timeMap.set(tk, (timeMap.get(tk) ?? 0) + 1);
+      }
+      const fVals = [...fieldMap.values()];
+      const tVals = [...timeMap.values()];
+      const fieldSpread = fVals.length > 1 ? Math.max(...fVals) - Math.min(...fVals) : 0;
+      const timeSpread  = tVals.length > 1  ? Math.max(...tVals) - Math.min(...tVals)  : 0;
+
+      const opponents = new Set<number>();
+      for (const s of done) {
+        if (s.home!.id === team.id) opponents.add(s.away!.id);
+        else if (s.away!.id === team.id) opponents.add(s.home!.id);
+      }
+      const missingOpp = (teams.length - 1) - opponents.size;
+
+      return {
+        team, gamesActual, homeCount, awayCount,
+        gamesRating:    tl(Math.abs(gamesActual - idealGames), 0, 1),
+        homeAwayRating: tl(Math.abs(homeCount - awayCount), 1, 2),
+        fieldRating:    tl(fieldSpread, 1, 2),
+        timeRating:     tl(timeSpread, 1, 3),
+        oppRating:      tl(missingOpp, 0, 1),
+      };
+    });
+
+    // Timeline
+    const timeline: TimelineRow[] = teams.map(team => ({
+      team,
+      games: done
+        .filter(s => s.home!.id === team.id || s.away!.id === team.id)
+        .map(s => ({ date: s.date, isHome: s.home!.id === team.id }))
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    }));
+
+    // Head-to-Head Matrix
+    const n = teams.length;
+    const matrix: number[][] = Array.from({ length: n }, () => Array(n).fill(0));
+    const idxMap = new Map(teams.map((t, i) => [t.id, i]));
+    for (const s of done) {
+      const hi = idxMap.get(s.home!.id)!, ai = idxMap.get(s.away!.id)!;
+      if (hi !== undefined && ai !== undefined) {
+        matrix[hi][ai]++;
+        matrix[ai][hi]++;
+      }
+    }
+
+    // Rest Days
+    const restDays: RestDaysRow[] = teams.map(team => {
+      const uniqueDates = [...new Set(
+        done.filter(s => s.home!.id === team.id || s.away!.id === team.id).map(s => s.date)
+      )].sort();
+      const gaps: number[] = [];
+      for (let i = 1; i < uniqueDates.length; i++) gaps.push(daysBetween(uniqueDates[i - 1], uniqueDates[i]));
+      return {
+        team, gaps,
+        buckets: [
+          { label: '1d',   count: gaps.filter(g => g <= 2).length,            color: 'bg-red-500'   },
+          { label: '2–3d', count: gaps.filter(g => g >= 3 && g <= 4).length,  color: 'bg-amber-400' },
+          { label: '4+d',  count: gaps.filter(g => g >= 5).length,            color: 'bg-green-500' },
+        ],
+      };
+    });
+
+    const allDates = [...new Set(done.map(s => s.date))].sort();
+
+    return { scorecard, timeline, matrixTeams: teams, matrix, restDays, allDates };
+  }, [slots, teams, config.targetGamesPerTeam]);
+
+  if (!hasGames) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border" style={{ fontFamily: 'var(--font-body)' }}>
+        <p className="text-sm font-medium text-muted-foreground">No games assigned yet</p>
+        <p className="text-xs text-muted-foreground mt-1">Switch to Workspace and run Auto-fill or assign teams manually.</p>
+      </div>
+    );
+  }
+
+  const REPORT_TABS = [
+    { key: 'breakdown' as const, label: 'Breakdown'    },
+    { key: 'scorecard' as const, label: 'Scorecard'    },
+    { key: 'timeline'  as const, label: 'Timeline'     },
+    { key: 'matrix'    as const, label: 'Head-to-Head' },
+    { key: 'restdays'  as const, label: 'Rest Days'    },
+  ];
+
+  return (
+    <div style={{ fontFamily: 'var(--font-body)' }}>
+      {/* Secondary tab bar */}
+      <div className="flex gap-0 mb-4 border-b border-border overflow-x-auto">
+        {REPORT_TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setReportView(key)}
+            className={cn(
+              "px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] border-b-2 -mb-px transition-colors whitespace-nowrap",
+              reportView === key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Breakdown ──────────────────────────────────────────────────────────── */}
+      {reportView === 'breakdown' && (
+        <div className="space-y-3">
+          {stats.map(({ team, total, home, away, season, allFields, allTimes }) => (
+            <div key={team.id} className="border border-border">
+              <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.06em]">{team.name}</span>
+                <span className="text-[11px] text-muted-foreground">{total}g total</span>
+              </div>
+              <div className="grid grid-cols-3 divide-x divide-border">
+                <div className="p-3 space-y-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-primary">Home — {home.total}g</div>
+                  <StatBlock label="Fields" keys={allFields} counts={home.fields} />
+                  <StatBlock label="Time Slots" keys={allTimes} counts={home.times} />
+                </div>
+                <div className="p-3 space-y-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Away — {away.total}g</div>
+                  <StatBlock label="Fields" keys={allFields} counts={away.fields} />
+                  <StatBlock label="Time Slots" keys={allTimes} counts={away.times} />
+                </div>
+                <div className="p-3 space-y-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground">Full Season — {season.total}g</div>
+                  <StatBlock label="Fields" keys={allFields} counts={season.fields} />
+                  <StatBlock label="Time Slots" keys={allTimes} counts={season.times} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Scorecard ──────────────────────────────────────────────────────────── */}
+      {reportView === 'scorecard' && (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[11px]">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Team</th>
+                <th className="text-center px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Games</th>
+                <th className="text-center px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">H / A Split</th>
+                <th className="text-center px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Field Spread</th>
+                <th className="text-center px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Time Spread</th>
+                <th className="text-center px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">Opponents</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fairness.scorecard.map(row => (
+                <tr key={row.team.id} className="border-b border-border/50 hover:bg-muted/20">
+                  <td className="px-3 py-2 font-medium">{row.team.name}</td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col items-center gap-1">
+                      <RatingDot r={row.gamesRating} />
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {row.gamesActual}{config.targetGamesPerTeam ? `/${config.targetGamesPerTeam}` : ''}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col items-center gap-1">
+                      <RatingDot r={row.homeAwayRating} />
+                      <span className="text-[10px] text-muted-foreground tabular-nums">{row.homeCount}H / {row.awayCount}A</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-center"><RatingDot r={row.fieldRating} /></td>
+                  <td className="px-3 py-2 text-center"><RatingDot r={row.timeRating} /></td>
+                  <td className="px-3 py-2 text-center"><RatingDot r={row.oppRating} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex gap-4 mt-3 px-3">
+            {(['green', 'amber', 'red'] as const).map(r => (
+              <div key={r} className="flex items-center gap-1.5">
+                <RatingDot r={r} />
+                <span className="text-[10px] text-muted-foreground">
+                  {r === 'green' ? 'Fair' : r === 'amber' ? 'Acceptable' : 'Imbalanced'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Timeline ───────────────────────────────────────────────────────────── */}
+      {reportView === 'timeline' && (
+        <div className="overflow-x-auto">
+          <table className="border-separate border-spacing-0 text-[11px]">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-10 bg-background border-b border-r border-border px-3 py-1.5 text-left text-[10px] font-semibold uppercase tracking-[0.06em] text-muted-foreground min-w-[120px]">Team</th>
+                {fairness.allDates.map(d => {
+                  const [, m, day] = d.split('-');
+                  return (
+                    <th key={d} className="border-b border-border px-0.5 py-1.5 text-[9px] text-muted-foreground font-medium min-w-[20px] text-center whitespace-nowrap">
+                      {parseInt(m)}/{parseInt(day)}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {fairness.timeline.map(row => {
+                const gamesByDate = new Map(row.games.map(g => [g.date, g.isHome]));
+                return (
+                  <tr key={row.team.id}>
+                    <td className="sticky left-0 z-10 bg-background border-r border-border px-3 py-1.5 font-medium whitespace-nowrap border-b border-border/30">{row.team.name}</td>
+                    {fairness.allDates.map(d => {
+                      const isHome = gamesByDate.get(d);
+                      return (
+                        <td key={d} className="py-1.5 text-center border-b border-border/30">
+                          {isHome !== undefined ? (
+                            <span
+                              className={cn(
+                                "inline-block w-2.5 h-2.5 rounded-full",
+                                isHome ? "bg-primary" : "bg-muted-foreground/50"
+                              )}
+                              title={isHome ? 'Home' : 'Away'}
+                            />
+                          ) : null}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="flex gap-4 mt-3 px-1">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-primary" />
+              <span className="text-[10px] text-muted-foreground">Home</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground">Away</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Head-to-Head Matrix ────────────────────────────────────────────────── */}
+      {reportView === 'matrix' && (
+        <div className="overflow-x-auto">
+          <table className="border-collapse text-[11px]">
+            <thead>
+              <tr>
+                <th className="min-w-[140px]" />
+                {fairness.matrixTeams.map(t => (
+                  <th key={t.id} className="border border-border/50 p-0 w-8 min-w-[2rem]">
+                    <div className="flex items-end justify-center h-20 pb-1">
+                      <span
+                        className="text-[9px] font-medium text-muted-foreground whitespace-nowrap"
+                        style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                      >
+                        {abbrevTeam(t.name)}
+                      </span>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {fairness.matrixTeams.map((rowTeam, i) => (
+                <tr key={rowTeam.id}>
+                  <td className="px-2 py-1 text-right whitespace-nowrap border-r border-border/50 font-medium">{rowTeam.name}</td>
+                  {fairness.matrixTeams.map((colTeam, j) => {
+                    if (i === j) return <td key={j} className="border border-border/50 bg-muted/40 w-8 h-7" />;
+                    const count = fairness.matrix[i][j];
+                    return (
+                      <td
+                        key={j}
+                        className={cn("border border-border/50 w-8 h-7 text-center tabular-nums font-semibold", matrixCellCn(count))}
+                        title={`${rowTeam.name} vs ${colTeam.name}: ${count} game${count !== 1 ? 's' : ''}`}
+                      >
+                        {count > 0 ? count : ''}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="flex gap-4 mt-3 text-[10px] text-muted-foreground items-center">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex w-5 h-5 border border-border/50 items-center justify-center text-[9px] font-semibold text-foreground">1</span>
+              <span>1 game</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex w-5 h-5 border border-border/50 items-center justify-center text-[9px] font-semibold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30">2</span>
+              <span>2 games</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex w-5 h-5 border border-border/50 items-center justify-center text-[9px] font-semibold text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30">3</span>
+              <span>3+ games</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Rest Days ──────────────────────────────────────────────────────────── */}
+      {reportView === 'restdays' && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-4 px-1 mb-3">
+            {[
+              { label: '1d  Back-to-back', color: 'bg-red-500'   },
+              { label: '2–3d  Short rest', color: 'bg-amber-400' },
+              { label: '4+d  Good rest',   color: 'bg-green-500' },
+            ].map(b => (
+              <div key={b.label} className="flex items-center gap-1.5">
+                <span className={cn("inline-block w-2.5 h-2.5 rounded-sm flex-shrink-0", b.color)} />
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">{b.label}</span>
+              </div>
+            ))}
+          </div>
+          {fairness.restDays.map(row => (
+            <div key={row.team.id} className="border border-border flex items-end gap-4 px-4 py-3">
+              <span className="text-[11px] font-medium min-w-[120px] self-center">{row.team.name}</span>
+              <div className="flex items-end gap-4 flex-1">
+                {row.buckets.map(b => (
+                  <div key={b.label} className="flex flex-col items-center gap-0.5">
+                    <span className="text-[10px] font-semibold tabular-nums min-h-[14px]">
+                      {b.count > 0 ? b.count : ''}
+                    </span>
+                    <div
+                      className={cn("w-6 rounded-sm transition-all", b.color)}
+                      style={{ height: `${Math.max(4, b.count * 10)}px`, opacity: b.count === 0 ? 0.15 : 1 }}
+                    />
+                    <span className="text-[9px] text-muted-foreground mt-0.5">{b.label}</span>
+                  </div>
+                ))}
+              </div>
+              {row.buckets[0].count > 0 && (
+                <span className="text-[10px] text-red-500 font-medium self-center ml-2">
+                  {row.buckets[0].count} short rest{row.buckets[0].count !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Page Body ──────────────────────────────────────────────────────────────────
 
 function SchedulingBody() {
@@ -871,6 +1536,7 @@ function SchedulingBody() {
   const [slots, setSlots] = useState<DraftSlot[]>([]);
   const [saving, setSaving] = useState(false);
   const [teamsErr, setTeamsErr] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<'workspace' | 'report'>('workspace');
 
   useEffect(() => {
     if (season?.schedule_config) setConfig(normalizeScheduleConfig(season.schedule_config));
@@ -954,13 +1620,36 @@ function SchedulingBody() {
         />
       )}
 
-      <SchedulerWorkspace
-        slots={slots}
-        setSlots={setSlots}
-        teams={teams}
-        seasonId={seasonId!}
-        config={config}
-      />
+      {slots.length > 0 && (
+        <div className="flex gap-0 mb-4 border-b border-border">
+          {(['workspace', 'report'] as const).map(v => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setActiveView(v)}
+              className={cn(
+                "px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] border-b-2 -mb-px transition-colors",
+                activeView === v
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {v === 'workspace' ? 'Workspace' : 'Balance Report'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {activeView === 'workspace' || slots.length === 0
+        ? <SchedulerWorkspace
+            slots={slots}
+            setSlots={setSlots}
+            teams={teams}
+            seasonId={seasonId!}
+            config={config}
+          />
+        : <ScheduleReport slots={slots} teams={teams} config={config} />
+      }
     </div>
   );
 }

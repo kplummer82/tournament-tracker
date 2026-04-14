@@ -33,6 +33,11 @@ export interface ScheduleConfig {
   evenHomeAway?: boolean; // if true (default), spread home/away games evenly per team
   evenFields?: boolean;   // if true (default), spread games across fields evenly per team
   evenTimes?: boolean;    // if true (default), spread games across time slots evenly per team
+  maxWeekdayGamesPerWeek?: number; // max Mon–Fri games per team per calendar week
+  minWeekendGamesPerWeek?: number; // min Sat–Sun games per team per calendar week
+  enforceRoundCompletion?: boolean; // if true (default), all opponents played X times before any Y times
+  roundCompletionX?: number;        // opponents must be met X times first (default 1)
+  roundCompletionY?: number;        // before meeting any opponent Y times (default 2)
 }
 
 /**
@@ -82,6 +87,11 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     evenHomeAway: (config.evenHomeAway as boolean | undefined),
     evenFields:   (config.evenFields   as boolean | undefined),
     evenTimes:    (config.evenTimes    as boolean | undefined),
+    maxWeekdayGamesPerWeek: (config.maxWeekdayGamesPerWeek as number | undefined),
+    minWeekendGamesPerWeek: (config.minWeekendGamesPerWeek as number | undefined),
+    enforceRoundCompletion: (config.enforceRoundCompletion as boolean | undefined) ?? false,
+    roundCompletionX: (config.roundCompletionX as number | undefined) ?? 1,
+    roundCompletionY: (config.roundCompletionY as number | undefined) ?? 2,
   };
 }
 
@@ -137,6 +147,14 @@ function formatUTCDate(d: Date): string {
   const m = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+/** Return the ISO Monday of the calendar week containing dateStr. */
+export function weekMonday(dateStr: string): string {
+  const d = parseUTCDate(dateStr);
+  const daysToMon = (d.getUTCDay() + 6) % 7; // 0 if Mon, 6 if Sun
+  d.setUTCDate(d.getUTCDate() - daysToMon);
+  return formatUTCDate(d);
 }
 
 /** Enumerate every available game slot in the date range. */
@@ -206,7 +224,7 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
 
   // If the user specified a per-team game target, derive maxRepeatMatchups from it.
   const effectiveRepeat = config.targetGamesPerTeam
-    ? Math.max(1, Math.ceil(config.targetGamesPerTeam / (teams.length - 1)))
+    ? Math.max(1, Math.ceil(config.targetGamesPerTeam / (teams.length - 1)) + 1)
     : config.maxRepeatMatchups;
 
   const slots = buildSlots(config);
@@ -233,17 +251,30 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
   }
   // matchup key → date of most recent game between that pair
   const matchupLastDate = new Map<string, string>();
+  // matchup key → count of games placed so far
+  const matchupCount = new Map<string, number>();
+  // "${teamId}|${weekMonday}" → weekday games placed that week
+  const weekdayGamesPerTeamWeek = new Map<string, number>();
+  // "${teamId}|${weekMonday}" → weekend games placed that week
+  const weekendGamesPerTeamWeek = new Map<string, number>();
 
   for (const slot of slots) {
     const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
     const prevDate = prevGameDate.get(slot.date);
     const fk = `${slot.field.name}|${slot.field.location}`;
+    const slotDow = new Date(slot.date + 'T00:00:00Z').getUTCDay();
+    const slotIsWeekday = slotDow >= 1 && slotDow <= 5;
+    const slotWeek = weekMonday(slot.date);
 
     function scoreOrientation(home: Team, away: Team): number {
       let s = (gamesPerTeam.get(home.id) ?? 0) + (gamesPerTeam.get(away.id) ?? 0);
       if (config.evenHomeAway ?? true) s += (homeCount.get(home.id) ?? 0) + (awayCount.get(away.id) ?? 0);
       if (config.evenFields  ?? true) s += (fieldCount.get(home.id)?.get(fk) ?? 0) + (fieldCount.get(away.id)?.get(fk) ?? 0);
       if (config.evenTimes   ?? true) s += (timeCount.get(home.id)?.get(slot.time) ?? 0) + (timeCount.get(away.id)?.get(slot.time) ?? 0);
+      if (!slotIsWeekday && config.minWeekendGamesPerWeek) {
+        if ((weekendGamesPerTeamWeek.get(`${home.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
+        if ((weekendGamesPerTeamWeek.get(`${away.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
+      }
       return s;
     }
 
@@ -261,10 +292,92 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
         const key = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
         if (matchupLastDate.get(key) === prevDate) continue;
       }
-      const sA = scoreOrientation(m.home, m.away);
-      const sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+      if (config.maxWeekdayGamesPerWeek && slotIsWeekday) {
+        if ((weekdayGamesPerTeamWeek.get(`${m.home.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+        if ((weekdayGamesPerTeamWeek.get(`${m.away.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+      }
+      let sA = scoreOrientation(m.home, m.away);
+      let sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+      if (config.enforceRoundCompletion !== false && teams.length > 2) {
+        const rcY = config.roundCompletionY ?? 2;
+        const rcKey = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
+        const currentCount = matchupCount.get(rcKey) ?? 0;
+        if (currentCount + 1 >= rcY) {
+          let penalty = 0;
+          for (const t of teams) {
+            if (t.id === m.home.id || t.id === m.away.id) continue;
+            const hk = `${Math.min(m.home.id, t.id)}-${Math.max(m.home.id, t.id)}`;
+            const ak = `${Math.min(m.away.id, t.id)}-${Math.max(m.away.id, t.id)}`;
+            if ((matchupCount.get(hk) ?? 0) < currentCount) penalty += 1000;
+            if ((matchupCount.get(ak) ?? 0) < currentCount) penalty += 1000;
+          }
+          sA += penalty;
+          sB += penalty;
+        }
+      }
       const best = Math.min(sA, sB);
       if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
+    }
+
+    // Fallback 1: relax back-to-back constraint
+    if (bestIdx === -1 && config.noBackToBackMatchups && prevDate) {
+      for (let i = 0; i < pending.length; i++) {
+        const m = pending[i];
+        const h = dateMap.get(m.home.id) ?? 0;
+        const a = dateMap.get(m.away.id) ?? 0;
+        if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) continue;
+        if (config.targetGamesPerTeam) {
+          if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) continue;
+          if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) continue;
+        }
+        if (config.maxWeekdayGamesPerWeek && slotIsWeekday) {
+          if ((weekdayGamesPerTeamWeek.get(`${m.home.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+          if ((weekdayGamesPerTeamWeek.get(`${m.away.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+        }
+        let sA = scoreOrientation(m.home, m.away);
+        let sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+        if (config.enforceRoundCompletion !== false && teams.length > 2) {
+          const rcY = config.roundCompletionY ?? 2;
+          const rcKey = `${Math.min(m.home.id, m.away.id)}-${Math.max(m.home.id, m.away.id)}`;
+          const currentCount = matchupCount.get(rcKey) ?? 0;
+          if (currentCount + 1 >= rcY) {
+            let penalty = 0;
+            for (const t of teams) {
+              if (t.id === m.home.id || t.id === m.away.id) continue;
+              const hk = `${Math.min(m.home.id, t.id)}-${Math.max(m.home.id, t.id)}`;
+              const ak = `${Math.min(m.away.id, t.id)}-${Math.max(m.away.id, t.id)}`;
+              if ((matchupCount.get(hk) ?? 0) < currentCount) penalty += 1000;
+              if ((matchupCount.get(ak) ?? 0) < currentCount) penalty += 1000;
+            }
+            sA += penalty;
+            sB += penalty;
+          }
+        }
+        const best = Math.min(sA, sB);
+        if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
+      }
+    }
+
+    // Fallback 2: also relax round-completion constraint
+    if (bestIdx === -1 && config.enforceRoundCompletion !== false) {
+      for (let i = 0; i < pending.length; i++) {
+        const m = pending[i];
+        const h = dateMap.get(m.home.id) ?? 0;
+        const a = dateMap.get(m.away.id) ?? 0;
+        if (h >= slot.rule.maxGamesPerTeamOnDay || a >= slot.rule.maxGamesPerTeamOnDay) continue;
+        if (config.targetGamesPerTeam) {
+          if ((gamesPerTeam.get(m.home.id) ?? 0) >= config.targetGamesPerTeam) continue;
+          if ((gamesPerTeam.get(m.away.id) ?? 0) >= config.targetGamesPerTeam) continue;
+        }
+        if (config.maxWeekdayGamesPerWeek && slotIsWeekday) {
+          if ((weekdayGamesPerTeamWeek.get(`${m.home.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+          if ((weekdayGamesPerTeamWeek.get(`${m.away.id}|${slotWeek}`) ?? 0) >= config.maxWeekdayGamesPerWeek) continue;
+        }
+        const sA = scoreOrientation(m.home, m.away);
+        const sB = (config.evenHomeAway ?? true) ? scoreOrientation(m.away, m.home) : sA;
+        const best = Math.min(sA, sB);
+        if (best < bestScore) { bestScore = best; bestIdx = i; bestFlipped = sB < sA; }
+      }
     }
 
     if (bestIdx === -1) continue;
@@ -273,6 +386,18 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
 
     const pairKey = `${Math.min(matchup.home.id, matchup.away.id)}-${Math.max(matchup.home.id, matchup.away.id)}`;
     matchupLastDate.set(pairKey, slot.date);
+    matchupCount.set(pairKey, (matchupCount.get(pairKey) ?? 0) + 1);
+    if (slotIsWeekday) {
+      const hWK = `${matchup.home.id}|${slotWeek}`;
+      const aWK = `${matchup.away.id}|${slotWeek}`;
+      weekdayGamesPerTeamWeek.set(hWK, (weekdayGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+      weekdayGamesPerTeamWeek.set(aWK, (weekdayGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+    } else {
+      const hWK = `${matchup.home.id}|${slotWeek}`;
+      const aWK = `${matchup.away.id}|${slotWeek}`;
+      weekendGamesPerTeamWeek.set(hWK, (weekendGamesPerTeamWeek.get(hWK) ?? 0) + 1);
+      weekendGamesPerTeamWeek.set(aWK, (weekendGamesPerTeamWeek.get(aWK) ?? 0) + 1);
+    }
     gamesPerTeam.set(matchup.home.id, (gamesPerTeam.get(matchup.home.id) ?? 0) + 1);
     gamesPerTeam.set(matchup.away.id, (gamesPerTeam.get(matchup.away.id) ?? 0) + 1);
     homeCount.set(matchup.home.id, (homeCount.get(matchup.home.id) ?? 0) + 1);
