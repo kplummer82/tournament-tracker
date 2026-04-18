@@ -146,6 +146,52 @@ function OverviewForm() {
       </section>
 
       <section>
+        <SectionHeader label="All-Star Nominations" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2 flex items-center gap-3">
+            <input
+              id="allstar-enabled"
+              type="checkbox"
+              checked={season.allstar_nominations_enabled}
+              onChange={(e) =>
+                setSeason((p) =>
+                  p ? { ...p, allstar_nominations_enabled: e.target.checked } : p
+                )
+              }
+              disabled={!canEdit}
+              className="h-4 w-4 accent-primary"
+            />
+            <label htmlFor="allstar-enabled" className="label-section cursor-pointer select-none">
+              Allow coaches to nominate all-stars
+            </label>
+          </div>
+          {season.allstar_nominations_enabled && (
+            <Field label="Max nominations per team">
+              <input
+                className={INPUT}
+                type="number"
+                min={1}
+                value={season.allstar_max_per_team ?? ""}
+                onChange={(e) =>
+                  setSeason((p) =>
+                    p
+                      ? {
+                          ...p,
+                          allstar_max_per_team:
+                            e.target.value === "" ? null : Number(e.target.value),
+                        }
+                      : p
+                  )
+                }
+                placeholder="e.g. 3"
+                disabled={!canEdit}
+              />
+            </Field>
+          )}
+        </div>
+      </section>
+
+      <section>
         <SectionHeader label="Division & League" />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 text-sm" style={{ fontFamily: "var(--font-body)" }}>
           <div>

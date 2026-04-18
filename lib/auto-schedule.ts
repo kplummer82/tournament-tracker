@@ -33,6 +33,7 @@ export interface ScheduleConfig {
   evenHomeAway?: boolean; // if true (default), spread home/away games evenly per team
   evenFields?: boolean;   // if true (default), spread games across fields evenly per team
   evenTimes?: boolean;    // if true (default), spread games across time slots evenly per team
+  evenRestDays?: boolean; // if true (default), penalize short rest between games for same team
   maxWeekdayGamesPerWeek?: number; // max Mon–Fri games per team per calendar week
   minWeekendGamesPerWeek?: number; // min Sat–Sun games per team per calendar week
   enforceRoundCompletion?: boolean; // if true (default), all opponents played X times before any Y times
@@ -87,6 +88,7 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     evenHomeAway: (config.evenHomeAway as boolean | undefined),
     evenFields:   (config.evenFields   as boolean | undefined),
     evenTimes:    (config.evenTimes    as boolean | undefined),
+    evenRestDays: (config.evenRestDays as boolean | undefined),
     maxWeekdayGamesPerWeek: (config.maxWeekdayGamesPerWeek as number | undefined),
     minWeekendGamesPerWeek: (config.minWeekendGamesPerWeek as number | undefined),
     enforceRoundCompletion: (config.enforceRoundCompletion as boolean | undefined) ?? false,
@@ -209,6 +211,106 @@ export function buildMatchups(teams: Team[], maxRepeat: number): Matchup[] {
   return pairs;
 }
 
+// ─── Circle-method balanced game generation ───────────────────────────────────
+
+/**
+ * Generate N-1 rounds using the circle method (N = even team count).
+ * Odd rosters are augmented with a virtual bye (id = -1); games involving
+ * the bye are omitted so each real team gets one bye per cycle.
+ */
+function circleRounds(teams: Team[]): Matchup[][] {
+  const n = teams.length;
+  if (n < 2) return [];
+  const aug = n % 2 === 0 ? [...teams] : [...teams, { id: -1, name: '' }];
+  const m = aug.length; // always even
+  const rotating = aug.slice(0, m - 1);
+  const pinned = aug[m - 1];
+  const rounds: Matchup[][] = [];
+  for (let r = 0; r < m - 1; r++) {
+    const round: Matchup[] = [];
+    if (rotating[0].id >= 0 && pinned.id >= 0) {
+      round.push(r % 2 === 0
+        ? { home: rotating[0], away: pinned }
+        : { home: pinned, away: rotating[0] });
+    }
+    for (let k = 1; k < m / 2; k++) {
+      const a = rotating[k], b = rotating[m - 1 - k];
+      if (a.id >= 0 && b.id >= 0) {
+        round.push((r + k) % 2 === 0 ? { home: a, away: b } : { home: b, away: a });
+      }
+    }
+    rounds.push(round);
+    rotating.unshift(rotating.pop()!);
+  }
+  return rounds;
+}
+
+/**
+ * Build a game list guaranteeing every team plays exactly `target` games.
+ *
+ * For even rosters, uses the circle method:
+ *   - `base` full round-robins → each team plays (N-1) × base games
+ *   - `extra` leading circle rounds top each team up to exactly `target`
+ *
+ * For odd rosters, falls back to the shuffled-pool approach (exact balance
+ * is not achievable when N × target is odd).
+ */
+export function generateBalancedGames(teams: Team[], target: number): Matchup[] {
+  if (teams.length < 2 || target < 1) return [];
+  const n = teams.length;
+
+  if (n % 2 !== 0) {
+    // Odd N: pool approach — game-count cap in Phase 2 handles the rest
+    return buildMatchups(teams, Math.max(1, Math.ceil(target / (n - 1)) + 1));
+  }
+
+  const rounds  = circleRounds(teams); // n-1 rounds of n/2 games each
+  const perCycle = n - 1;              // games per team in one full cycle
+  const base    = Math.floor(target / perCycle);
+  const extra   = target - base * perCycle; // 0 … n-2
+
+  // Build rounds as contiguous blocks. Shuffle ROUND ORDER within each cycle
+  // and shuffle WITHIN each round, but NOT the global flat list.
+  // Keeping each round as a contiguous block preserves the non-overlapping
+  // property that the date-by-date scheduler relies on: each consecutive block
+  // of n/2 matchups covers all n teams exactly once, so Phase 1 can always
+  // consume one complete block per date without stranding the last slot.
+  const allRounds: Matchup[][] = [];
+
+  for (let b = 0; b < base; b++) {
+    // Shuffle round order within this cycle for schedule variety.
+    const roundIdxs = Array.from({ length: rounds.length }, (_, i) => i);
+    for (let i = roundIdxs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [roundIdxs[i], roundIdxs[j]] = [roundIdxs[j], roundIdxs[i]];
+    }
+    for (const ri of roundIdxs) {
+      // Flip H/A on alternate cycles for balance.
+      const round = rounds[ri].map(m =>
+        b % 2 === 0 ? m : { home: m.away, away: m.home }
+      );
+      // Shuffle within this round so field/time assignment varies.
+      for (let i = round.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [round[i], round[j]] = [round[j], round[i]];
+      }
+      allRounds.push(round);
+    }
+  }
+
+  for (let r = 0; r < extra; r++) {
+    const round = [...rounds[r]];
+    for (let i = round.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [round[i], round[j]] = [round[j], round[i]];
+    }
+    allRounds.push(round);
+  }
+
+  // Flatten: each round is a contiguous block, non-overlapping within the block.
+  return allRounds.flat();
+}
+
 /**
  * Generate a schedule from config + team list.
  * Pure function — no DB access, safe to call from any context.
@@ -259,6 +361,13 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
   const weekendGamesPerTeamWeek = new Map<string, number>();
 
   for (const slot of slots) {
+    // Sort pending so the most-underserved team pairs come first in the scan.
+    // This is the primary game-count balancing mechanism.
+    pending.sort((a, b) =>
+      ((gamesPerTeam.get(a.home.id) ?? 0) + (gamesPerTeam.get(a.away.id) ?? 0)) -
+      ((gamesPerTeam.get(b.home.id) ?? 0) + (gamesPerTeam.get(b.away.id) ?? 0))
+    );
+
     const dateMap = teamsPerDate.get(slot.date) ?? new Map<number, number>();
     const prevDate = prevGameDate.get(slot.date);
     const fk = `${slot.field.name}|${slot.field.location}`;
@@ -272,8 +381,8 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
       if (config.evenFields  ?? true) s += (fieldCount.get(home.id)?.get(fk) ?? 0) + (fieldCount.get(away.id)?.get(fk) ?? 0);
       if (config.evenTimes   ?? true) s += (timeCount.get(home.id)?.get(slot.time) ?? 0) + (timeCount.get(away.id)?.get(slot.time) ?? 0);
       if (!slotIsWeekday && config.minWeekendGamesPerWeek) {
-        if ((weekendGamesPerTeamWeek.get(`${home.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
-        if ((weekendGamesPerTeamWeek.get(`${away.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 500;
+        if ((weekendGamesPerTeamWeek.get(`${home.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 3;
+        if ((weekendGamesPerTeamWeek.get(`${away.id}|${slotWeek}`) ?? 0) >= config.minWeekendGamesPerWeek) s += 3;
       }
       return s;
     }

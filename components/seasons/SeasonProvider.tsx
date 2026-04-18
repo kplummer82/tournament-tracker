@@ -13,6 +13,8 @@ export type Season = {
   forfeit_run_diff: number | null;
   advances_to_playoffs: number | null;
   schedule_config: ScheduleConfig | null;
+  allstar_nominations_enabled: boolean;
+  allstar_max_per_team: number | null;
   league_division_id: number;
   division_name: string;
   division_age_range: string | null;
@@ -103,6 +105,8 @@ export default function SeasonProvider({ children }: { children: React.ReactNode
           forfeit_run_diff: season.forfeit_run_diff,
           advances_to_playoffs: season.advances_to_playoffs,
           schedule_config: season.schedule_config,
+          allstar_nominations_enabled: season.allstar_nominations_enabled,
+          allstar_max_per_team: season.allstar_max_per_team,
         }),
       });
       const json = await res.json();

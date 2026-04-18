@@ -29,7 +29,7 @@ const ROLE_OPTIONS = [
   { value: "league_admin", label: "League Admin", scopeType: "league" },
   { value: "division_admin", label: "Division Admin", scopeType: "division" },
   { value: "tournament_admin", label: "Tournament Admin", scopeType: "tournament" },
-  { value: "team_manager", label: "Team Manager", scopeType: "team" },
+  { value: "team_manager", label: "Coach / Manager", scopeType: "team" },
   { value: "team_parent", label: "Team Parent", scopeType: "team" },
 ] as const;
 
@@ -37,7 +37,7 @@ const ROLE_LABELS: Record<string, string> = {
   league_admin: "League Admin",
   division_admin: "Division Admin",
   tournament_admin: "Tournament Admin",
-  team_manager: "Team Manager",
+  team_manager: "Coach / Manager",
   team_parent: "Team Parent",
 };
 

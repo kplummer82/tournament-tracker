@@ -11,7 +11,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import { Plus, X, Pencil, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { CalendarGameRow } from "@/pages/api/teams/[teamId]/games";
+import type { CalendarGameRow, TeamRecord } from "@/pages/api/teams/[teamId]/games";
 
 /* ── Constants ────────────────────────────────────────────────── */
 const SOURCE_COLORS = {
@@ -594,6 +594,7 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
 /* ── TeamCalendarTab ──────────────────────────────────────────── */
 export default function TeamCalendarTab({ teamId }: { teamId: string }) {
   const [games, setGames] = useState<CalendarGameRow[]>([]);
+  const [teamRecords, setTeamRecords] = useState<Record<number, TeamRecord>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -615,7 +616,10 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
         const res = await fetch(`/api/teams/${teamId}/games`, { cache: "no-store" });
         if (!res.ok) throw new Error((await res.json()).error ?? `HTTP ${res.status}`);
         const data = await res.json();
-        if (!cancelled) setGames(Array.isArray(data?.games) ? data.games : []);
+        if (!cancelled) {
+          setGames(Array.isArray(data?.games) ? data.games : []);
+          setTeamRecords(data?.teamRecords ?? {});
+        }
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to load games");
@@ -627,6 +631,11 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
     })();
     return () => { cancelled = true; };
   }, [teamId, version]);
+
+  const fmtRecord = (rec: TeamRecord | undefined): string | null => {
+    if (!rec) return null;
+    return `${rec.w}-${rec.l}-${rec.t}`;
+  };
 
   // Transform DB rows → FullCalendar events
   const myTeamId = Number(teamId);
@@ -658,7 +667,11 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
           : g.gamedate
         : undefined,
       color: SOURCE_COLORS[g.source],
-      extendedProps: { row: g, badge, isFinal, outcome, outcomeColor, scoreLabel },
+      extendedProps: {
+        row: g, badge, isFinal, outcome, outcomeColor, scoreLabel,
+        homeRecord: g.home != null ? fmtRecord(teamRecords[g.home]) : null,
+        awayRecord: g.away != null ? fmtRecord(teamRecords[g.away]) : null,
+      },
     };
   });
 
@@ -738,11 +751,27 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
               const scoreLabel: string | null = arg.event.extendedProps.scoreLabel;
               const isList = arg.view.type.startsWith("list");
 
+              const homeRecord: string | null = arg.event.extendedProps.homeRecord;
+              const awayRecord: string | null = arg.event.extendedProps.awayRecord;
+              const row: CalendarGameRow = arg.event.extendedProps.row;
+
               if (isList) {
                 return (
                   <div style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", gap: "12px", minWidth: 0 }}>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 1 }}>
-                      {arg.event.title}
+                      {row.home_team}
+                      {homeRecord && (
+                        <span style={{ fontSize: "9px", color: "var(--color-muted-foreground)", marginLeft: "3px", fontFamily: "var(--font-body)" }}>
+                          ({homeRecord})
+                        </span>
+                      )}
+                      <span style={{ margin: "0 5px", color: "var(--color-muted-foreground)" }}>vs</span>
+                      {row.away_team}
+                      {awayRecord && (
+                        <span style={{ fontSize: "9px", color: "var(--color-muted-foreground)", marginLeft: "3px", fontFamily: "var(--font-body)" }}>
+                          ({awayRecord})
+                        </span>
+                      )}
                     </span>
                     {isFinal && outcome ? (
                       // Win / Loss / Tie outcome chip + score

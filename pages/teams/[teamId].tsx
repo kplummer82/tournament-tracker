@@ -5,7 +5,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Check, Loader2, Music, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, Loader2, Music, Pencil, Plus, Star, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -249,6 +249,13 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
   const [parentView, setParentView] = useState(false);
   const [parentEdits, setParentEdits] = useState<Record<number, ParentEdit>>({});
 
+  // Coach view state
+  const [coachView, setCoachView] = useState(false);
+  const [teamSeasons, setTeamSeasons] = useState<{ id: number; name: string; year: number; season_type: string; status: string; allstar_nominations_enabled: boolean; allstar_max_per_team: number | null }[]>([]);
+  const [selectedSeasonId, setSelectedSeasonId] = useState<number | null>(null);
+  const [nominations, setNominations] = useState<Set<number>>(new Set());
+  const [nominationSaving, setNominationSaving] = useState<number | null>(null);
+
   // Inline add form
   const [addOpen, setAddOpen] = useState(false);
   const [newDraft, setNewDraft] = useState<Draft>(BLANK_DRAFT);
@@ -299,6 +306,73 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
     })();
     return () => { cancelled = true; };
   }, [teamId]);
+
+  // Fetch team seasons when coach view opens
+  useEffect(() => {
+    if (!coachView || !teamId) return;
+    let cancelled = false;
+    fetch(`/api/teams/${teamId}/seasons`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        const seasons = data.seasons ?? [];
+        setTeamSeasons(seasons);
+        const eligible = seasons.find((s: any) => s.allstar_nominations_enabled);
+        if (eligible) setSelectedSeasonId(eligible.id);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [coachView, teamId]);
+
+  // Fetch nominations when a season is selected
+  useEffect(() => {
+    if (!selectedSeasonId || !teamId) { setNominations(new Set()); return; }
+    let cancelled = false;
+    fetch(`/api/teams/${teamId}/allstar-nominations?seasonId=${selectedSeasonId}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled) return;
+        setNominations(new Set((data.nominations ?? []).map((n: any) => n.roster_id)));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [selectedSeasonId, teamId]);
+
+  const selectedSeason = teamSeasons.find((s) => s.id === selectedSeasonId);
+  const allstarEnabled = coachView && !!selectedSeason?.allstar_nominations_enabled;
+  const allstarMax = selectedSeason?.allstar_max_per_team ?? null;
+
+  const toggleNomination = async (rosterId: number) => {
+    if (!selectedSeasonId) return;
+    const isNominated = nominations.has(rosterId);
+    setNominationSaving(rosterId);
+    try {
+      if (isNominated) {
+        await fetch(`/api/teams/${teamId}/allstar-nominations`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seasonId: selectedSeasonId, rosterId }),
+        });
+        setNominations((prev) => { const next = new Set(prev); next.delete(rosterId); return next; });
+      } else {
+        const res = await fetch(`/api/teams/${teamId}/allstar-nominations`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ seasonId: selectedSeasonId, rosterId }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          console.error("[allstar nomination]", data.error);
+          return;
+        }
+        setNominations((prev) => new Set(prev).add(rosterId));
+      }
+    } catch (e) {
+      console.error("[allstar nomination]", e);
+    } finally {
+      setNominationSaving(null);
+    }
+  };
 
   const patchRosterEntry = async (rosterId: number, patch: Partial<ParentEdit>) => {
     try {
@@ -538,7 +612,9 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
   };
 
   const thCls = "text-left p-3 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium";
-  const playerCols = parentView ? 5 : 3; // jersey + name + [hat + walkup] + actions
+  let playerCols = 3; // jersey + name + actions
+  if (parentView) playerCols += 2; // hat + walkup
+  if (allstarEnabled) playerCols += 1; // all-star checkbox
   const staffCols = 2; // name + actions
 
   return (
@@ -581,6 +657,36 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
               Team Parent View
             </button>
 
+            {/* Coach View toggle */}
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setCoachView((v) => !v)}
+                className={cn(
+                  "flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
+                  coachView
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                )}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <span
+                  className={cn(
+                    "inline-block h-2.5 w-4 relative border",
+                    coachView ? "border-primary-foreground/40" : "border-muted-foreground/40"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0 bottom-0 w-2 transition-all duration-150",
+                      coachView ? "right-0 bg-primary-foreground/80" : "left-0 bg-muted-foreground/40"
+                    )}
+                  />
+                </span>
+                Coach View
+              </button>
+            )}
+
             {/* Add person */}
             {canEdit && (
               <button
@@ -601,6 +707,45 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
           <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
             Team Parent View is on. Edit hat monograms and walk-up songs inline — changes save automatically on blur.
           </p>
+        )}
+
+        {/* Coach view bar */}
+        {coachView && (
+          <div className="flex items-center gap-4 flex-wrap mb-4 p-3 border border-border bg-elevated/30" style={{ fontFamily: "var(--font-body)" }}>
+            {teamSeasons.filter((s) => s.allstar_nominations_enabled).length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No seasons with all-star nominations enabled. Enable this in season settings.
+              </p>
+            ) : (
+              <>
+                <label className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium">
+                  Season
+                </label>
+                <select
+                  value={selectedSeasonId ?? ""}
+                  onChange={(e) => setSelectedSeasonId(e.target.value ? Number(e.target.value) : null)}
+                  className="px-2 py-1 text-xs bg-input-bg border border-border focus:outline-none focus:border-primary transition-colors"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  <option value="">Select season…</option>
+                  {teamSeasons
+                    .filter((s) => s.allstar_nominations_enabled)
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                </select>
+                {allstarEnabled && (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Star className="h-3 w-3 text-primary" />
+                    <span className="font-semibold text-foreground">{nominations.size}</span>
+                    {allstarMax != null ? ` / ${allstarMax}` : ""} All-Star Nominations
+                  </span>
+                )}
+              </>
+            )}
+          </div>
         )}
 
         {loading ? (
@@ -634,6 +779,9 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                             <th className={cn(thCls, "w-64")} style={{ fontFamily: "var(--font-body)" }}>Hat Monogram</th>
                             <th className={cn(thCls, "min-w-[160px]")} style={{ fontFamily: "var(--font-body)" }}>Walk-up Song</th>
                           </>
+                        )}
+                        {allstarEnabled && (
+                          <th className={cn(thCls, "w-20 text-center")} style={{ fontFamily: "var(--font-body)" }}>All-Star</th>
                         )}
                         <th className={cn(thCls, "text-right")} style={{ fontFamily: "var(--font-body)" }}></th>
                       </tr>
@@ -713,6 +861,31 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                                   />
                                 </td>
                               </>
+                            )}
+                            {allstarEnabled && (
+                              <td className="p-3 text-center">
+                                {nominationSaving === r.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin mx-auto text-muted-foreground" />
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleNomination(r.id)}
+                                    disabled={!nominations.has(r.id) && allstarMax != null && nominations.size >= allstarMax}
+                                    className={cn(
+                                      "p-1 transition-colors duration-100",
+                                      nominations.has(r.id)
+                                        ? "text-primary hover:text-primary/70"
+                                        : "text-muted-foreground/40 hover:text-primary/60",
+                                      !nominations.has(r.id) && allstarMax != null && nominations.size >= allstarMax
+                                        ? "opacity-30 cursor-not-allowed"
+                                        : ""
+                                    )}
+                                    title={nominations.has(r.id) ? "Remove all-star nomination" : "Nominate for all-stars"}
+                                  >
+                                    <Star className={cn("h-4 w-4", nominations.has(r.id) ? "fill-current" : "")} />
+                                  </button>
+                                )}
+                              </td>
                             )}
                             <td className="p-3">{renderActions(r)}</td>
                           </tr>

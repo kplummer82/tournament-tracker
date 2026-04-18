@@ -24,7 +24,7 @@ const ROLE_LABELS: Record<string, string> = {
   league_admin: "League Admin",
   division_admin: "Division Admin",
   tournament_admin: "Tournament Admin",
-  team_manager: "Team Manager",
+  team_manager: "Coach / Manager",
   team_parent: "Team Parent",
 };
 
@@ -36,13 +36,13 @@ const ASSIGNABLE_ROLES: Record<string, { value: string; label: string }[]> = {
   ],
   division: [
     { value: "division_admin", label: "Division Admin" },
-    { value: "team_manager", label: "Team Manager" },
+    { value: "team_manager", label: "Coach / Manager" },
   ],
   tournament: [
     { value: "tournament_admin", label: "Tournament Admin" },
   ],
   team: [
-    { value: "team_manager", label: "Team Manager" },
+    { value: "team_manager", label: "Coach / Manager" },
     { value: "team_parent", label: "Team Parent" },
   ],
 };

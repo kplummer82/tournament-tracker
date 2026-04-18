@@ -65,7 +65,7 @@ async function getRemainingGames(seasonId: number): Promise<RemainingGame[]> {
     FROM season_games
     WHERE season_id = ${seasonId}
       AND game_type = 'regular'
-      AND (gamestatusid IS NULL OR gamestatusid NOT IN (4, 6, 7))
+      AND (gamestatusid IS NULL OR gamestatusid = 1)
   `;
   return rows as unknown as RemainingGame[];
 }
@@ -77,7 +77,7 @@ async function getRemainingTournamentGames(tournamentId: number): Promise<Remain
     FROM tournamentgames
     WHERE tournamentid = ${tournamentId}
       AND poolorbracket = 'Pool'
-      AND (gamestatusid IS NULL OR gamestatusid NOT IN (4, 6, 7))
+      AND (gamestatusid IS NULL OR gamestatusid = 1)
   `;
   return rows as unknown as RemainingGame[];
 }
