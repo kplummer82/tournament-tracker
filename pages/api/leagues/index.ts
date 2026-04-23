@@ -261,6 +261,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Auto-assign league_admin role to creator
       await assignRole(session.user.id, "league_admin", "league", newLeague.id, "system");
 
+      // Auto-follow the newly created league
+      await sql`
+        INSERT INTO user_follows (user_id, entity_type, entity_id)
+        VALUES (${session.user.id}, 'league', ${newLeague.id})
+        ON CONFLICT DO NOTHING
+      `;
+
       return res.status(201).json(newLeague);
     }
 

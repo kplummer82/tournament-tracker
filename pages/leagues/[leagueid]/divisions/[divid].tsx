@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import Header from "@/components/Header";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { ArrowLeft, ArrowRight, Pencil, Trash2, X } from "lucide-react";
+import FollowButton from "@/components/FollowButton";
 
 type Division = {
   id: number;
@@ -188,9 +189,11 @@ export default function DivisionDetailPage() {
                       </p>
                     )}
                   </div>
-                  {canEdit && (
-                    <div className="flex items-center gap-1">
-                      {confirmDeleteDiv ? (
+                  <div className="flex items-center gap-2">
+                    <FollowButton entityType="division" entityId={divId} />
+                    {canEdit && (
+                      <div className="flex items-center gap-1">
+                        {confirmDeleteDiv ? (
                         <div className="flex items-center gap-2">
                           <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete division?</span>
                           <button type="button" onClick={handleDeleteDiv} disabled={deletingDiv} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
@@ -210,8 +213,9 @@ export default function DivisionDetailPage() {
                           </button>
                         </>
                       )}
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

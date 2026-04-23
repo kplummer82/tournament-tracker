@@ -4,33 +4,31 @@ import { authClient } from "@/lib/auth/client";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-type MinimalItem = { id: number; name: string };
+type MinimalItem = { id: number; name: string; league_id?: number; league_name?: string };
 
 export default function HomePage() {
   const { data: session } = authClient.useSession();
   const user = session?.user;
 
-  const [open, setOpen] = useState({ teams: true, leagues: true, tournaments: true });
+  const [open, setOpen] = useState({ teams: true, leagues: true, divisions: true, tournaments: true });
   const toggle = (key: keyof typeof open) =>
     setOpen((p) => ({ ...p, [key]: !p[key] }));
 
   const [myTeams, setMyTeams]             = useState<MinimalItem[]>([]);
   const [myLeagues, setMyLeagues]         = useState<MinimalItem[]>([]);
+  const [myDivisions, setMyDivisions]     = useState<MinimalItem[]>([]);
   const [myTournaments, setMyTournaments] = useState<MinimalItem[]>([]);
 
   useEffect(() => {
     if (!user) return;
-    fetch("/api/teams?mine=true")
+    fetch("/api/me/follows")
       .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.rows)) setMyTeams(d.rows); })
-      .catch(() => {});
-    fetch("/api/leagues?mine=true")
-      .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.rows)) setMyLeagues(d.rows); })
-      .catch(() => {});
-    fetch("/api/tournaments?mine=true")
-      .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.rows)) setMyTournaments(d.rows); })
+      .then((d) => {
+        if (Array.isArray(d.teams)) setMyTeams(d.teams);
+        if (Array.isArray(d.leagues)) setMyLeagues(d.leagues);
+        if (Array.isArray(d.divisions)) setMyDivisions(d.divisions);
+        if (Array.isArray(d.tournaments)) setMyTournaments(d.tournaments);
+      })
       .catch(() => {});
   }, [user]);
 
@@ -116,9 +114,10 @@ export default function HomePage() {
           <div className="mx-auto max-w-7xl px-4 md:px-6 divide-y divide-border">
             {(
               [
-                { key: "teams"       as const, label: "My Teams",       items: myTeams,       href: (id: number) => `/teams/${id}` },
-                { key: "leagues"     as const, label: "My Leagues",     items: myLeagues,     href: (id: number) => `/leagues/${id}` },
-                { key: "tournaments" as const, label: "My Tournaments", items: myTournaments, href: (id: number) => `/tournaments/${id}` },
+                { key: "teams"       as const, label: "My Teams",       items: myTeams,       href: (item: MinimalItem) => `/teams/${item.id}` },
+                { key: "leagues"     as const, label: "My Leagues",     items: myLeagues,     href: (item: MinimalItem) => `/leagues/${item.id}` },
+                { key: "divisions"   as const, label: "My Divisions",   items: myDivisions,   href: (item: MinimalItem) => `/leagues/${item.league_id}/divisions/${item.id}` },
+                { key: "tournaments" as const, label: "My Tournaments", items: myTournaments, href: (item: MinimalItem) => `/tournaments/${item.id}` },
               ]
             ).map(({ key, label, items, href }) => (
               <div key={key}>
@@ -149,7 +148,7 @@ export default function HomePage() {
                       {items.map((item) => (
                         <Link
                           key={item.id}
-                          href={href(item.id)}
+                          href={href(item)}
                           className="group py-2 border-b border-border/40 hover:border-primary/40 transition-colors duration-100"
                         >
                           <span

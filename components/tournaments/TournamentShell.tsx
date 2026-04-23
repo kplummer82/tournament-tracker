@@ -6,6 +6,7 @@ import { useTournament } from "./TournamentProvider";
 import type { TabKey } from "./types";
 import { Copy, Trash2, Save, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import FollowButton from "@/components/FollowButton";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Active:    { bg: "#00c85318", text: "#00c853", border: "#00c85340" },
@@ -45,8 +46,10 @@ export default function TournamentShell({
           </Link>
 
           {/* Actions */}
-          {canEdit && (
-            <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5">
+            {tid && <FollowButton entityType="tournament" entityId={tid} />}
+            {canEdit && (<>
+
               {tid && (
                 <Link
                   href={`/tournaments?cloneFrom=${tid}`}
@@ -76,8 +79,8 @@ export default function TournamentShell({
                 <Save className="h-3 w-3" />
                 {saving ? "Saving…" : "Save"}
               </button>
-            </div>
-          )}
+            </>)}
+          </div>
         </div>
       </div>
 

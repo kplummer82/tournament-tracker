@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import ManageAccessPanel from "@/components/ManageAccessPanel";
 import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import FollowButton from "@/components/FollowButton";
 
 type League = {
   id: number;
@@ -301,6 +302,9 @@ export default function LeagueDetailPage() {
                 >
                   {league.name}
                 </h1>
+                <div className="mt-1.5">
+                  <FollowButton entityType="league" entityId={leagueId} />
+                </div>
               </div>
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                 {league.governing_body_name && <span>{league.governing_body_name}</span>}
@@ -609,6 +613,9 @@ export default function LeagueDetailPage() {
                                   {div.age_range && div.season_count > 0 ? " · " : ""}
                                   {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
                                 </p>
+                              </div>
+                              <div className="shrink-0 mr-2">
+                                <FollowButton entityType="division" entityId={div.id} />
                               </div>
                               {canEdit && (
                                 <div className="flex items-center gap-1 shrink-0">

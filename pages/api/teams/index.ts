@@ -250,6 +250,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await assignRole(session.user.id, "team_manager", "team", newTeamId, "system");
       }
 
+      // Auto-follow the newly created team
+      await sql.query(
+        `INSERT INTO user_follows (user_id, entity_type, entity_id) VALUES ($1, 'team', $2) ON CONFLICT DO NOTHING`,
+        [session.user.id, newTeamId]
+      );
+
       res.status(201).json({ id: newTeamId });
       return;
     }

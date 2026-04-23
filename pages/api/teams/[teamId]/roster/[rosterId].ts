@@ -15,6 +15,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!teamId) return res.status(400).json({ error: "Invalid teamId" });
   if (!rosterId) return res.status(400).json({ error: "Invalid rosterId" });
 
+  /* ── GET ─────────────────────────────────────────────────────── */
+  if (req.method === "GET") {
+    try {
+      const rows = await sql`
+        SELECT id, teamid, first_name, last_name, role, jersey_number,
+               hat_monogram, walkup_song, walkup_song_itunes_id
+        FROM public.team_roster
+        WHERE id = ${rosterId} AND teamid = ${teamId}
+        LIMIT 1
+      `;
+      if (!rows?.length) return res.status(404).json({ error: "Roster entry not found." });
+      return res.status(200).json(rows[0]);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Server error";
+      console.error("[roster GET]", err);
+      return res.status(500).json({ error: message });
+    }
+  }
+
   /* ── DELETE ──────────────────────────────────────────────────── */
   if (req.method === "DELETE") {
     try {
@@ -151,6 +170,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
-  res.setHeader("Allow", "PATCH, DELETE");
+  res.setHeader("Allow", "GET, PATCH, DELETE");
   return res.status(405).json({ error: "Method Not Allowed" });
 }

@@ -436,8 +436,16 @@ function ScheduleBody() {
             <td className="p-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
               {g.gametime ? formatHHMMAMPM(g.gamedate ?? "", g.gametime) : "—"}
             </td>
-            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</td>
-            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</td>
+            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
+              {g.home != null ? (
+                <Link href={`/teams/${g.home}`} className="hover:text-primary transition-colors">{g.home_team ?? "TBD"}</Link>
+              ) : (g.home_team ?? "TBD")}
+            </td>
+            <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
+              {g.away != null ? (
+                <Link href={`/teams/${g.away}`} className="hover:text-primary transition-colors">{g.away_team ?? "TBD"}</Link>
+              ) : (g.away_team ?? "TBD")}
+            </td>
             <td className="p-3">
               {isForfeit ? (
                 <span className="inline-flex items-center gap-1.5">
@@ -867,7 +875,11 @@ function ScheduleBody() {
                   ) : (
                     <div className="space-y-0.5">
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</span>
+                        {g.home != null ? (
+                          <Link href={`/teams/${g.home}`} className="text-sm font-medium text-foreground hover:text-primary transition-colors" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</Link>
+                        ) : (
+                          <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.home_team ?? "TBD"}</span>
+                        )}
                         {hasScore && (
                           <span
                             className={cn("tabular-nums font-bold", homeWon ? "text-primary" : "text-foreground/60")}
@@ -878,7 +890,11 @@ function ScheduleBody() {
                         )}
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</span>
+                        {g.away != null ? (
+                          <Link href={`/teams/${g.away}`} className="text-sm font-medium text-foreground hover:text-primary transition-colors" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</Link>
+                        ) : (
+                          <span className="text-sm font-medium text-foreground" style={{ fontFamily: "var(--font-body)" }}>{g.away_team ?? "TBD"}</span>
+                        )}
                         {hasScore && (
                           <span
                             className={cn("tabular-nums font-bold", awayWon ? "text-primary" : "text-foreground/60")}

@@ -1,6 +1,6 @@
 // pages/api/tournaments/index.ts
 import type { NextApiRequest, NextApiResponse } from "next";
-import { pool } from "@/lib/db";
+import { pool, sql as dbSql } from "@/lib/db";
 import { requireSession } from "@/lib/auth/requireSession";
 import { assignRole } from "@/lib/auth/permissions";
 
@@ -273,6 +273,13 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
 
     // Auto-assign tournament_admin role to creator
     await assignRole(session.user.id, "tournament_admin", "tournament", newId, "system");
+
+    // Auto-follow the newly created tournament
+    await dbSql`
+      INSERT INTO user_follows (user_id, entity_type, entity_id)
+      VALUES (${session.user.id}, 'tournament', ${newId})
+      ON CONFLICT DO NOTHING
+    `;
 
     res.status(201).json(rows[0]);
   } catch (e: any) {
