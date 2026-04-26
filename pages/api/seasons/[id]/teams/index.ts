@@ -19,11 +19,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           t.teamid  AS id,
           t.name,
           t.league_id,
-          l.name    AS league_name
+          l.name    AS league_name,
+          COALESCE(
+            json_agg(
+              json_build_object('id', lc.id, 'first_name', lc.first_name, 'last_name', lc.last_name)
+            ) FILTER (WHERE lc.id IS NOT NULL),
+            '[]'
+          ) AS coaches
         FROM season_teams st
         JOIN teams t  ON t.teamid = st.team_id
         LEFT JOIN leagues l ON l.id = t.league_id
+        LEFT JOIN team_coaches tc ON tc.team_id = t.teamid
+        LEFT JOIN league_coaches lc ON lc.id = tc.coach_id
         WHERE st.season_id = ${seasonId}
+        GROUP BY t.teamid, t.name, t.league_id, l.name
         ORDER BY t.name ASC
       `;
       return res.status(200).json({ teams: rows });

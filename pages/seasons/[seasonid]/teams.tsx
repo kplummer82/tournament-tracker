@@ -3,11 +3,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
-import { Users, Trash2, Plus, X } from "lucide-react";
+import { Users, Trash2, Plus, Pencil, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-// API returns { id, name, league_id, league_name } (id = teamid)
-type TeamRow = { id: number; name: string; league_id: number | null; league_name: string | null };
+type CoachRef = { id: number; first_name: string; last_name: string };
+
+// API returns { id, name, league_id, league_name, coaches } (id = teamid)
+type TeamRow = { id: number; name: string; league_id: number | null; league_name: string | null; coaches: CoachRef[] };
+
+type LeagueCoach = { id: number; first_name: string; last_name: string; phone: string | null; team_count: number };
 
 function TeamBadge({ name }: { name: string }) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -34,6 +38,13 @@ function TeamsBody() {
   const [addIds, setAddIds] = useState<Set<number>>(new Set());
   const [adding, setAdding] = useState(false);
   const [addErr, setAddErr] = useState<string | null>(null);
+
+  // Coach assignment
+  const [leagueCoaches, setLeagueCoaches] = useState<LeagueCoach[]>([]);
+  const [coachPickerTeamId, setCoachPickerTeamId] = useState<number | null>(null);
+  const [coachPickerSelected, setCoachPickerSelected] = useState<Set<number>>(new Set());
+  const [coachFilter, setCoachFilter] = useState("");
+  const [coachSaving, setCoachSaving] = useState(false);
 
   // Quick-create new team
   const [showCreate, setShowCreate] = useState(false);
@@ -66,6 +77,64 @@ function TeamsBody() {
     })();
     return () => { cancelled = true; };
   }, [seasonId, version]);
+
+  // Fetch league coaches once when needed
+  const fetchLeagueCoaches = useCallback(async () => {
+    if (leagueCoaches.length > 0 || !season?.league_id) return;
+    try {
+      const res = await fetch(`/api/leagues/${season.league_id}/coaches`);
+      if (res.ok) {
+        const data = await res.json();
+        setLeagueCoaches(Array.isArray(data.coaches) ? data.coaches : []);
+      }
+    } catch {}
+  }, [leagueCoaches.length, season?.league_id]);
+
+  const openCoachPicker = async (teamId: number) => {
+    await fetchLeagueCoaches();
+    const team = rows.find((r) => r.id === teamId);
+    const currentIds = new Set((team?.coaches ?? []).map((c) => c.id));
+    setCoachPickerSelected(currentIds);
+    setCoachFilter("");
+    setCoachPickerTeamId(teamId);
+  };
+
+  const saveCoachAssignments = async () => {
+    if (coachPickerTeamId === null) return;
+    setCoachSaving(true);
+    try {
+      const team = rows.find((r) => r.id === coachPickerTeamId);
+      const currentIds = new Set((team?.coaches ?? []).map((c) => c.id));
+      const toAdd = [...coachPickerSelected].filter((id) => !currentIds.has(id));
+      const toRemove = [...currentIds].filter((id) => !coachPickerSelected.has(id));
+
+      if (toAdd.length > 0) {
+        await fetch(`/api/teams/${coachPickerTeamId}/coaches`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coachIds: toAdd }),
+        });
+      }
+      for (const coachId of toRemove) {
+        await fetch(`/api/teams/${coachPickerTeamId}/coaches`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coachId }),
+        });
+      }
+      setCoachPickerTeamId(null);
+      setVersion((v) => v + 1);
+    } catch {}
+    setCoachSaving(false);
+  };
+
+  const toggleCoachSelection = (id: number) => {
+    setCoachPickerSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
 
   const openAdd = () => {
     setShowAdd(true);
@@ -139,7 +208,7 @@ function TeamsBody() {
       if (!enrollRes.ok) throw new Error(enrollData.error || `HTTP ${enrollRes.status}`);
 
       // Optimistically add the new team to the enrolled list (sorted)
-      const newRow: TeamRow = { id: newTeamId, name, league_id: season.league_id, league_name: season.league_name };
+      const newRow: TeamRow = { id: newTeamId, name, league_id: season.league_id, league_name: season.league_name, coaches: [] };
       setRows((prev) =>
         [...prev, newRow].sort((a, b) => a.name.localeCompare(b.name))
       );
@@ -370,6 +439,7 @@ function TeamsBody() {
             <thead>
               <tr className="border-b border-border bg-surface">
                 <th className="text-left p-3 pl-4 label-section">Team</th>
+                <th className="text-left p-3 label-section">Coach(es)</th>
                 {canEdit && <th className="w-12"></th>}
               </tr>
             </thead>
@@ -390,6 +460,93 @@ function TeamsBody() {
                         {r.name}
                       </Link>
                     </div>
+                  </td>
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                        {r.coaches && r.coaches.length > 0
+                          ? r.coaches.map((c) => `${c.first_name} ${c.last_name}`).join(", ")
+                          : "—"}
+                      </span>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => openCoachPicker(r.id)}
+                          className="p-1 text-muted-foreground hover:text-primary transition-colors duration-100"
+                          title="Assign coaches"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    {coachPickerTeamId === r.id && (
+                      <div className="mt-2 p-3 border border-border bg-card space-y-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                          Assign coaches
+                        </p>
+                        {leagueCoaches.length === 0 ? (
+                          <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                            No coaches in this league yet. Add coaches from the league page.
+                          </p>
+                        ) : (
+                          <>
+                            <input
+                              type="text"
+                              placeholder="Filter coaches…"
+                              value={coachFilter}
+                              onChange={(e) => setCoachFilter(e.target.value)}
+                              className="w-full px-2 py-1.5 text-xs bg-input border border-border focus:outline-none focus:border-primary transition-colors"
+                              style={{ fontFamily: "var(--font-body)" }}
+                              autoFocus
+                            />
+                            <div className="space-y-1 max-h-36 overflow-y-auto">
+                              {leagueCoaches
+                                .filter((lc) => {
+                                  if (!coachFilter.trim()) return true;
+                                  const q = coachFilter.toLowerCase();
+                                  return `${lc.first_name} ${lc.last_name}`.toLowerCase().includes(q);
+                                })
+                                .map((lc) => (
+                                <button
+                                  key={lc.id}
+                                  type="button"
+                                  onClick={() => toggleCoachSelection(lc.id)}
+                                  className={cn(
+                                    "w-full text-left px-2 py-1.5 text-xs border transition-colors duration-100 flex items-center gap-2",
+                                    coachPickerSelected.has(lc.id)
+                                      ? "border-primary bg-primary/10 text-foreground"
+                                      : "border-border hover:border-primary/40 hover:bg-elevated text-foreground"
+                                  )}
+                                  style={{ fontFamily: "var(--font-body)" }}
+                                >
+                                  <input type="checkbox" checked={coachPickerSelected.has(lc.id)} readOnly className="accent-primary shrink-0" />
+                                  {lc.first_name} {lc.last_name}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                        <div className="flex justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setCoachPickerTeamId(null)}
+                            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] border border-border text-muted-foreground hover:text-foreground transition-colors"
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveCoachAssignments}
+                            disabled={coachSaving}
+                            className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] bg-primary text-primary-foreground border border-primary hover:opacity-90 disabled:opacity-40 transition-colors"
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            {coachSaving ? "Saving…" : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </td>
                   {canEdit && (
                     <td className="p-3 pr-4 text-right">

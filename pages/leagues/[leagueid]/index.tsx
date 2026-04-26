@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import Header from "@/components/Header";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import ManageAccessPanel from "@/components/ManageAccessPanel";
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Pencil, Phone, Plus, Trash2, X } from "lucide-react";
 import FollowButton from "@/components/FollowButton";
 
 type League = {
@@ -26,6 +26,14 @@ type Division = {
   age_range: string | null;
   sort_order: number;
   season_count: number;
+};
+
+type Coach = {
+  id: number;
+  first_name: string;
+  last_name: string;
+  phone: string | null;
+  team_count: number;
 };
 
 type SeasonGroup = {
@@ -75,6 +83,21 @@ export default function LeagueDetailPage() {
   const [confirmDeleteDiv, setConfirmDeleteDiv] = useState<number | null>(null);
   const [deletingDiv, setDeletingDiv] = useState(false);
 
+  // Coach management (collapsible)
+  const [showCoaches, setShowCoaches] = useState(false);
+  const [coaches, setCoaches] = useState<Coach[]>([]);
+  const [coachesLoaded, setCoachesLoaded] = useState(false);
+  const [showCreateCoach, setShowCreateCoach] = useState(false);
+  const [coachForm, setCoachForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [coachSaving, setCoachSaving] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
+  const [editingCoachId, setEditingCoachId] = useState<number | null>(null);
+  const [editCoachForm, setEditCoachForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [editCoachSaving, setEditCoachSaving] = useState(false);
+  const [editCoachError, setEditCoachError] = useState<string | null>(null);
+  const [confirmDeleteCoach, setConfirmDeleteCoach] = useState<number | null>(null);
+  const [deletingCoach, setDeletingCoach] = useState(false);
+
   // New season form
   const [showCreateSeason, setShowCreateSeason] = useState(false);
   const [seasonForm, setSeasonForm] = useState({ year: String(new Date().getFullYear()), season_type: "spring" as string, divisionIds: [] as number[] });
@@ -98,6 +121,101 @@ export default function LeagueDetailPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [router.isReady, leagueId]);
+
+  // Fetch coaches when section is expanded
+  useEffect(() => {
+    if (!showCoaches || coachesLoaded || !leagueId) return;
+    fetch(`/api/leagues/${leagueId}/coaches`)
+      .then((r) => r.json())
+      .then((d) => setCoaches(Array.isArray(d.coaches) ? d.coaches : []))
+      .catch(() => {})
+      .finally(() => setCoachesLoaded(true));
+  }, [showCoaches, coachesLoaded, leagueId]);
+
+  // ── Coach CRUD ──
+  const createCoach = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!coachForm.first_name.trim() || !coachForm.last_name.trim()) return;
+    setCoachSaving(true);
+    setCoachError(null);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/coaches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: coachForm.first_name,
+          last_name: coachForm.last_name,
+          phone: coachForm.phone || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to create");
+      setCoaches((prev) =>
+        [...prev, { ...json, team_count: 0 }].sort((a, b) =>
+          a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
+        )
+      );
+      setCoachForm({ first_name: "", last_name: "", phone: "" });
+      setShowCreateCoach(false);
+    } catch (e: any) {
+      setCoachError(e.message);
+    } finally {
+      setCoachSaving(false);
+    }
+  };
+
+  const startEditCoach = (c: Coach) => {
+    setEditingCoachId(c.id);
+    setEditCoachForm({ first_name: c.first_name, last_name: c.last_name, phone: c.phone ?? "" });
+    setEditCoachError(null);
+    setConfirmDeleteCoach(null);
+  };
+
+  const handleEditCoachSave = async (id: number) => {
+    if (!editCoachForm.first_name.trim() || !editCoachForm.last_name.trim()) return;
+    setEditCoachSaving(true);
+    setEditCoachError(null);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/coaches/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: editCoachForm.first_name.trim(),
+          last_name: editCoachForm.last_name.trim(),
+          phone: editCoachForm.phone.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed to save");
+      setCoaches((prev) =>
+        prev
+          .map((c) => (c.id === id ? { ...c, first_name: json.first_name, last_name: json.last_name, phone: json.phone } : c))
+          .sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name))
+      );
+      setEditingCoachId(null);
+    } catch (e: any) {
+      setEditCoachError(e.message);
+    } finally {
+      setEditCoachSaving(false);
+    }
+  };
+
+  const deleteCoach = async (id: number) => {
+    setDeletingCoach(true);
+    try {
+      const res = await fetch(`/api/leagues/${leagueId}/coaches/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || "Failed to delete");
+      }
+      setCoaches((prev) => prev.filter((c) => c.id !== id));
+      setConfirmDeleteCoach(null);
+    } catch (e: any) {
+      setCoachError(e.message);
+    } finally {
+      setDeletingCoach(false);
+    }
+  };
 
   // ── Division CRUD ──
   const createDivision = async (e: React.FormEvent) => {
@@ -635,6 +753,165 @@ export default function LeagueDetailPage() {
                                         <Pencil className="h-4 w-4" />
                                       </button>
                                       <button type="button" onClick={() => setConfirmDeleteDiv(div.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete division">
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ════ Coaches (collapsible management) ════ */}
+            <div className="border-t border-border pt-6 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowCoaches((s) => !s)}
+                className="flex items-center gap-2 text-[13px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                {showCoaches ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                Manage Coaches
+                {coachesLoaded && <span className="text-[11px] font-normal">({coaches.length})</span>}
+              </button>
+
+              {showCoaches && (
+                <div className="mt-4">
+                  <div className="flex justify-end gap-2 mb-3">
+                    <Link
+                      href={`/leagues/${leagueId}/coaches/conflicts`}
+                      className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      Scheduling Conflicts
+                    </Link>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateCoach((s) => !s)}
+                        className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90`}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        <Plus className="h-3 w-3" />
+                        Add Coach
+                      </button>
+                    )}
+                  </div>
+
+                  {showCreateCoach && (
+                    <form onSubmit={createCoach} className="mb-4 p-4 border border-border bg-card space-y-3">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                          New Coach
+                        </span>
+                        <button type="button" onClick={() => setShowCreateCoach(false)}>
+                          <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                        </button>
+                      </div>
+                      {coachError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{coachError}</p>}
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>First Name *</label>
+                          <input className={INPUT} placeholder="First name" value={coachForm.first_name} onChange={(e) => setCoachForm((p) => ({ ...p, first_name: e.target.value }))} required />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Last Name *</label>
+                          <input className={INPUT} placeholder="Last name" value={coachForm.last_name} onChange={(e) => setCoachForm((p) => ({ ...p, last_name: e.target.value }))} required />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Phone</label>
+                          <input className={INPUT} placeholder="e.g. 555-123-4567" value={coachForm.phone} onChange={(e) => setCoachForm((p) => ({ ...p, phone: e.target.value }))} />
+                        </div>
+                      </div>
+                      <div className="flex justify-end">
+                        <button type="submit" disabled={coachSaving} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                          {coachSaving ? "Creating…" : "Add Coach"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {!coachesLoaded ? (
+                    <div className="space-y-1">
+                      {Array.from({ length: 3 }).map((_, i) => (
+                        <div key={i} className="h-10 bg-elevated animate-pulse" />
+                      ))}
+                    </div>
+                  ) : coaches.length === 0 ? (
+                    <div className="py-8 text-center text-muted-foreground" style={{ fontFamily: "var(--font-body)", fontSize: "14px" }}>
+                      No coaches yet. Add the first coach above.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {coaches.map((c) => (
+                        <div key={c.id} className="border border-border bg-card">
+                          {editingCoachId === c.id ? (
+                            <div className="p-4 space-y-3">
+                              {editCoachError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editCoachError}</p>}
+                              <div className="grid grid-cols-3 gap-3">
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>First Name *</label>
+                                  <input className={INPUT} placeholder="First name" value={editCoachForm.first_name} onChange={(e) => setEditCoachForm((p) => ({ ...p, first_name: e.target.value }))} autoFocus />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Last Name *</label>
+                                  <input className={INPUT} placeholder="Last name" value={editCoachForm.last_name} onChange={(e) => setEditCoachForm((p) => ({ ...p, last_name: e.target.value }))} />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Phone</label>
+                                  <input className={INPUT} placeholder="e.g. 555-123-4567" value={editCoachForm.phone} onChange={(e) => setEditCoachForm((p) => ({ ...p, phone: e.target.value }))} />
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button type="button" onClick={() => setEditingCoachId(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                                  <X className="h-3 w-3" /> Cancel
+                                </button>
+                                <button type="button" onClick={() => handleEditCoachSave(c.id)} disabled={editCoachSaving || !editCoachForm.first_name.trim() || !editCoachForm.last_name.trim()} className={`${BTN_BASE} bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                                  {editCoachSaving ? "Saving…" : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center px-4 py-3">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm">{c.first_name} {c.last_name}</p>
+                                <div className="flex items-center gap-3 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                                  {c.phone && (
+                                    <span className="flex items-center gap-1">
+                                      <Phone className="h-3 w-3" />
+                                      {c.phone}
+                                    </span>
+                                  )}
+                                  <span>
+                                    {c.team_count > 0 ? `${c.team_count} team${c.team_count !== 1 ? "s" : ""}` : "No teams assigned"}
+                                  </span>
+                                </div>
+                              </div>
+                              {canEdit && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {confirmDeleteCoach === c.id ? (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>Delete?</span>
+                                      <button type="button" onClick={() => deleteCoach(c.id)} disabled={deletingCoach} className={`${BTN_BASE} border-destructive/40 text-destructive hover:bg-destructive/10 disabled:opacity-40`} style={{ fontFamily: "var(--font-body)" }}>
+                                        {deletingCoach ? "…" : "Yes"}
+                                      </button>
+                                      <button type="button" onClick={() => setConfirmDeleteCoach(null)} className={`${BTN_BASE} border-border text-muted-foreground hover:text-foreground`} style={{ fontFamily: "var(--font-body)" }}>
+                                        No
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <button type="button" onClick={() => startEditCoach(c)} className="p-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100" title="Edit coach">
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                      <button type="button" onClick={() => setConfirmDeleteCoach(c.id)} className="p-1.5 text-muted-foreground hover:text-destructive transition-colors duration-100" title="Delete coach">
                                         <Trash2 className="h-4 w-4" />
                                       </button>
                                     </>
