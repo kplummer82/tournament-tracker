@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = await sql`
         SELECT
-          ld.id, ld.name, ld.age_range, ld.sort_order,
+          ld.id, ld.name, ld.age_range, ld.sort_order, ld.max_game_minutes,
           to_char(ld.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
           (SELECT COUNT(*)::int FROM seasons se WHERE se.league_division_id = ld.id) AS season_count
         FROM league_divisions ld
@@ -30,19 +30,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireLeagueAccess(req, res, leagueId);
       if (!session) return;
 
-      const { name, age_range, sort_order } = req.body ?? {};
+      const { name, age_range, sort_order, max_game_minutes } = req.body ?? {};
       if (!name?.trim()) {
         return res.status(400).json({ error: "name is required" });
       }
       const inserted = await sql`
-        INSERT INTO league_divisions (league_id, name, age_range, sort_order)
+        INSERT INTO league_divisions (league_id, name, age_range, sort_order, max_game_minutes)
         VALUES (
           ${leagueId},
           ${name.trim()},
           ${age_range?.trim() ?? null},
-          ${Number(sort_order) || 0}
+          ${Number(sort_order) || 0},
+          ${max_game_minutes != null ? Number(max_game_minutes) : 120}
         )
-        RETURNING id, league_id, name, age_range, sort_order,
+        RETURNING id, league_id, name, age_range, sort_order, max_game_minutes,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       return res.status(201).json(inserted[0]);

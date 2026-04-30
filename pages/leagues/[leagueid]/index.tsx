@@ -26,6 +26,7 @@ type Division = {
   age_range: string | null;
   sort_order: number;
   season_count: number;
+  max_game_minutes: number | null;
 };
 
 type Coach = {
@@ -73,11 +74,11 @@ export default function LeagueDetailPage() {
   // Division management (collapsible)
   const [showDivisions, setShowDivisions] = useState(false);
   const [showCreateDiv, setShowCreateDiv] = useState(false);
-  const [divForm, setDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [divForm, setDivForm] = useState({ name: "", age_range: "", sort_order: "0", max_game_minutes: "120" });
   const [divSaving, setDivSaving] = useState(false);
   const [divError, setDivError] = useState<string | null>(null);
   const [editingDivId, setEditingDivId] = useState<number | null>(null);
-  const [editDivForm, setEditDivForm] = useState({ name: "", age_range: "", sort_order: "0" });
+  const [editDivForm, setEditDivForm] = useState({ name: "", age_range: "", sort_order: "0", max_game_minutes: "120" });
   const [editDivSaving, setEditDivSaving] = useState(false);
   const [editDivError, setEditDivError] = useState<string | null>(null);
   const [confirmDeleteDiv, setConfirmDeleteDiv] = useState<number | null>(null);
@@ -227,12 +228,12 @@ export default function LeagueDetailPage() {
       const res = await fetch(`/api/leagues/${leagueId}/divisions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: divForm.name, age_range: divForm.age_range || null, sort_order: Number(divForm.sort_order) || 0 }),
+        body: JSON.stringify({ name: divForm.name, age_range: divForm.age_range || null, sort_order: Number(divForm.sort_order) || 0, max_game_minutes: Number(divForm.max_game_minutes) || 120 }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
       setDivisions((prev) => [...prev, { ...json, season_count: 0 }].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)));
-      setDivForm({ name: "", age_range: "", sort_order: "0" });
+      setDivForm({ name: "", age_range: "", sort_order: "0", max_game_minutes: "120" });
       setShowCreateDiv(false);
     } catch (e: any) {
       setDivError(e.message);
@@ -243,7 +244,7 @@ export default function LeagueDetailPage() {
 
   const startEditDiv = (div: Division) => {
     setEditingDivId(div.id);
-    setEditDivForm({ name: div.name, age_range: div.age_range ?? "", sort_order: String(div.sort_order) });
+    setEditDivForm({ name: div.name, age_range: div.age_range ?? "", sort_order: String(div.sort_order), max_game_minutes: String(div.max_game_minutes ?? 120) });
     setEditDivError(null);
     setConfirmDeleteDiv(null);
   };
@@ -260,6 +261,7 @@ export default function LeagueDetailPage() {
           name: editDivForm.name.trim(),
           age_range: editDivForm.age_range.trim() || null,
           sort_order: Number(editDivForm.sort_order) || 0,
+          max_game_minutes: Number(editDivForm.max_game_minutes) || 120,
         }),
       });
       const json = await res.json();
@@ -666,7 +668,7 @@ export default function LeagueDetailPage() {
                         </button>
                       </div>
                       {divError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{divError}</p>}
-                      <div className="grid grid-cols-3 gap-3">
+                      <div className="grid grid-cols-4 gap-3">
                         <div className="flex flex-col gap-1">
                           <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
                           <input className={INPUT} placeholder="e.g. Mustang" value={divForm.name} onChange={(e) => setDivForm((p) => ({ ...p, name: e.target.value }))} required />
@@ -674,6 +676,10 @@ export default function LeagueDetailPage() {
                         <div className="flex flex-col gap-1">
                           <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
                           <input className={INPUT} placeholder="e.g. 9-10" value={divForm.age_range} onChange={(e) => setDivForm((p) => ({ ...p, age_range: e.target.value }))} />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Game Duration (min)</label>
+                          <input className={INPUT} type="number" placeholder="120" value={divForm.max_game_minutes} onChange={(e) => setDivForm((p) => ({ ...p, max_game_minutes: e.target.value }))} />
                         </div>
                         <div className="flex flex-col gap-1">
                           <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
@@ -699,7 +705,7 @@ export default function LeagueDetailPage() {
                           {editingDivId === div.id ? (
                             <div className="p-4 space-y-3">
                               {editDivError && <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{editDivError}</p>}
-                              <div className="grid grid-cols-3 gap-3">
+                              <div className="grid grid-cols-4 gap-3">
                                 <div className="flex flex-col gap-1">
                                   <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Name *</label>
                                   <input className={INPUT} placeholder="Division name" value={editDivForm.name} onChange={(e) => setEditDivForm((p) => ({ ...p, name: e.target.value }))} autoFocus />
@@ -707,6 +713,10 @@ export default function LeagueDetailPage() {
                                 <div className="flex flex-col gap-1">
                                   <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Age Range</label>
                                   <input className={INPUT} placeholder="e.g. 9-10" value={editDivForm.age_range} onChange={(e) => setEditDivForm((p) => ({ ...p, age_range: e.target.value }))} />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                  <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Game Duration (min)</label>
+                                  <input className={INPUT} type="number" placeholder="120" value={editDivForm.max_game_minutes} onChange={(e) => setEditDivForm((p) => ({ ...p, max_game_minutes: e.target.value }))} />
                                 </div>
                                 <div className="flex flex-col gap-1">
                                   <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>Sort Order</label>
@@ -728,7 +738,9 @@ export default function LeagueDetailPage() {
                                 <p className="font-semibold text-sm">{div.name}</p>
                                 <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                                   {div.age_range ? `Ages ${div.age_range}` : ""}
-                                  {div.age_range && div.season_count > 0 ? " · " : ""}
+                                  {div.age_range ? " · " : ""}
+                                  {div.max_game_minutes ? `${div.max_game_minutes} min games` : ""}
+                                  {div.max_game_minutes && div.season_count > 0 ? " · " : !div.age_range && !div.max_game_minutes ? "" : ""}
                                   {div.season_count > 0 ? `${div.season_count} season${div.season_count !== 1 ? "s" : ""}` : "No seasons yet"}
                                 </p>
                               </div>

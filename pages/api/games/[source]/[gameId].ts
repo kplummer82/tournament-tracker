@@ -18,6 +18,7 @@ export type GameDetail = {
   context_name: string | null;
   location: string | null;
   field: string | null;
+  location_id: number | null;
   game_type: string | null;
   bracket_id: number | null;
   bracket_game_id: string | null;
@@ -62,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           s.name                          AS context_name,
           sg.location,
           sg.field,
+          sg.location_id,
           sg.game_type,
           sg.bracket_id,
           sg.bracket_game_id
@@ -92,6 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           t.name                          AS context_name,
           tg.location,
           tg.field,
+          tg.location_id,
           NULL::text                      AS game_type,
           NULL::int                       AS bracket_id,
           NULL::text                      AS bracket_game_id

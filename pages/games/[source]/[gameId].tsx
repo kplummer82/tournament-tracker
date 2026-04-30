@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import type { GameDetail } from "@/pages/api/games/[source]/[gameId]";
 import { ReportsTab } from "@/components/games/ReportsTab";
+import { LocationDisplay } from "@/components/LocationPicker";
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
@@ -105,16 +106,12 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 ) : "—"}
               </dd>
             </div>
-            {game.location && (
+            {(game.location || game.field) && (
               <div>
                 <dt className={labelCls}>Location</dt>
-                <dd className={valueCls}>{game.location}</dd>
-              </div>
-            )}
-            {game.field && (
-              <div>
-                <dt className={labelCls}>Field</dt>
-                <dd className={valueCls}>{game.field}</dd>
+                <dd className={valueCls}>
+                  <LocationDisplay locationId={game.location_id} location={game.location} field={game.field} />
+                </dd>
               </div>
             )}
           </dl>

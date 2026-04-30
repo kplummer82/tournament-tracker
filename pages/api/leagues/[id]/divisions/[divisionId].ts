@@ -21,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = await sql`
         SELECT
-          ld.id, ld.league_id, ld.name, ld.age_range, ld.sort_order,
+          ld.id, ld.league_id, ld.name, ld.age_range, ld.sort_order, ld.max_game_minutes,
           to_char(ld.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
         FROM league_divisions ld
         WHERE ld.id = ${divisionId} AND ld.league_id = ${leagueId}
@@ -44,15 +44,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireDivisionAccess(req, res, divisionId);
       if (!session) return;
 
-      const { name, age_range, sort_order } = req.body ?? {};
+      const { name, age_range, sort_order, max_game_minutes } = req.body ?? {};
       const rows = await sql`
         UPDATE league_divisions
         SET
           name       = COALESCE(${name?.trim() ?? null}, name),
           age_range  = COALESCE(${age_range?.trim() ?? null}, age_range),
-          sort_order = COALESCE(${sort_order != null ? Number(sort_order) : null}, sort_order)
+          sort_order = COALESCE(${sort_order != null ? Number(sort_order) : null}, sort_order),
+          max_game_minutes = COALESCE(${max_game_minutes != null ? Number(max_game_minutes) : null}, max_game_minutes)
         WHERE id = ${divisionId} AND league_id = ${leagueId}
-        RETURNING id, league_id, name, age_range, sort_order,
+        RETURNING id, league_id, name, age_range, sort_order, max_game_minutes,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       if (!rows.length) return res.status(404).json({ error: "Not found" });

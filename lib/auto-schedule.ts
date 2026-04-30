@@ -5,6 +5,7 @@ export interface GameTimeSlot {
   time: string;         // "HH:MM" 24h
   fieldName: string;
   fieldLocation: string;
+  locationId?: number | null;
 }
 
 export interface DayRule {
@@ -18,6 +19,7 @@ export interface DayRule {
 export interface FieldConfig {
   name: string;
   location: string;
+  locationId?: number | null;
 }
 
 export interface ScheduleConfig {
@@ -106,6 +108,7 @@ export interface GeneratedGame {
   away_team: string;
   location: string;
   field: string;
+  location_id?: number | null;
 }
 
 export interface ScheduleResult {
@@ -177,7 +180,7 @@ export function buildSlots(config: ScheduleConfig): Slot[] {
           slots.push({
             date: dateStr,
             time: gs.time,
-            field: { name: gs.fieldName, location: gs.fieldLocation },
+            field: { name: gs.fieldName, location: gs.fieldLocation, locationId: gs.locationId ?? null },
             rule,
           });
         }
@@ -525,6 +528,7 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
       away_team: matchup.away.name,
       location: slot.field.location,
       field: slot.field.name,
+      location_id: slot.field.locationId ?? null,
     });
 
     if (!teamsPerDate.has(slot.date)) teamsPerDate.set(slot.date, new Map());

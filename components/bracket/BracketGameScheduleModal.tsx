@@ -8,6 +8,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import LocationPicker from "@/components/LocationPicker";
+import type { LocationPickerValue } from "@/components/LocationPicker";
 
 export type BracketGameRecord = {
   id: number;
@@ -16,6 +18,7 @@ export type BracketGameRecord = {
   gametime: string | null;
   location: string | null;
   field: string | null;
+  location_id: number | null;
   home: number | null;
   away: number | null;
   home_team: string | null;
@@ -44,6 +47,7 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
   const [gametime, setGametime] = useState(game.gametime?.slice(0, 5) ?? "");
   const [location, setLocation] = useState(game.location ?? "");
   const [field, setField] = useState(game.field ?? "");
+  const [locationId, setLocationId] = useState<number | null>(game.location_id ?? null);
   const [homescore, setHomescore] = useState(game.homescore != null ? String(game.homescore) : "");
   const [awayscore, setAwayscore] = useState(game.awayscore != null ? String(game.awayscore) : "");
   const [saving, setSaving] = useState(false);
@@ -62,6 +66,7 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
         gametime: gametime || null,
         location: location || null,
         field: field || null,
+        location_id: locationId ?? null,
       };
       // Only include scores if both teams are assigned
       if (hasBothTeams) {
@@ -129,28 +134,19 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
               onChange={(e) => setGametime(e.target.value)}
             />
           </div>
-          <div>
+          <div className="col-span-2">
             <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-1 block">
-              Location
+              Location & Field
             </label>
-            <input
-              className={INPUT}
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Park, gym, complex..."
-            />
-          </div>
-          <div>
-            <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-1 block">
-              Field
-            </label>
-            <input
-              className={INPUT}
-              type="text"
-              value={field}
-              onChange={(e) => setField(e.target.value)}
-              placeholder="Field 1, Court A..."
+            <LocationPicker
+              locationId={locationId}
+              location={location}
+              field={field}
+              onChange={(val: LocationPickerValue) => {
+                setLocationId(val.locationId);
+                setLocation(val.location);
+                setField(val.field);
+              }}
             />
           </div>
 

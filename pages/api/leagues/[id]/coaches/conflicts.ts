@@ -24,7 +24,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    // Find coaches with games at the same date+time across different divisions
+    // Find coaches with overlapping game time-windows across different divisions.
+    // Each game's window = gametime → gametime + max_game_minutes + 15 min buffer.
     const rows = await sql`
       WITH coach_teams AS (
         SELECT
@@ -33,6 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           tc.team_id,
           t.name AS team_name,
           ld.name AS division_name,
+          COALESCE(ld.max_game_minutes, 120) AS max_game_minutes,
           s.id AS season_id
         FROM league_coaches lc
         JOIN team_coaches tc ON tc.coach_id = lc.id
@@ -57,9 +59,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ct.team_id,
           ct.team_name,
           ct.division_name,
+          ct.max_game_minutes,
           sg.id AS game_id,
           to_char(sg.gamedate, 'YYYY-MM-DD') AS gamedate,
-          to_char(sg.gametime, 'HH24:MI') AS gametime,
+          sg.gametime,
+          to_char(sg.gametime, 'HH24:MI') AS gametime_fmt,
           sg.home,
           sg.away
         FROM coach_teams ct
@@ -72,22 +76,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         g1.coach_id,
         g1.coach_name,
         g1.gamedate,
-        g1.gametime,
-        g1.game_id   AS game1_id,
-        g1.team_id   AS game1_team_id,
+        g1.gametime_fmt AS gametime,
+        g1.game_id    AS game1_id,
+        g1.team_id    AS game1_team_id,
         g1.team_name  AS game1_team,
         g1.division_name AS game1_division,
-        g2.game_id   AS game2_id,
-        g2.team_id   AS game2_team_id,
+        g1.gametime_fmt AS game1_time,
+        to_char(g1.gametime + (g1.max_game_minutes + 15) * INTERVAL '1 minute', 'HH24:MI') AS game1_end_time,
+        g1.max_game_minutes AS game1_duration,
+        g2.game_id    AS game2_id,
+        g2.team_id    AS game2_team_id,
         g2.team_name  AS game2_team,
-        g2.division_name AS game2_division
+        g2.division_name AS game2_division,
+        g2.gametime_fmt AS game2_time,
+        to_char(g2.gametime + (g2.max_game_minutes + 15) * INTERVAL '1 minute', 'HH24:MI') AS game2_end_time,
+        g2.max_game_minutes AS game2_duration
       FROM coach_games g1
       JOIN coach_games g2
         ON g1.coach_id = g2.coach_id
         AND g1.gamedate = g2.gamedate
-        AND g1.gametime = g2.gametime
         AND g1.game_id < g2.game_id
-      ORDER BY g1.coach_name, g1.gamedate, g1.gametime
+        AND g1.gametime < (g2.gametime + (g2.max_game_minutes + 15) * INTERVAL '1 minute')
+        AND g2.gametime < (g1.gametime + (g1.max_game_minutes + 15) * INTERVAL '1 minute')
+      ORDER BY g1.coach_name, g1.gamedate, g1.gametime_fmt
     `;
 
     return res.status(200).json({ conflicts: rows });

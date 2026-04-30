@@ -21,6 +21,12 @@ import {
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot, Matchup } from "@/lib/auto-schedule";
 import { buildSlots, normalizeScheduleConfig, buildMatchups, generateBalancedGames, weekMonday } from "@/lib/auto-schedule";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
+import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
+import type { LocationPickerValue } from "@/components/LocationPicker";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,6 +36,7 @@ interface DraftSlot {
   time: string;         // "HH:MM"
   fieldName: string;
   fieldLocation: string;
+  locationId: number | null;
   home: Team | null;
   away: Team | null;
 }
@@ -76,7 +83,7 @@ const BLANK_CONFIG: ScheduleConfig = {
 };
 
 function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
-  return { dayOfWeek: dow, maxGamesPerDay: 2, gameSlots: [{ time: '10:00', fieldName: '', fieldLocation: '' }], maxGamesPerTeamOnDay: 1 };
+  return { dayOfWeek: dow, maxGamesPerDay: 2, gameSlots: [{ time: '10:00', fieldName: '', fieldLocation: '', locationId: null }], maxGamesPerTeamOnDay: 1 };
 }
 
 const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] border transition-colors";
@@ -225,7 +232,7 @@ function SchedulingRules({
   }
   function addSlotToDay(dow: number) {
     const existing = getDayRule(dow)?.gameSlots ?? [];
-    const next = [...existing, { time: '12:00', fieldName: '', fieldLocation: '' }];
+    const next = [...existing, { time: '12:00', fieldName: '', fieldLocation: '', locationId: null }];
     updateDayRule(dow, { gameSlots: next, maxGamesPerDay: next.length });
   }
   function updateSlotOnDay(dow: number, idx: number, patch: Partial<GameTimeSlot>) {
@@ -433,14 +440,13 @@ function SchedulingRules({
                                   onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
                                   className="bg-transparent text-xs focus:outline-none w-[100px]" />
                                 <span className="text-muted-foreground/40 select-none">|</span>
-                                <input type="text" placeholder="Location"
-                                  value={gs.fieldLocation}
-                                  onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
-                                  className={cn(FIELD_INPUT, "w-36 py-0")} />
-                                <input type="text" placeholder="Field"
-                                  value={gs.fieldName}
-                                  onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
-                                  className={cn(FIELD_INPUT, "w-[120px] py-0")} />
+                                <LocationPicker
+                                  compact
+                                  locationId={gs.locationId ?? null}
+                                  location={gs.fieldLocation}
+                                  field={gs.fieldName}
+                                  onChange={(val: LocationPickerValue) => updateSlotOnDay(dow, i, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })}
+                                />
                                 <button type="button" onClick={() => removeSlotFromDay(dow, i)}><X className="h-3 w-3" /></button>
                               </span>
                             ))}
@@ -495,9 +501,10 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
   commitSuccess: boolean;
   setCommitSuccess: (v: boolean) => void;
   setAutoFillFeedback: (v: { restDays: number; backToBack: number; roundCompletion: number; weekdayLimit: number } | null) => void;
+  onCommitSuccess: () => void;
 }>(function SchedulerWorkspace({ slots, setSlots, teams, seasonId, config,
   committing, setCommitting, commitMode, existingCount, setExistingCount,
-  commitError, setCommitError, commitSuccess, setCommitSuccess, setAutoFillFeedback }, ref) {
+  commitError, setCommitError, commitSuccess, setCommitSuccess, setAutoFillFeedback, onCommitSuccess }, ref) {
   const [activeDrag, setActiveDrag] = useState<{ team: Team } | null>(null);
 
   const sensors = useSensors(
@@ -1124,6 +1131,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
         away: s.away!.id,
         location: s.fieldLocation || undefined,
         field: s.fieldName || undefined,
+        location_id: s.locationId || undefined,
       }));
       const res = await fetch(`/api/seasons/${seasonId}/games/bulk`, {
         method: 'POST',
@@ -1134,6 +1142,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
       if (!res.ok) throw new Error(json.error || 'Commit failed');
       setCommitSuccess(true);
       setExistingCount(prev => commitMode === 'replace' ? complete.length : (prev ?? 0) + complete.length);
+      onCommitSuccess();
     } catch (e: any) {
       setCommitError(e.message);
     } finally {
@@ -1264,9 +1273,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
                             {fmt12h(slot.time)}
                           </span>
                           {(slot.fieldName || slot.fieldLocation) && (
-                            <span className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate">
-                              {[slot.fieldLocation, slot.fieldName].filter(Boolean).join(' · ')}
-                            </span>
+                            <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" />
                           )}
                         </div>
                       );
@@ -1852,13 +1859,19 @@ function SchedulingBody() {
   const [teamsErr, setTeamsErr] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'workspace' | 'report'>('workspace');
   const [committing, setCommitting] = useState(false);
-  const [commitMode, setCommitMode] = useState<'add' | 'replace'>('add');
+  const [commitMode, setCommitMode] = useState<'add' | 'replace'>('replace');
   const [existingCount, setExistingCount] = useState<number | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [commitSuccess, setCommitSuccess] = useState(false);
   const [autoFillFeedback, setAutoFillFeedback] = useState<{
     restDays: number; backToBack: number; roundCompletion: number; weekdayLimit: number;
   } | null>(null);
+  const [showCommitConfirm, setShowCommitConfirm] = useState(false);
+  const [committedSlotSnapshot, setCommittedSlotSnapshot] = useState<string | null>(null);
+  const [dirtyAfterCommit, setDirtyAfterCommit] = useState(false);
+  const [playedCount, setPlayedCount] = useState(0);
+  const slotsRef = useRef(slots);
+  slotsRef.current = slots;
 
   useEffect(() => {
     if (season?.schedule_config) setConfig(normalizeScheduleConfig(season.schedule_config));
@@ -1871,7 +1884,41 @@ function SchedulingBody() {
       .then(r => r.json())
       .then(d => {
         if (d.error) throw new Error(d.error);
-        setTeams((Array.isArray(d.teams) ? d.teams : []).map((t: { id: number; name: string }) => ({ id: t.id, name: t.name })));
+        const loaded = (Array.isArray(d.teams) ? d.teams : []).map((t: { id: number; name: string }) => ({ id: t.id, name: t.name }));
+        setTeams(loaded);
+        // Load existing scheduled (unplayed) games from DB into workspace
+        fetch(`/api/seasons/${seasonId}/games?game_type=regular`)
+          .then(r2 => r2.json())
+          .then(d2 => {
+            const allGames = Array.isArray(d2.games) ? d2.games : [];
+            // Only load games with Scheduled status (id=1) or NULL into the workspace
+            const scheduledGames = allGames.filter(
+              (g: any) => g.gamestatusid === 1 || g.gamestatusid == null
+            );
+            const playedCount = allGames.length - scheduledGames.length;
+            if (scheduledGames.length > 0) {
+              const teamMap = new Map(loaded.map((t: Team) => [t.id, t]));
+              const loadedSlots: DraftSlot[] = scheduledGames.map((g: any) => ({
+                id: `db__${g.id}`,
+                date: typeof g.gamedate === 'string' ? g.gamedate.slice(0, 10) : '',
+                time: g.gametime ?? '00:00',
+                fieldName: g.field ?? '',
+                fieldLocation: g.location ?? '',
+                locationId: g.location_id ?? null,
+                home: teamMap.get(g.home) ?? null,
+                away: teamMap.get(g.away) ?? null,
+              }));
+              setSlots(loadedSlots);
+              setExistingCount(scheduledGames.length);
+              setCommitSuccess(true);
+              setCommittedSlotSnapshot(JSON.stringify(loadedSlots));
+              setDirtyAfterCommit(false);
+            } else {
+              setExistingCount(0);
+            }
+            setPlayedCount(playedCount);
+          })
+          .catch(() => {});
       })
       .catch(e => setTeamsErr(e.message));
   }, [seasonId]);
@@ -1895,6 +1942,17 @@ function SchedulingBody() {
 
   const workspaceRef = useRef<WorkspaceHandle>(null);
 
+  function handleCommitSuccess() {
+    setCommittedSlotSnapshot(JSON.stringify(slotsRef.current));
+    setDirtyAfterCommit(false);
+  }
+
+  useEffect(() => {
+    if (!committedSlotSnapshot) return;
+    const isDirty = JSON.stringify(slots) !== committedSlotSnapshot;
+    setDirtyAfterCommit(isDirty);
+  }, [slots, committedSlotSnapshot]);
+
   function handleGenerateSlots() {
     const rawSlots = buildSlots(config);
     setSlots(rawSlots.map((s, i) => ({
@@ -1903,13 +1961,17 @@ function SchedulingBody() {
       time: s.time,
       fieldName: s.field.name,
       fieldLocation: s.field.location,
+      locationId: s.field.locationId ?? null,
       home: null,
       away: null,
     })));
     setAutoFillFeedback(null);
+    setCommitSuccess(false);
+    setCommittedSlotSnapshot(null);
+    setDirtyAfterCommit(false);
+    setCommitError(null);
   }
 
-  const ws = workspaceRef.current;
   const assignedCount = slots.filter(s => s.home && s.away).length;
 
   return (
@@ -1956,7 +2018,7 @@ function SchedulingBody() {
               Generate Slots &rarr;
             </button>
             {slots.length > 0 && (
-              <button type="button" onClick={() => ws?.autoFill()}
+              <button type="button" onClick={() => workspaceRef.current?.autoFill()}
                 className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}>
                 <Wand2 className="h-3 w-3" /> Auto-fill
               </button>
@@ -1969,40 +2031,38 @@ function SchedulingBody() {
                   <AlertTriangle className="h-3 w-3" /> {commitError}
                 </p>
               )}
-              {commitSuccess && (
-                <span className="text-[11px] text-green-600 dark:text-green-400 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" /> Committed
+              {playedCount > 0 && (
+                <span className="text-[11px] text-muted-foreground">
+                  {playedCount} played game{playedCount !== 1 ? 's' : ''} locked
                 </span>
               )}
-              {existingCount !== null && existingCount > 0 && (
-                <div className="flex items-center gap-3">
-                  <span className="text-[11px] text-amber-700 dark:text-amber-300">
-                    {existingCount} existing
-                  </span>
-                  {(['add', 'replace'] as const).map(m => (
-                    <label key={m} className="flex items-center gap-1.5 text-[11px] cursor-pointer">
-                      <input type="radio" name="commit-mode" value={m} checked={commitMode === m}
-                        onChange={() => setCommitMode(m)} className="accent-primary" />
-                      {m === 'add' ? 'Add' : 'Replace'}
-                    </label>
-                  ))}
-                </div>
-              )}
               <button type="button"
-                onClick={() => { setSlots(prev => prev.map(s => ({ ...s, home: null, away: null }))); setAutoFillFeedback(null); }}
+                onClick={() => { setSlots(prev => prev.map(s => ({ ...s, home: null, away: null }))); setAutoFillFeedback(null); if (commitSuccess) setDirtyAfterCommit(true); }}
                 className={cn(BTN, "border-border text-muted-foreground hover:border-foreground hover:text-foreground text-[10px]")}>
                 Clear All
               </button>
-              <button type="button" onClick={() => ws?.exportCsv()}
+              <button type="button" onClick={() => workspaceRef.current?.exportCsv()}
                 disabled={assignedCount === 0}
                 className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary disabled:opacity-40")}>
                 <Download className="h-3.5 w-3.5" /> Export CSV
               </button>
-              <button type="button" onClick={() => ws?.commit()}
-                disabled={committing || assignedCount === 0}
-                className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-50")}>
+              <button type="button" onClick={() => setShowCommitConfirm(true)}
+                disabled={committing || assignedCount === 0 || (commitSuccess && !dirtyAfterCommit)}
+                className={cn(
+                  BTN,
+                  dirtyAfterCommit
+                    ? "bg-amber-600 text-white border-amber-600 hover:opacity-90"
+                    : "bg-primary text-primary-foreground border-primary hover:opacity-90",
+                  "disabled:opacity-50"
+                )}>
                 <CalendarCheck className="h-3.5 w-3.5" />
-                {committing ? 'Committing…' : `Commit ${assignedCount} Game${assignedCount !== 1 ? 's' : ''}`}
+                {committing
+                  ? 'Committing\u2026'
+                  : commitSuccess && !dirtyAfterCommit
+                    ? 'Committed'
+                    : dirtyAfterCommit
+                      ? `Re-commit ${assignedCount} Game${assignedCount !== 1 ? 's' : ''}`
+                      : `Commit ${assignedCount} Game${assignedCount !== 1 ? 's' : ''}`}
               </button>
             </div>
           )}
@@ -2019,6 +2079,19 @@ function SchedulingBody() {
             {autoFillFeedback.roundCompletion > 0 && `${(autoFillFeedback.restDays + autoFillFeedback.backToBack) > 0 ? ',' : ''} ${autoFillFeedback.roundCompletion} round-completion`}
             {autoFillFeedback.weekdayLimit > 0 && `${(autoFillFeedback.restDays + autoFillFeedback.backToBack + autoFillFeedback.roundCompletion) > 0 ? ',' : ''} ${autoFillFeedback.weekdayLimit} weekday-limit`}
           </span>
+        </div>
+      )}
+
+      {commitSuccess && !dirtyAfterCommit && (
+        <div className="flex items-center gap-2 my-2 px-4 py-2.5 bg-green-500/10 border border-green-500/30 rounded text-xs font-medium text-green-700 dark:text-green-400">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Schedule committed &mdash; {existingCount} game{existingCount !== 1 ? 's' : ''} in system
+        </div>
+      )}
+      {commitSuccess && dirtyAfterCommit && (
+        <div className="flex items-center gap-2 my-2 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded text-xs font-medium text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          Unsaved changes &mdash; schedule has been modified since last commit. Re-commit to save.
         </div>
       )}
 
@@ -2060,9 +2133,39 @@ function SchedulingBody() {
             commitSuccess={commitSuccess}
             setCommitSuccess={setCommitSuccess}
             setAutoFillFeedback={setAutoFillFeedback}
+            onCommitSuccess={handleCommitSuccess}
           />
         : <ScheduleReport slots={slots} teams={teams} config={config} />
       }
+
+      {/* Commit confirmation dialog */}
+      <AlertDialog open={showCommitConfirm} onOpenChange={setShowCommitConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Commit Schedule?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  This will write <strong>{assignedCount} game{assignedCount !== 1 ? 's' : ''}</strong> to
+                  the database with status <strong>Scheduled</strong>, replacing any
+                  existing unplayed games for this season.
+                </p>
+                {playedCount > 0 && (
+                  <p className="text-muted-foreground">
+                    {playedCount} played game{playedCount !== 1 ? 's' : ''} (Final, Forfeit, etc.) will not be affected.
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setShowCommitConfirm(false); workspaceRef.current?.commit(); }}>
+              Commit {assignedCount} Game{assignedCount !== 1 ? 's' : ''}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

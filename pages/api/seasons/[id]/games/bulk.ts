@@ -15,6 +15,7 @@ interface BulkGame {
   away: number;
   location?: string;
   field?: string;
+  location_id?: number;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -54,15 +55,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (mode === "replace") {
+      // Only delete unplayed (Scheduled / NULL status) games.
+      // Played games (Final, Forfeit, etc.) are preserved.
       await sql`
         DELETE FROM season_games
-        WHERE season_id = ${seasonId} AND game_type = 'regular'
+        WHERE season_id = ${seasonId}
+          AND game_type = 'regular'
+          AND (gamestatusid = 1 OR gamestatusid IS NULL)
       `;
     }
 
     await Promise.all(
       valid.map(g => sql`
-        INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field)
+        INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field, location_id, gamestatusid)
         VALUES (
           ${seasonId},
           ${g.gamedate}::date,
@@ -71,7 +76,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${g.away},
           'regular',
           ${g.location || null},
-          ${g.field || null}
+          ${g.field || null},
+          ${g.location_id || null},
+          1
         )
       `)
     );

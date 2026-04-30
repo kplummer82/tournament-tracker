@@ -13,10 +13,16 @@ type ConflictRow = {
   game1_team_id: number;
   game1_team: string;
   game1_division: string;
+  game1_time: string;
+  game1_end_time: string;
+  game1_duration: number;
   game2_id: number;
   game2_team_id: number;
   game2_team: string;
   game2_division: string;
+  game2_time: string;
+  game2_end_time: string;
+  game2_duration: number;
 };
 
 type SeasonGroup = {
@@ -26,6 +32,14 @@ type SeasonGroup = {
 
 const SEASON_TYPES = ["spring", "summer", "fall", "winter"] as const;
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function fmt12h(time: string): string {
+  const [hStr, mStr] = time.split(':');
+  const h = parseInt(hStr, 10);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${mStr} ${suffix}`;
+}
 
 const INPUT = "border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 
@@ -117,7 +131,7 @@ export default function CoachConflictsPage() {
             Coach Scheduling Conflicts
           </h1>
           <p className="text-xs text-muted-foreground mt-1" style={{ fontFamily: "var(--font-body)" }}>
-            Coaches assigned to teams in multiple divisions with overlapping game times.
+            Coaches assigned to teams in multiple divisions with overlapping game time windows.
           </p>
         </div>
 
@@ -201,18 +215,17 @@ export default function CoachConflictsPage() {
                         <span className="text-xs font-semibold text-foreground" style={{ fontFamily: "var(--font-body)" }}>
                           {new Date(c.gamedate + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                         </span>
-                        <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                          {c.gametime}
-                        </span>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <div className="flex items-center gap-2 px-3 py-2 border border-border bg-elevated/50 text-xs" style={{ fontFamily: "var(--font-body)" }}>
                           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground shrink-0">{c.game1_division}</span>
                           <span className="text-foreground">{c.game1_team}</span>
+                          <span className="text-muted-foreground ml-auto shrink-0">{fmt12h(c.game1_time)} – {fmt12h(c.game1_end_time)}</span>
                         </div>
                         <div className="flex items-center gap-2 px-3 py-2 border border-border bg-elevated/50 text-xs" style={{ fontFamily: "var(--font-body)" }}>
                           <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground shrink-0">{c.game2_division}</span>
                           <span className="text-foreground">{c.game2_team}</span>
+                          <span className="text-muted-foreground ml-auto shrink-0">{fmt12h(c.game2_time)} – {fmt12h(c.game2_end_time)}</span>
                         </div>
                       </div>
                     </div>

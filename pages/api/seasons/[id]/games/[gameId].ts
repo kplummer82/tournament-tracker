@@ -47,6 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if ("gametime" in body) sets.push(sql`gametime = ${body.gametime ? normalizeTime(String(body.gametime)) : null}::time`);
       if ("location" in body) sets.push(sql`location = ${body.location || null}`);
       if ("field" in body) sets.push(sql`field = ${body.field || null}`);
+      if ("location_id" in body) sets.push(sql`location_id = ${body.location_id ? Number(body.location_id) : null}`);
 
       if (!sets.length) return res.status(400).json({ error: "No fields to update" });
 

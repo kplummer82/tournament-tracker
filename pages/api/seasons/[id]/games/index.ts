@@ -44,6 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           gs.gamestatus AS gamestatus_label,
           sg.location,
           sg.field,
+          sg.location_id,
           sg.bracket_id,
           sg.bracket_game_id,
           sb.name AS bracket_name
@@ -68,7 +69,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         home, away, gamedate, gametime,
         homescore = null, awayscore = null,
         gamestatusid, game_type = "regular",
-        location = null, field = null,
+        location = null, field = null, location_id = null,
         bracket_id = null, bracket_game_id = null,
       } = req.body ?? {};
 
@@ -82,7 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         INSERT INTO season_games (
           season_id, gamedate, gametime, home, away,
           homescore, awayscore, game_type, gamestatusid,
-          location, field, bracket_id, bracket_game_id
+          location, field, location_id, bracket_id, bracket_game_id
         )
         VALUES (
           ${seasonId},
@@ -96,6 +97,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null},
           ${location || null},
           ${field || null},
+          ${location_id ? Number(location_id) : null},
           ${bracket_id ? Number(bracket_id) : null},
           ${bracket_game_id || null}
         )
@@ -112,7 +114,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         id, home, away, gamedate, gametime,
         homescore = null, awayscore = null, gamestatusid,
-        location, field,
+        location, field, location_id,
       } = req.body ?? {};
 
       if (!id) return res.status(400).json({ error: "id is required" });
@@ -130,7 +132,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           awayscore   = ${awayscore != null && awayscore !== "" ? Number(awayscore) : null},
           gamestatusid = ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null},
           location    = ${location !== undefined ? (location || null) : null},
-          field       = ${field !== undefined ? (field || null) : null}
+          field       = ${field !== undefined ? (field || null) : null},
+          location_id = ${location_id !== undefined ? (location_id ? Number(location_id) : null) : null}
         WHERE id = ${Number(id)} AND season_id = ${seasonId}
         RETURNING id
       `;

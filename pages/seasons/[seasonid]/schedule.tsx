@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
+import type { LocationPickerValue } from "@/components/LocationPicker";
 
 // Games API returns: { id, gamedate, gametime, home (id), home_team (name), away (id), away_team (name), ... }
 type GameRow = {
@@ -22,6 +24,7 @@ type GameRow = {
   gamestatusid: number | null;
   location: string | null;
   field: string | null;
+  location_id: number | null;
   game_type: string;
   bracket_id: number | null;
   bracket_game_id: string | null;
@@ -48,12 +51,13 @@ type GameForm = {
   gamestatusid: string;
   location: string;
   field: string;
+  locationId: number | null;
 };
 
 const BLANK_FORM: GameForm = {
   gamedate: "", gametime: "", home: "", away: "",
   homescore: "", awayscore: "", gamestatusid: "",
-  location: "", field: "",
+  location: "", field: "", locationId: null,
 };
 
 // Forfeit game status IDs
@@ -141,20 +145,14 @@ function GameFormPanel({
           <option value="">Away team…</option>
           {teams.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
         </select>
-        <input
-          className={INPUT}
-          type="text"
-          value={form.location}
-          onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))}
-          placeholder="Location"
-        />
-        <input
-          className={INPUT}
-          type="text"
-          value={form.field}
-          onChange={(e) => setForm((p) => ({ ...p, field: e.target.value }))}
-          placeholder="Field"
-        />
+        <div className="col-span-2">
+          <LocationPicker
+            locationId={form.locationId}
+            location={form.location}
+            field={form.field}
+            onChange={(val: LocationPickerValue) => setForm((p) => ({ ...p, locationId: val.locationId, location: val.location, field: val.field }))}
+          />
+        </div>
         <input
           className={INPUT}
           type="number"
@@ -204,6 +202,7 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
     gamestatusid: form.gamestatusid !== "" ? Number(form.gamestatusid) : null,
     location: form.location || null,
     field: form.field || null,
+    location_id: form.locationId ?? null,
     ...extra,
   };
 }
@@ -357,6 +356,7 @@ function ScheduleBody() {
       gamestatusid: g.gamestatusid != null ? String(g.gamestatusid) : "",
       location: g.location ?? "",
       field: g.field ?? "",
+      locationId: g.location_id ?? null,
     });
     setEditErr(null);
   };
@@ -428,8 +428,8 @@ function ScheduleBody() {
             <td className="p-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
               <div>{g.gamedate ? formatMMDDYY(g.gamedate) : "—"}</div>
               {(g.location || g.field) && (
-                <div className="text-[10px] text-muted-foreground/60 mt-0.5 truncate max-w-[140px]">
-                  {[g.location, g.field].filter(Boolean).join(" · ")}
+                <div className="mt-0.5 truncate max-w-[140px]">
+                  <LocationDisplay locationId={g.location_id} location={g.location} field={g.field} className="text-[10px] text-muted-foreground/60" />
                 </div>
               )}
             </td>
@@ -910,9 +910,7 @@ function ScheduleBody() {
                   {/* Row 4: Location + Actions */}
                   <div className="flex items-center justify-between">
                     {(g.location || g.field) ? (
-                      <span className="text-[11px] text-muted-foreground/60 truncate" style={{ fontFamily: "var(--font-body)" }}>
-                        {[g.location, g.field].filter(Boolean).join(" · ")}
-                      </span>
+                      <LocationDisplay locationId={g.location_id} location={g.location} field={g.field} className="text-[11px] text-muted-foreground/60 truncate" />
                     ) : <span />}
                     <div className="flex items-center gap-1">
                       <Link
