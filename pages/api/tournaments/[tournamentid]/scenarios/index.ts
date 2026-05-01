@@ -20,6 +20,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.opponent_team_id, t2.name AS opponent_team_name,
           sq.target_seed, sq.seed_mode,
           sq.is_possible, sq.probability, sq.simulations_run,
+          sq.sample_scenario,
+          sq.most_likely_seed, sq.seed_distribution,
+          sq.matchup_distribution, sq.most_likely_opponent_id,
           sq.status, sq.error_message,
           sq.created_at, sq.updated_at
         FROM scenario_questions sq
@@ -33,7 +36,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === "POST") {
       const { questionType, teamId, targetSeed, seedMode, opponentTeamId } = req.body ?? {};
-      const qType = questionType === "first_round_matchup" ? "first_round_matchup" : "seed_achievable";
+      const qType = questionType === "first_round_matchup"
+        ? "first_round_matchup"
+        : questionType === "most_likely_seed"
+        ? "most_likely_seed"
+        : questionType === "most_likely_matchup"
+        ? "most_likely_matchup"
+        : "seed_achievable";
 
       if (!teamId) {
         return res.status(400).json({ error: "teamId is required" });
@@ -65,6 +74,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const rows = await sql`
           INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode)
           VALUES ('tournament', ${tournamentId}, 'seed_achievable', ${teamId}, ${seed}, ${mode})
+          RETURNING *
+        `;
+        return res.status(201).json({ scenario: rows[0] });
+      }
+
+      if (qType === "most_likely_seed") {
+        const rows = await sql`
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
+          VALUES ('tournament', ${tournamentId}, 'most_likely_seed', ${teamId})
+          RETURNING *
+        `;
+        return res.status(201).json({ scenario: rows[0] });
+      }
+
+      if (qType === "most_likely_matchup") {
+        const rows = await sql`
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
+          VALUES ('tournament', ${tournamentId}, 'most_likely_matchup', ${teamId})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });

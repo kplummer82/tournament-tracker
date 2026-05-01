@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { waitUntil } from "@vercel/functions";
 import { sql } from "@/lib/db";
-import { runScenarioAnalysis, runFirstRoundMatchupAnalysis, runMostLikelySeedAnalysis } from "@/lib/scenarios/engine";
+import { runScenarioAnalysis, runFirstRoundMatchupAnalysis, runMostLikelySeedAnalysis, runMostLikelyMatchupAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { seasonId: number; scenarioId: number } | null {
   const rawSeason = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
@@ -66,6 +66,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             )
           : scenario.question_type === "most_likely_seed"
           ? await runMostLikelySeedAnalysis(seasonId, scenario.team_id, onProgress)
+          : scenario.question_type === "most_likely_matchup"
+          ? await runMostLikelyMatchupAnalysis(seasonId, scenario.team_id, onProgress)
           : await runScenarioAnalysis(
               seasonId,
               scenario.team_id,
@@ -80,6 +82,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const distJson = result.seedDistribution !== null
           ? JSON.stringify(result.seedDistribution)
           : null;
+        const matchupDistJson = result.matchupDistribution
+          ? JSON.stringify(result.matchupDistribution)
+          : null;
 
         await sql`
           UPDATE scenario_questions
@@ -89,6 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               sample_scenario = ${sampleJson}::jsonb,
               most_likely_seed = ${result.mostLikelySeed},
               seed_distribution = ${distJson}::jsonb,
+              matchup_distribution = ${matchupDistJson}::jsonb,
+              most_likely_opponent_id = ${result.mostLikelyOpponentId ?? null},
               status = 'completed',
               error_message = NULL,
               updated_at = NOW()

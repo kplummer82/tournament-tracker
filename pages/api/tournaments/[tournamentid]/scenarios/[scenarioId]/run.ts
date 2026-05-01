@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { waitUntil } from "@vercel/functions";
 import { sql } from "@/lib/db";
-import { runTournamentScenarioAnalysis, runTournamentFirstRoundMatchupAnalysis } from "@/lib/scenarios/engine";
+import { runTournamentScenarioAnalysis, runTournamentFirstRoundMatchupAnalysis, runTournamentMostLikelySeedAnalysis, runTournamentMostLikelyMatchupAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { tournamentId: number; scenarioId: number } | null {
   const rawT = Array.isArray(req.query.tournamentid) ? req.query.tournamentid[0] : req.query.tournamentid;
@@ -64,6 +64,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               scenario.opponent_team_id,
               onProgress
             )
+          : scenario.question_type === "most_likely_seed"
+          ? await runTournamentMostLikelySeedAnalysis(tournamentId, scenario.team_id, onProgress)
+          : scenario.question_type === "most_likely_matchup"
+          ? await runTournamentMostLikelyMatchupAnalysis(tournamentId, scenario.team_id, onProgress)
           : await runTournamentScenarioAnalysis(
               tournamentId,
               scenario.team_id,
@@ -72,11 +76,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               onProgress
             );
 
+        const sampleJson = result.sampleWinningScenario !== null
+          ? JSON.stringify(result.sampleWinningScenario)
+          : null;
+        const distJson = result.seedDistribution !== null
+          ? JSON.stringify(result.seedDistribution)
+          : null;
+        const matchupDistJson = result.matchupDistribution
+          ? JSON.stringify(result.matchupDistribution)
+          : null;
+
         await sql`
           UPDATE scenario_questions
           SET is_possible = ${result.isPossible},
               probability = ${result.probability},
               simulations_run = ${result.simulationsRun},
+              sample_scenario = ${sampleJson}::jsonb,
+              most_likely_seed = ${result.mostLikelySeed},
+              seed_distribution = ${distJson}::jsonb,
+              matchup_distribution = ${matchupDistJson}::jsonb,
+              most_likely_opponent_id = ${result.mostLikelyOpponentId ?? null},
               status = 'completed',
               error_message = NULL,
               updated_at = NOW()

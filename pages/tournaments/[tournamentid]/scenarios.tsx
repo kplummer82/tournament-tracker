@@ -2,14 +2,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
-import { Dices, Trash2, RotateCw } from "lucide-react";
+import { Dices, Trash2, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type TeamRow = { id: number; name: string };
 
+type MatchupEntry = {
+  teamId: number;
+  teamName: string;
+  probability: number;
+};
+
 type ScenarioRow = {
   id: number;
-  question_type: "seed_achievable" | "first_round_matchup";
+  question_type: "seed_achievable" | "first_round_matchup" | "most_likely_seed" | "most_likely_matchup";
   team_id: number;
   team_name: string | null;
   opponent_team_id: number | null;
@@ -19,10 +25,104 @@ type ScenarioRow = {
   is_possible: boolean | null;
   probability: number | null;
   simulations_run: number;
+  sample_scenario: unknown[] | null;
+  most_likely_seed: number | null;
+  seed_distribution: { seed: number; probability: number }[] | null;
+  matchup_distribution: MatchupEntry[] | null;
+  most_likely_opponent_id: number | null;
   status: "pending" | "running" | "completed" | "error";
   error_message: string | null;
   created_at: string;
 };
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
+/* ─── Matchup Distribution ─── */
+
+function MatchupDistribution({
+  distribution,
+  probability,
+  simulationsRun,
+}: {
+  distribution: MatchupEntry[];
+  probability: number | null;
+  simulationsRun: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const maxProb = Math.max(...distribution.map((d) => d.probability), 0);
+  const top = distribution[0];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        {top && (
+          <span className="text-lg font-bold" style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}>
+            {top.teamName}
+          </span>
+        )}
+        {probability !== null && (
+          <span className="text-lg font-bold tabular-nums" style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}>
+            {Number(probability).toFixed(1)}%
+          </span>
+        )}
+        <span className="text-[10px] text-muted-foreground ml-auto">
+          {simulationsRun.toLocaleString()} simulations
+        </span>
+      </div>
+
+      <div className="border-t border-border/50 pt-2.5 mt-0.5">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+          All possible opponents
+        </button>
+
+        {open && (
+          <div className="mt-2 space-y-1">
+            {distribution.map((d) => {
+              const barPct = maxProb > 0 ? (d.probability / maxProb) * 100 : 0;
+              const isBest = d.teamId === top?.teamId;
+              return (
+                <div key={d.teamId} className="flex items-center gap-2 text-xs">
+                  <span
+                    className="w-28 text-right shrink-0 truncate text-muted-foreground"
+                    style={{ fontFamily: "var(--font-body)" }}
+                    title={d.teamName}
+                  >
+                    {d.teamName}
+                  </span>
+                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full transition-all", isBest ? "bg-primary" : "bg-muted-foreground/40")}
+                      style={{ width: `${barPct}%` }}
+                    />
+                  </div>
+                  <span
+                    className={cn("w-10 tabular-nums shrink-0 text-right", isBest ? "text-foreground font-semibold" : "text-muted-foreground")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {d.probability.toFixed(1)}%
+                  </span>
+                  {isBest && (
+                    <span className="text-[10px] text-muted-foreground/60 shrink-0">&larr; most likely</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ─── Create Form ─── */
 
@@ -35,7 +135,7 @@ function CreateScenarioForm({
   teams: TeamRow[];
   onCreated: (s: ScenarioRow) => void;
 }) {
-  const [questionType, setQuestionType] = useState<"seed_achievable" | "first_round_matchup">("seed_achievable");
+  const [questionType, setQuestionType] = useState<"seed_achievable" | "first_round_matchup" | "most_likely_seed" | "most_likely_matchup">("seed_achievable");
   const [teamId, setTeamId] = useState<number | "">(teams[0]?.id ?? "");
   const [opponentTeamId, setOpponentTeamId] = useState<number | "">(teams[1]?.id ?? teams[0]?.id ?? "");
   const [targetSeed, setTargetSeed] = useState(1);
@@ -52,6 +152,8 @@ function CreateScenarioForm({
     try {
       const body = questionType === "first_round_matchup"
         ? { questionType, teamId, opponentTeamId }
+        : questionType === "most_likely_seed" || questionType === "most_likely_matchup"
+        ? { questionType, teamId }
         : { questionType, teamId, targetSeed, seedMode };
 
       const res = await fetch(`/api/tournaments/${tournamentId}/scenarios`, {
@@ -88,8 +190,8 @@ function CreateScenarioForm({
       </h3>
 
       {/* Scenario type tabs */}
-      <div className="flex gap-1 p-1 rounded-lg bg-muted/40 border border-border w-fit">
-        {(["seed_achievable", "first_round_matchup"] as const).map((type) => (
+      <div className="flex flex-wrap gap-1 p-1 rounded-lg bg-muted/40 border border-border w-fit">
+        {(["seed_achievable", "first_round_matchup", "most_likely_seed", "most_likely_matchup"] as const).map((type) => (
           <button
             key={type}
             type="button"
@@ -102,7 +204,10 @@ function CreateScenarioForm({
             )}
             style={{ fontFamily: "var(--font-body)" }}
           >
-            {type === "seed_achievable" ? "Seed achievable?" : "First-round matchup?"}
+            {type === "seed_achievable" ? "Seed achievable?"
+              : type === "first_round_matchup" ? "First-round matchup?"
+              : type === "most_likely_seed" ? "Most likely seed?"
+              : "Most likely matchup?"}
           </button>
         ))}
       </div>
@@ -110,7 +215,11 @@ function CreateScenarioForm({
       <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
         {questionType === "seed_achievable"
           ? "Can a team achieve a specific seed for bracket play?"
-          : "Can two teams be matched up in the first round of bracket play?"}
+          : questionType === "first_round_matchup"
+          ? "Can two teams be matched up in the first round of bracket play?"
+          : questionType === "most_likely_seed"
+          ? "Where will this team most likely finish in pool play standings?"
+          : "Who will this team most likely face in the first round of bracket play?"}
       </p>
 
       <div className="flex flex-wrap gap-4">
@@ -130,7 +239,7 @@ function CreateScenarioForm({
           </select>
         </label>
 
-        {questionType === "seed_achievable" ? (
+        {questionType === "seed_achievable" && (
           <>
             {/* Target Seed */}
             <label className="w-24">
@@ -163,7 +272,9 @@ function CreateScenarioForm({
               </select>
             </label>
           </>
-        ) : (
+        )}
+
+        {questionType === "first_round_matchup" && (
           /* Opponent Team */
           <label className="flex-1 min-w-[180px]">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide block mb-1">
@@ -259,9 +370,15 @@ function ScenarioCard({
   };
 
   const isMatchup = scenario.question_type === "first_round_matchup";
+  const isMostLikelySeed = scenario.question_type === "most_likely_seed";
+  const isMostLikelyMatchup = scenario.question_type === "most_likely_matchup";
 
   const questionLabel = isMatchup
     ? `Can they meet in round 1?`
+    : isMostLikelySeed
+    ? `What seed will they most likely finish?`
+    : isMostLikelyMatchup
+    ? `Who will they most likely face in round 1?`
     : scenario.seed_mode === "exact"
       ? `Can they achieve exactly seed #${scenario.target_seed}?`
       : `Can they achieve seed #${scenario.target_seed} or better?`;
@@ -324,43 +441,73 @@ function ScenarioCard({
       )}
 
       {scenario.status === "completed" && (
-        <div className="flex items-center gap-3">
-          {scenario.is_possible === false ? (
-            <span
-              className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
-              style={{
-                fontFamily: "var(--font-display)",
-                borderColor: "var(--destructive)",
-                color: "var(--destructive)",
-              }}
-            >
-              Impossible
-            </span>
-          ) : (
-            <>
-              <span
-                className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
-                style={{
-                  fontFamily: "var(--font-display)",
-                  borderColor: "var(--success)",
-                  color: "var(--success)",
-                }}
-              >
-                Possible
-              </span>
-              {scenario.probability !== null && (
-                <span
-                  className="text-lg font-bold tabular-nums"
-                  style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
-                >
-                  {Number(scenario.probability) === 0 ? "<1.0%" : `${Number(scenario.probability).toFixed(1)}%`}
+        <div className="space-y-0">
+          {isMostLikelyMatchup ? (
+            scenario.matchup_distribution && scenario.matchup_distribution.length > 0 ? (
+              <MatchupDistribution
+                distribution={scenario.matchup_distribution}
+                probability={scenario.probability}
+                simulationsRun={scenario.simulations_run}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">No matchup data.</p>
+            )
+          ) : isMostLikelySeed ? (
+            <div className="flex items-center gap-3">
+              {scenario.most_likely_seed !== null && (
+                <span className="text-lg font-bold" style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}>
+                  {ordinal(scenario.most_likely_seed)} seed
                 </span>
               )}
-            </>
+              {scenario.probability !== null && (
+                <span className="text-lg font-bold tabular-nums" style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}>
+                  {Number(scenario.probability).toFixed(1)}%
+                </span>
+              )}
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                {scenario.simulations_run.toLocaleString()} simulations
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              {scenario.is_possible === false ? (
+                <span
+                  className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
+                  style={{
+                    fontFamily: "var(--font-display)",
+                    borderColor: "var(--destructive)",
+                    color: "var(--destructive)",
+                  }}
+                >
+                  Impossible
+                </span>
+              ) : (
+                <>
+                  <span
+                    className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      borderColor: "var(--success)",
+                      color: "var(--success)",
+                    }}
+                  >
+                    Possible
+                  </span>
+                  {scenario.probability !== null && (
+                    <span
+                      className="text-lg font-bold tabular-nums"
+                      style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
+                    >
+                      {Number(scenario.probability) === 0 ? "<1.0%" : `${Number(scenario.probability).toFixed(1)}%`}
+                    </span>
+                  )}
+                </>
+              )}
+              <span className="text-[10px] text-muted-foreground ml-auto">
+                {scenario.simulations_run.toLocaleString()} simulations
+              </span>
+            </div>
           )}
-          <span className="text-[10px] text-muted-foreground ml-auto">
-            {scenario.simulations_run.toLocaleString()} simulations
-          </span>
         </div>
       )}
 

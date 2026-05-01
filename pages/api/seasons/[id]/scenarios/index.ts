@@ -22,6 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.is_possible, sq.probability, sq.simulations_run,
           sq.sample_scenario,
           sq.most_likely_seed, sq.seed_distribution,
+          sq.matchup_distribution, sq.most_likely_opponent_id,
           sq.status, sq.error_message,
           sq.created_at, sq.updated_at
         FROM scenario_questions sq
@@ -39,6 +40,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         ? "first_round_matchup"
         : questionType === "most_likely_seed"
         ? "most_likely_seed"
+        : questionType === "most_likely_matchup"
+        ? "most_likely_matchup"
         : "seed_achievable";
 
       if (!teamId) {
@@ -80,6 +83,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const rows = await sql`
           INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
           VALUES ('season', ${seasonId}, 'most_likely_seed', ${teamId})
+          RETURNING *
+        `;
+        return res.status(201).json({ scenario: rows[0] });
+      }
+
+      if (qType === "most_likely_matchup") {
+        const rows = await sql`
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
+          VALUES ('season', ${seasonId}, 'most_likely_matchup', ${teamId})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });

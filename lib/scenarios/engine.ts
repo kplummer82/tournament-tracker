@@ -34,7 +34,19 @@ import {
 
 type SeedMode = "exact" | "or_better" | "or_worse";
 
+/** A contiguous seed range covered by one bracket (e.g. Gold = seeds 1-8). */
+type BracketSlice = {
+  startSeed: number; // first seed (inclusive)
+  size: number;      // number of teams in this bracket
+};
+
 type ProgressCallback = (simRun: number) => void;
+
+export type MatchupEntry = {
+  teamId: number;
+  teamName: string;
+  probability: number;
+};
 
 export type EngineResult = {
   isPossible: boolean;
@@ -44,6 +56,9 @@ export type EngineResult = {
   /** Populated only for most_likely_seed scenarios. */
   seedDistribution: { seed: number; probability: number }[] | null;
   mostLikelySeed: number | null;
+  /** Populated only for most_likely_matchup scenarios. */
+  matchupDistribution?: MatchupEntry[] | null;
+  mostLikelyOpponentId?: number | null;
 };
 
 /** Convert a SimulatedOutcome to a GameRecord for the TypeScript ranker. */
@@ -108,52 +123,86 @@ async function pooled<T>(
   return results;
 }
 
-/** Get the playoff bracket size for a season (used for first-round matchup pairing). */
-async function getBracketSizeForSeason(seasonId: number): Promise<number> {
+/** Get all playoff bracket slices for a season, ordered by sort_order. */
+async function getBracketSlicesForSeason(seasonId: number): Promise<BracketSlice[]> {
   const bracketRows = await sql`
     SELECT COALESCE(bt.seed_count, (sb.structure->>'numTeams')::int) AS size
     FROM season_brackets sb
     LEFT JOIN bracket_templates bt ON bt.id = sb.template_id
     WHERE sb.season_id = ${seasonId}
     ORDER BY sb.sort_order
-    LIMIT 1
   `;
-  const size = bracketRows[0]?.size ? Number(bracketRows[0].size) : 0;
-  if (size > 0) return size;
-  const countRows = await sql`SELECT COUNT(*)::int AS count FROM season_teams WHERE season_id = ${seasonId}`;
-  return Number(countRows[0]?.count ?? 0);
+
+  if (bracketRows.length === 0) {
+    const countRows = await sql`SELECT COUNT(*)::int AS count FROM season_teams WHERE season_id = ${seasonId}`;
+    const total = Number(countRows[0]?.count ?? 0);
+    return total > 0 ? [{ startSeed: 1, size: total }] : [];
+  }
+
+  const slices: BracketSlice[] = [];
+  let nextStart = 1;
+  for (const row of bracketRows) {
+    const size = Number(row.size);
+    if (size > 0) {
+      slices.push({ startSeed: nextStart, size });
+      nextStart += size;
+    }
+  }
+  return slices;
 }
 
-/** Get the playoff bracket size for a tournament. */
-async function getBracketSizeForTournament(tournamentId: number): Promise<number> {
+/** Get all playoff bracket slices for a tournament. */
+async function getBracketSlicesForTournament(tournamentId: number): Promise<BracketSlice[]> {
   const bracketRows = await sql`
     SELECT COALESCE(bt.seed_count, (tb.structure->>'numTeams')::int) AS size
     FROM tournament_bracket tb
     LEFT JOIN bracket_templates bt ON bt.id = tb.template_id
     WHERE tb.tournament_id = ${tournamentId}
   `;
-  const size = bracketRows[0]?.size ? Number(bracketRows[0].size) : 0;
-  if (size > 0) return size;
-  const countRows = await sql`SELECT COUNT(*)::int AS count FROM tournamentteams WHERE tournamentid = ${tournamentId}`;
-  return Number(countRows[0]?.count ?? 0);
+
+  if (bracketRows.length === 0) {
+    const countRows = await sql`SELECT COUNT(*)::int AS count FROM tournamentteams WHERE tournamentid = ${tournamentId}`;
+    const total = Number(countRows[0]?.count ?? 0);
+    return total > 0 ? [{ startSeed: 1, size: total }] : [];
+  }
+
+  const slices: BracketSlice[] = [];
+  let nextStart = 1;
+  for (const row of bracketRows) {
+    const size = Number(row.size);
+    if (size > 0) {
+      slices.push({ startSeed: nextStart, size });
+      nextStart += size;
+    }
+  }
+  return slices;
 }
 
 /**
- * Check if two teams are paired in round 1 of a standard bracket.
+ * Check if two teams are paired in round 1 of ANY bracket.
+ * Within a bracket covering seeds [start, start+size-1], seeds pair when
+ * their sum equals start + (start + size - 1) = 2*start + size - 1.
  */
 function meetsFirstRoundMatchup(
   standings: StandingsRow[],
   teamId: number,
   opponentTeamId: number,
-  bracketSize: number
+  bracketSlices: BracketSlice[]
 ): boolean {
   const teamRow = standings.find((r) => r.teamid === teamId);
   const opponentRow = standings.find((r) => r.teamid === opponentTeamId);
   if (!teamRow || !opponentRow) return false;
   const s1 = teamRow.rank_final;
   const s2 = opponentRow.rank_final;
-  if (s1 > bracketSize || s2 > bracketSize) return false;
-  return s1 + s2 === bracketSize + 1;
+
+  for (const slice of bracketSlices) {
+    const endSeed = slice.startSeed + slice.size - 1;
+    if (s1 >= slice.startSeed && s1 <= endSeed &&
+        s2 >= slice.startSeed && s2 <= endSeed) {
+      return s1 + s2 === slice.startSeed + endSeed;
+    }
+  }
+  return false;
 }
 
 /**
@@ -432,7 +481,7 @@ async function runMatchupMonteCarlo(
   remainingGames: RemainingGame[],
   teamId: number,
   opponentTeamId: number,
-  bracketSize: number,
+  bracketSlices: BracketSlice[],
   maxRunDiff: number | null,
   callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
   onProgress?: ProgressCallback
@@ -440,7 +489,7 @@ async function runMatchupMonteCarlo(
   const budget = await getMaxSimulations();
   let simulationsRun = 0;
 
-  if (bracketSize < 2) {
+  if (bracketSlices.length === 0 || bracketSlices.every((s) => s.size < 2)) {
     return { isPossible: false, probability: null, simulationsRun: 0, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null };
   }
 
@@ -451,7 +500,7 @@ async function runMatchupMonteCarlo(
   if (remainingGames.length === 0) {
     simulationsRun++;
     onProgress?.(simulationsRun);
-    const met = meetsFirstRoundMatchup(currentStandings, teamId, opponentTeamId, bracketSize);
+    const met = meetsFirstRoundMatchup(currentStandings, teamId, opponentTeamId, bracketSlices);
     const sample = met
       ? buildMatchupSampleScenario([], remainingGames, teamId, opponentTeamId, currentStandings, teamNames)
       : null;
@@ -485,9 +534,28 @@ async function runMatchupMonteCarlo(
   }
   onProgress?.(simulationsRun);
 
-  const kLow  = Math.max(xMinRank, bracketSize + 1 - yMaxRank, 1);
-  const kHigh = Math.min(xMaxRank, bracketSize + 1 - yMinRank, bracketSize);
-  const isPossible = xMinRank !== Infinity && yMinRank !== Infinity && kLow <= kHigh;
+  // Check if a first-round pairing is possible in ANY bracket slice.
+  let isPossible = false;
+  if (xMinRank !== Infinity && yMinRank !== Infinity) {
+    for (const slice of bracketSlices) {
+      const endSeed = slice.startSeed + slice.size - 1;
+      const magicSum = slice.startSeed + endSeed; // paired seeds sum to this
+
+      // Range of seeds x could land at within this bracket
+      const xLo = Math.max(xMinRank, slice.startSeed);
+      const xHi = Math.min(xMaxRank, endSeed);
+      if (xLo > xHi) continue;
+
+      // y must equal magicSum - x, so y ranges from magicSum - xHi to magicSum - xLo
+      // and y must also be in [startSeed, endSeed] ∩ [yMinRank, yMaxRank]
+      const yLo = Math.max(yMinRank, slice.startSeed, magicSum - xHi);
+      const yHi = Math.min(yMaxRank, endSeed, magicSum - xLo);
+      if (yLo <= yHi) {
+        isPossible = true;
+        break;
+      }
+    }
+  }
 
   if (!isPossible) {
     return { isPossible: false, probability: null, simulationsRun, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null };
@@ -505,7 +573,7 @@ async function runMatchupMonteCarlo(
     const tasks = Array.from({ length: batchCount }, () => async () => {
       const outcomes = generateScoredOutcomes(remainingGames, maxRunDiff);
       const standings = await callStandingsFn(outcomes);
-      const met = meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSize);
+      const met = meetsFirstRoundMatchup(standings, teamId, opponentTeamId, bracketSlices);
       return { met, outcomes, standings };
     });
     const results = await pooled(tasks, BATCH_SIZE);
@@ -634,6 +702,116 @@ async function runMostLikelySeedMonteCarlo(
   };
 }
 
+/**
+ * Given standings and bracket slices, find the first-round opponent for a team.
+ * Returns the opponent's teamid, or null if the team isn't in any bracket.
+ */
+function findFirstRoundOpponent(
+  standings: StandingsRow[],
+  teamId: number,
+  bracketSlices: BracketSlice[]
+): number | null {
+  const teamRow = standings.find((r) => r.teamid === teamId);
+  if (!teamRow) return null;
+  const seed = teamRow.rank_final;
+
+  for (const slice of bracketSlices) {
+    const endSeed = slice.startSeed + slice.size - 1;
+    if (seed >= slice.startSeed && seed <= endSeed) {
+      const opponentSeed = slice.startSeed + endSeed - seed;
+      if (opponentSeed === seed) return null; // odd-sized bracket, team has a bye
+      const opponentRow = standings.find((r) => r.rank_final === opponentSeed);
+      return opponentRow?.teamid ?? null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Monte Carlo analysis for "Who will this team most likely face in round 1?"
+ * Runs scored simulations and tallies first-round opponents across all brackets.
+ */
+async function runMostLikelyMatchupMonteCarlo(
+  remainingGames: RemainingGame[],
+  teamId: number,
+  bracketSlices: BracketSlice[],
+  maxRunDiff: number | null,
+  callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const budget = await getMaxSimulations();
+  let simulationsRun = 0;
+  const matchupCounts = new Map<number, number>();
+
+  if (bracketSlices.length === 0 || bracketSlices.every((s) => s.size < 2)) {
+    return { isPossible: false, probability: null, simulationsRun: 0, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null, matchupDistribution: null, mostLikelyOpponentId: null };
+  }
+
+  const currentStandings = await callStandingsFn([]);
+  const teamNames = new Map(currentStandings.map((r) => [r.teamid, r.team ?? `Team ${r.teamid}`]));
+
+  if (remainingGames.length === 0) {
+    simulationsRun++;
+    onProgress?.(simulationsRun);
+    const opponent = findFirstRoundOpponent(currentStandings, teamId, bracketSlices);
+    if (opponent !== null) {
+      const dist: MatchupEntry[] = [{ teamId: opponent, teamName: teamNames.get(opponent) ?? `Team ${opponent}`, probability: 100 }];
+      return { isPossible: true, probability: 100, simulationsRun, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null, matchupDistribution: dist, mostLikelyOpponentId: opponent };
+    }
+    return { isPossible: false, probability: null, simulationsRun, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null, matchupDistribution: null, mostLikelyOpponentId: null };
+  }
+
+  const BATCH_SIZE = 20;
+  const PROGRESS_INTERVAL = 500;
+
+  for (let offset = 0; offset < budget; offset += BATCH_SIZE) {
+    const batchCount = Math.min(BATCH_SIZE, budget - offset);
+    const tasks = Array.from({ length: batchCount }, () => async () => {
+      const outcomes = generateScoredOutcomes(remainingGames, maxRunDiff);
+      const standings = await callStandingsFn(outcomes);
+      return findFirstRoundOpponent(standings, teamId, bracketSlices);
+    });
+
+    const opponents = await pooled(tasks, BATCH_SIZE);
+    for (const opp of opponents) {
+      simulationsRun++;
+      if (opp !== null) matchupCounts.set(opp, (matchupCounts.get(opp) ?? 0) + 1);
+    }
+
+    if (simulationsRun % PROGRESS_INTERVAL < BATCH_SIZE) {
+      onProgress?.(simulationsRun);
+    }
+  }
+
+  onProgress?.(simulationsRun);
+
+  if (matchupCounts.size === 0) {
+    return { isPossible: false, probability: null, simulationsRun, sampleWinningScenario: null, seedDistribution: null, mostLikelySeed: null, matchupDistribution: null, mostLikelyOpponentId: null };
+  }
+
+  const total = simulationsRun;
+  const distribution: MatchupEntry[] = Array.from(matchupCounts.entries())
+    .map(([tid, count]) => ({
+      teamId: tid,
+      teamName: teamNames.get(tid) ?? `Team ${tid}`,
+      probability: Math.round((count / total) * 10000) / 100,
+    }))
+    .sort((a, b) => b.probability - a.probability);
+
+  const top = distribution[0];
+
+  return {
+    isPossible: true,
+    probability: top.probability,
+    simulationsRun,
+    sampleWinningScenario: null,
+    seedDistribution: null,
+    mostLikelySeed: null,
+    matchupDistribution: distribution,
+    mostLikelyOpponentId: top.teamId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Public entry points
 // ---------------------------------------------------------------------------
@@ -696,10 +874,10 @@ export async function runFirstRoundMatchupAnalysis(
   opponentTeamId: number,
   onProgress?: ProgressCallback
 ): Promise<EngineResult> {
-  const [remainingGames, standingsData, bracketSize] = await Promise.all([
+  const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingGames(seasonId),
     fetchSeasonStandingsData(seasonId),
-    getBracketSizeForSeason(seasonId),
+    getBracketSlicesForSeason(seasonId),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;
 
@@ -713,7 +891,7 @@ export async function runFirstRoundMatchupAnalysis(
       )
     );
 
-  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSize, maxRunDiff, callFn, onProgress);
+  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSlices, maxRunDiff, callFn, onProgress);
 }
 
 export async function runTournamentFirstRoundMatchupAnalysis(
@@ -722,10 +900,10 @@ export async function runTournamentFirstRoundMatchupAnalysis(
   opponentTeamId: number,
   onProgress?: ProgressCallback
 ): Promise<EngineResult> {
-  const [remainingGames, standingsData, bracketSize] = await Promise.all([
+  const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingTournamentGames(tournamentId),
     fetchTournamentStandingsData(tournamentId),
-    getBracketSizeForTournament(tournamentId),
+    getBracketSlicesForTournament(tournamentId),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;
 
@@ -739,7 +917,7 @@ export async function runTournamentFirstRoundMatchupAnalysis(
       )
     );
 
-  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSize, maxRunDiff, callFn, onProgress);
+  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSlices, maxRunDiff, callFn, onProgress);
 }
 
 export async function runMostLikelySeedAnalysis(
@@ -788,4 +966,54 @@ export async function runTournamentMostLikelySeedAnalysis(
     );
 
   return runMostLikelySeedMonteCarlo(remainingGames, teamId, maxRunDiff, callFn, onProgress);
+}
+
+export async function runMostLikelyMatchupAnalysis(
+  seasonId: number,
+  teamId: number,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const [remainingGames, standingsData, bracketSlices] = await Promise.all([
+    getRemainingGames(seasonId),
+    fetchSeasonStandingsData(seasonId),
+    getBracketSlicesForSeason(seasonId),
+  ]);
+  const maxRunDiff = standingsData.config.maxrundiff;
+
+  const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
+    Promise.resolve(
+      computeStandings(
+        [...standingsData.games, ...simulated.map(toGameRecord)],
+        standingsData.teams,
+        standingsData.tiebreakers,
+        standingsData.config
+      )
+    );
+
+  return runMostLikelyMatchupMonteCarlo(remainingGames, teamId, bracketSlices, maxRunDiff, callFn, onProgress);
+}
+
+export async function runTournamentMostLikelyMatchupAnalysis(
+  tournamentId: number,
+  teamId: number,
+  onProgress?: ProgressCallback
+): Promise<EngineResult> {
+  const [remainingGames, standingsData, bracketSlices] = await Promise.all([
+    getRemainingTournamentGames(tournamentId),
+    fetchTournamentStandingsData(tournamentId),
+    getBracketSlicesForTournament(tournamentId),
+  ]);
+  const maxRunDiff = standingsData.config.maxrundiff;
+
+  const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
+    Promise.resolve(
+      computeStandings(
+        [...standingsData.games, ...simulated.map(toGameRecord)],
+        standingsData.teams,
+        standingsData.tiebreakers,
+        standingsData.config
+      )
+    );
+
+  return runMostLikelyMatchupMonteCarlo(remainingGames, teamId, bracketSlices, maxRunDiff, callFn, onProgress);
 }
