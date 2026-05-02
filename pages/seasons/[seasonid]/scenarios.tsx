@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
+import SegmentedControl from "@/components/ui/SegmentedControl";
 import { Dices, Trash2, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,6 +39,7 @@ type ScenarioRow = {
   seed_distribution: { seed: number; probability: number }[] | null;
   matchup_distribution: MatchupEntry[] | null;
   most_likely_opponent_id: number | null;
+  as_of_date: string | null;
   status: "pending" | "running" | "completed" | "error";
   error_message: string | null;
   created_at: string;
@@ -363,13 +365,17 @@ function MatchupDistribution({
 
 /* ─── Create Form ─── */
 
+type ScenarioTimeMode = "current" | "as-of";
+
 function CreateScenarioForm({
   seasonId,
   teams,
+  dateRange,
   onCreated,
 }: {
   seasonId: number;
   teams: TeamRow[];
+  dateRange: { minDate: string | null; maxDate: string | null };
   onCreated: (s: ScenarioRow) => void;
 }) {
   const [questionType, setQuestionType] = useState<"seed_achievable" | "first_round_matchup" | "most_likely_seed" | "most_likely_matchup">("seed_achievable");
@@ -377,8 +383,12 @@ function CreateScenarioForm({
   const [opponentTeamId, setOpponentTeamId] = useState<number | "">(teams[1]?.id ?? teams[0]?.id ?? "");
   const [targetSeed, setTargetSeed] = useState(1);
   const [seedMode, setSeedMode] = useState<"or_better" | "or_worse" | "exact">("or_better");
+  const [timeMode, setTimeMode] = useState<ScenarioTimeMode>("current");
+  const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const today = new Date().toLocaleDateString("en-CA");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -387,11 +397,12 @@ function CreateScenarioForm({
     setSubmitting(true);
     setErr(null);
     try {
-      const body = questionType === "first_round_matchup"
+      const base = questionType === "first_round_matchup"
         ? { questionType, teamId, opponentTeamId }
         : questionType === "most_likely_seed" || questionType === "most_likely_matchup"
         ? { questionType, teamId }
         : { questionType, teamId, targetSeed, seedMode };
+      const body = timeMode === "as-of" ? { ...base, asOfDate } : base;
 
       const res = await fetch(`/api/seasons/${seasonId}/scenarios`, {
         method: "POST",
@@ -531,6 +542,30 @@ function CreateScenarioForm({
         )}
       </div>
 
+      {/* Time mode */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <SegmentedControl<ScenarioTimeMode>
+          options={[
+            { key: "current", label: "Current" },
+            { key: "as-of", label: "As-of" },
+          ]}
+          active={timeMode}
+          onChange={setTimeMode}
+          size="sm"
+        />
+        {timeMode === "as-of" && (
+          <input
+            type="date"
+            value={asOfDate}
+            onChange={(e) => setAsOfDate(e.target.value)}
+            min={dateRange.minDate ?? undefined}
+            max={dateRange.maxDate && dateRange.maxDate < today ? dateRange.maxDate : today}
+            className="border border-border bg-background px-2 py-1 text-xs text-foreground rounded-md focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
+            style={{ fontFamily: "var(--font-body)" }}
+          />
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
@@ -640,6 +675,11 @@ function ScenarioCard({
           </p>
           <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
             {questionLabel}
+            {scenario.as_of_date && (
+              <span className="ml-2 inline-block px-1.5 py-px text-[9px] font-bold tracking-[0.05em] uppercase border border-border text-muted-foreground" style={{ fontFamily: "var(--font-display)" }}>
+                As of {new Date(scenario.as_of_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+              </span>
+            )}
           </p>
         </div>
         <div className="flex gap-1.5 shrink-0">
@@ -777,6 +817,7 @@ function ScenariosBody() {
   const [scenarios, setScenarios] = useState<ScenarioRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<{ minDate: string | null; maxDate: string | null }>({ minDate: null, maxDate: null });
 
   useEffect(() => {
     if (!seasonId) return;
@@ -785,16 +826,19 @@ function ScenariosBody() {
       setLoading(true);
       setErr(null);
       try {
-        const [teamsRes, scenariosRes] = await Promise.all([
+        const [teamsRes, scenariosRes, dateRangeRes] = await Promise.all([
           fetch(`/api/seasons/${seasonId}/teams`),
           fetch(`/api/seasons/${seasonId}/scenarios`),
+          fetch(`/api/seasons/${seasonId}/date-range`),
         ]);
         if (!teamsRes.ok || !scenariosRes.ok) throw new Error("Failed to load data");
         const teamsData = await teamsRes.json();
         const scenariosData = await scenariosRes.json();
+        const dateRangeData = dateRangeRes.ok ? await dateRangeRes.json() : {};
         if (!cancelled) {
           setTeams(Array.isArray(teamsData.teams) ? teamsData.teams : []);
           setScenarios(Array.isArray(scenariosData.scenarios) ? scenariosData.scenarios : []);
+          setDateRange({ minDate: dateRangeData.minDate ?? null, maxDate: dateRangeData.maxDate ?? null });
         }
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Failed to load");
@@ -858,6 +902,7 @@ function ScenariosBody() {
         <CreateScenarioForm
           seasonId={seasonId}
           teams={teams}
+          dateRange={dateRange}
           onCreated={handleCreated}
         />
       )}

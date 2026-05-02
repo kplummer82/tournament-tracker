@@ -9,6 +9,7 @@ import { seedLabelsFromAssignments } from "@/components/bracket/SeedAssignment";
 import type { BracketStructure } from "@/components/bracket/types";
 import BracketGameScheduleModal from "@/components/bracket/BracketGameScheduleModal";
 import type { BracketGameRecord } from "@/components/bracket/BracketGameScheduleModal";
+import StandingsModeToggle, { type StandingsMode } from "@/components/seasons/StandingsModeToggle";
 import { GitBranch, Plus, Trash2, ChevronDown, ChevronRight, RefreshCw, AlertTriangle, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -425,25 +426,31 @@ function PlayoffsBody() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
-  const [includeInProgress, setIncludeInProgress] = useState(false);
 
-  // Load brackets and teams once on mount
+  const [standingsMode, setStandingsMode] = useState<StandingsMode>("current");
+  const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
+  const [dateRange, setDateRange] = useState<{ minDate: string | null; maxDate: string | null }>({ minDate: null, maxDate: null });
+
+  // Load brackets, teams, and date range once on mount
   useEffect(() => {
     if (!seasonId) return;
     let cancelled = false;
     (async () => {
       setLoading(true); setErr(null);
       try {
-        const [bracketsRes, teamsRes] = await Promise.all([
+        const [bracketsRes, teamsRes, dateRangeRes] = await Promise.all([
           fetch(`/api/seasons/${seasonId}/brackets`),
           fetch(`/api/seasons/${seasonId}/teams`),
+          fetch(`/api/seasons/${seasonId}/date-range`),
         ]);
         const bracketsData = bracketsRes.ok ? await bracketsRes.json() : { brackets: [] };
         const teamsData = teamsRes.ok ? await teamsRes.json() : { teams: [] };
+        const dateRangeData = dateRangeRes.ok ? await dateRangeRes.json() : {};
         if (!cancelled) {
           setBrackets(Array.isArray(bracketsData?.brackets) ? bracketsData.brackets : []);
           const rawTeams = Array.isArray(teamsData?.teams) ? teamsData.teams : [];
           setTeams(rawTeams.map((t: any) => ({ id: t.id, name: t.name })));
+          setDateRange({ minDate: dateRangeData.minDate ?? null, maxDate: dateRangeData.maxDate ?? null });
         }
       } catch (e: unknown) {
         if (!cancelled) setErr((e as Error).message || "Failed to load");
@@ -454,13 +461,19 @@ function PlayoffsBody() {
     return () => { cancelled = true; };
   }, [seasonId]);
 
-  // Reload standings whenever includeInProgress changes
+  // Reload standings whenever mode/asOfDate changes
   useEffect(() => {
     if (!seasonId) return;
     let cancelled = false;
     (async () => {
       try {
-        const standingsRes = await fetch(`/api/seasons/${seasonId}/standings?includeInProgress=${includeInProgress}`);
+        let url = `/api/seasons/${seasonId}/standings`;
+        if (standingsMode === "live") {
+          url += "?includeInProgress=true";
+        } else if (standingsMode === "as-of") {
+          url += `?asOfDate=${asOfDate}`;
+        }
+        const standingsRes = await fetch(url);
         const standingsData = standingsRes.ok ? await standingsRes.json() : { standings: [] };
         if (!cancelled) {
           const standings: StandingsRow[] = Array.isArray(standingsData?.standings) ? standingsData.standings : [];
@@ -469,7 +482,7 @@ function PlayoffsBody() {
       } catch { /* no-op */ }
     })();
     return () => { cancelled = true; };
-  }, [seasonId, includeInProgress]);
+  }, [seasonId, standingsMode, asOfDate]);
 
   const handleBracketCreated = (b: SeasonBracket) => {
     setBrackets((prev) => [...prev, b].sort((a, x) => a.sort_order - x.sort_order));
@@ -502,17 +515,16 @@ function PlayoffsBody() {
                 ` · ${standingsOrder.length} team${standingsOrder.length !== 1 ? "s" : ""} seeded from standings`}
             </p>
           )}
-          <label className="flex items-center gap-1.5 cursor-pointer select-none mt-2">
-            <input
-              type="checkbox"
-              checked={includeInProgress}
-              onChange={(e) => setIncludeInProgress(e.target.checked)}
-              className="w-3.5 h-3.5 accent-primary cursor-pointer"
+          <div className="mt-2">
+            <StandingsModeToggle
+              mode={standingsMode}
+              onModeChange={setStandingsMode}
+              asOfDate={asOfDate}
+              onAsOfDateChange={setAsOfDate}
+              minDate={dateRange.minDate}
+              maxDate={dateRange.maxDate}
             />
-            <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-              Include In Progress
-            </span>
-          </label>
+          </div>
         </div>
         {canEdit && (
           <button

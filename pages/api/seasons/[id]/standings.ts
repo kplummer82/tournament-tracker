@@ -19,8 +19,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "Invalid season id" });
   }
 
+  const includeInProgress = req.query.includeInProgress === "true";
+  const rawAsOf = Array.isArray(req.query.asOfDate) ? req.query.asOfDate[0] : req.query.asOfDate;
+  const asOfDate = typeof rawAsOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawAsOf) ? rawAsOf : undefined;
+
   try {
-    const data = await fetchSeasonStandingsData(seasonId);
+    const data = await fetchSeasonStandingsData(seasonId, { includeInProgress, asOfDate });
     const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config);
     const standings = [...rows].sort((a, b) => a.rank_final - b.rank_final);
     return res.status(200).json({ standings });

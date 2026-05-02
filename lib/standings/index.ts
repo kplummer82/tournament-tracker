@@ -8,25 +8,24 @@ import type { GameRecord, SeasonConfig, TeamRecord, TiebreakerConfig } from "./t
 // Season data fetcher
 // ---------------------------------------------------------------------------
 
-export async function fetchSeasonStandingsData(seasonId: number): Promise<{
+export async function fetchSeasonStandingsData(
+  seasonId: number,
+  opts?: { includeInProgress?: boolean; asOfDate?: string }
+): Promise<{
   games: GameRecord[];
   teams: TeamRecord[];
   tiebreakers: TiebreakerConfig[];
   config: SeasonConfig;
 }> {
-  const [teamRows, gameRows, tbRows, configRows] = await Promise.all([
+  const { includeInProgress = false, asOfDate } = opts ?? {};
+
+  // Teams, tiebreakers, and config don't depend on mode — fetch in parallel
+  const [teamRows, tbRows, configRows] = await Promise.all([
     sql`
       SELECT st.team_id AS teamid, t.name AS team
       FROM season_teams st
       JOIN teams t ON t.teamid = st.team_id
       WHERE st.season_id = ${seasonId}
-    `,
-    sql`
-      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
-      FROM season_games
-      WHERE season_id = ${seasonId}
-        AND game_type = 'regular'
-        AND gamestatusid IN (4, 6, 7)
     `,
     sql`
       SELECT tb.tiebreaker AS code,
@@ -43,6 +42,35 @@ export async function fetchSeasonStandingsData(seasonId: number): Promise<{
       WHERE id = ${seasonId}
     `,
   ]);
+
+  // Game query varies by mode
+  let gameRows;
+  if (asOfDate) {
+    gameRows = await sql`
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      FROM season_games
+      WHERE season_id = ${seasonId}
+        AND game_type = 'regular'
+        AND gamestatusid IN (4, 6, 7)
+        AND gamedate <= ${asOfDate}
+    `;
+  } else if (includeInProgress) {
+    gameRows = await sql`
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      FROM season_games
+      WHERE season_id = ${seasonId}
+        AND game_type = 'regular'
+        AND gamestatusid IN (3, 4, 6, 7)
+    `;
+  } else {
+    gameRows = await sql`
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      FROM season_games
+      WHERE season_id = ${seasonId}
+        AND game_type = 'regular'
+        AND gamestatusid IN (4, 6, 7)
+    `;
+  }
 
   const teams = teamRows as TeamRecord[];
 

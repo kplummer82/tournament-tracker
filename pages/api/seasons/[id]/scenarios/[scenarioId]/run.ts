@@ -57,23 +57,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `.catch(() => {});
         };
 
+        const asOfDate = scenario.as_of_date ?? undefined;
+
         const result = scenario.question_type === "first_round_matchup"
           ? await runFirstRoundMatchupAnalysis(
               seasonId,
               scenario.team_id,
               scenario.opponent_team_id,
-              onProgress
+              onProgress,
+              asOfDate
             )
           : scenario.question_type === "most_likely_seed"
-          ? await runMostLikelySeedAnalysis(seasonId, scenario.team_id, onProgress)
+          ? await runMostLikelySeedAnalysis(seasonId, scenario.team_id, onProgress, asOfDate)
           : scenario.question_type === "most_likely_matchup"
-          ? await runMostLikelyMatchupAnalysis(seasonId, scenario.team_id, onProgress)
+          ? await runMostLikelyMatchupAnalysis(seasonId, scenario.team_id, onProgress, asOfDate)
           : await runScenarioAnalysis(
               seasonId,
               scenario.team_id,
               scenario.target_seed,
               scenario.seed_mode as "exact" | "or_better" | "or_worse",
-              onProgress
+              onProgress,
+              asOfDate
             );
 
         const sampleJson = result.sampleWinningScenario !== null

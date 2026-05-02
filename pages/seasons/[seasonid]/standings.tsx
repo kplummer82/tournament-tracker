@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
+import SegmentedControl from "@/components/ui/SegmentedControl";
+import StandingsModeToggle, { type StandingsMode } from "@/components/seasons/StandingsModeToggle";
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import SosView, { type SosGameRow } from "@/components/seasons/SosView";
@@ -53,43 +55,7 @@ const formatGB = (gb: number | null): string => {
   return gb % 1 === 0 ? String(gb) : gb.toFixed(1);
 };
 
-/* ── Segmented control ─────────────────────────────────────────────── */
-
-function SegmentedControl<T extends string>({
-  options,
-  active,
-  onChange,
-  size = "default",
-}: {
-  options: { key: T; label: string }[];
-  active: T;
-  onChange: (key: T) => void;
-  size?: "default" | "sm";
-}) {
-  const pad = size === "sm" ? "px-2.5 py-1 text-[10px]" : "px-3 py-1.5 text-[11px]";
-  return (
-    <div className="inline-flex border border-border overflow-hidden">
-      {options.map((o) => (
-        <button
-          key={o.key}
-          onClick={() => onChange(o.key)}
-          className={cn(
-            "font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer",
-            pad,
-            o.key === active
-              ? "bg-primary text-primary-foreground"
-              : "bg-transparent text-muted-foreground hover:text-foreground"
-          )}
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/* ── Standings table (unchanged) ───────────────────────────────────── */
+/* ── Standings table ───────────────────────────────────────────────── */
 
 function StandingsTable({
   rows,
@@ -332,7 +298,10 @@ function StandingsBody() {
   const [rows, setRows] = useState<StandingsRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [includeInProgress, setIncludeInProgress] = useState(false);
+
+  const [standingsMode, setStandingsMode] = useState<StandingsMode>("current");
+  const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
+  const [dateRange, setDateRange] = useState<{ minDate: string | null; maxDate: string | null }>({ minDate: null, maxDate: null });
 
   const [viewMode, setViewMode] = useState<ViewMode>("standings");
   const [sosMode, setSosMode] = useState<SosMode>("full");
@@ -342,6 +311,21 @@ function StandingsBody() {
 
   const advancesToPlayoffs = season?.advances_to_playoffs ?? null;
 
+  // Fetch date range once per season (for as-of date picker bounds)
+  useEffect(() => {
+    if (!seasonId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/seasons/${seasonId}/date-range`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setDateRange({ minDate: data.minDate ?? null, maxDate: data.maxDate ?? null });
+      } catch { /* no-op */ }
+    })();
+    return () => { cancelled = true; };
+  }, [seasonId]);
+
   // Fetch standings
   useEffect(() => {
     if (!seasonId) return;
@@ -349,7 +333,13 @@ function StandingsBody() {
     (async () => {
       setLoading(true); setErr(null);
       try {
-        const res = await fetch(`/api/seasons/${seasonId}/standings?includeInProgress=${includeInProgress}`, {
+        let url = `/api/seasons/${seasonId}/standings`;
+        if (standingsMode === "live") {
+          url += "?includeInProgress=true";
+        } else if (standingsMode === "as-of") {
+          url += `?asOfDate=${asOfDate}`;
+        }
+        const res = await fetch(url, {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
@@ -366,7 +356,7 @@ function StandingsBody() {
       }
     })();
     return () => { cancelled = true; };
-  }, [seasonId, includeInProgress]);
+  }, [seasonId, standingsMode, asOfDate]);
 
   // Lazy-fetch games when SoS view is activated
   useEffect(() => {
@@ -426,17 +416,14 @@ function StandingsBody() {
         <div className="flex items-center gap-3 flex-wrap">
           {/* View-specific controls */}
           {viewMode === "standings" && (
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={includeInProgress}
-                onChange={(e) => setIncludeInProgress(e.target.checked)}
-                className="w-3.5 h-3.5 accent-primary cursor-pointer"
-              />
-              <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                Include In Progress
-              </span>
-            </label>
+            <StandingsModeToggle
+              mode={standingsMode}
+              onModeChange={setStandingsMode}
+              asOfDate={asOfDate}
+              onAsOfDateChange={setAsOfDate}
+              minDate={dateRange.minDate}
+              maxDate={dateRange.maxDate}
+            />
           )}
           {viewMode === "sos" && (
             <SegmentedControl<SosMode>

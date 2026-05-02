@@ -8,7 +8,7 @@ import type { GameRecord, SeasonConfig, TeamRecord, TeamStats } from "./types";
  *   winnerSide = 'home' (away forfeited) → home wins 1, away wins 0
  *   winnerSide = 'away' (home forfeited) → away wins 1, home wins 0
  *   Forfeit run differential = ±forfeit_run_diff (from config)
- *   Forfeit runs scored/against = 0 for both teams
+ *   Forfeit winner gets forfeit_run_diff as runs scored; loser gets it as runs against
  *
  * Normal games:
  *   Run differential capped at ±maxrundiff
@@ -40,12 +40,13 @@ export function computeBaseStats(
         home.wins += 1;
         home.games += 1;
         home.rundiff += forfeit_run_diff;
-        // runs scored/against stay 0 for forfeits
+        home.scored += forfeit_run_diff;
       }
       if (away) {
         away.losses += 1;
         away.games += 1;
         away.rundiff -= forfeit_run_diff;
+        away.against += forfeit_run_diff;
       }
     } else if (g.winnerSide === "away") {
       // Home team forfeited — away wins
@@ -53,11 +54,13 @@ export function computeBaseStats(
         home.losses += 1;
         home.games += 1;
         home.rundiff -= forfeit_run_diff;
+        home.against += forfeit_run_diff;
       }
       if (away) {
         away.wins += 1;
         away.games += 1;
         away.rundiff += forfeit_run_diff;
+        away.scored += forfeit_run_diff;
       }
     } else {
       // Normal scored game

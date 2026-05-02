@@ -74,7 +74,18 @@ function toGameRecord(outcome: SimulatedOutcome): GameRecord {
 }
 
 /** Get remaining (incomplete) regular-season games. */
-async function getRemainingGames(seasonId: number): Promise<RemainingGame[]> {
+async function getRemainingGames(seasonId: number, asOfDate?: string): Promise<RemainingGame[]> {
+  if (asOfDate) {
+    // When viewing as-of a past date: "remaining" = everything NOT in the completed-as-of set
+    const rows = await sql`
+      SELECT id, home, away
+      FROM season_games
+      WHERE season_id = ${seasonId}
+        AND game_type = 'regular'
+        AND NOT (gamestatusid IN (4, 6, 7) AND gamedate <= ${asOfDate})
+    `;
+    return rows as unknown as RemainingGame[];
+  }
   const rows = await sql`
     SELECT id, home, away
     FROM season_games
@@ -821,11 +832,12 @@ export async function runScenarioAnalysis(
   teamId: number,
   targetSeed: number,
   seedMode: SeedMode,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
-    getRemainingGames(seasonId),
-    fetchSeasonStandingsData(seasonId),
+    getRemainingGames(seasonId, asOfDate),
+    fetchSeasonStandingsData(seasonId, { asOfDate }),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;
 
@@ -872,11 +884,12 @@ export async function runFirstRoundMatchupAnalysis(
   seasonId: number,
   teamId: number,
   opponentTeamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
-    getRemainingGames(seasonId),
-    fetchSeasonStandingsData(seasonId),
+    getRemainingGames(seasonId, asOfDate),
+    fetchSeasonStandingsData(seasonId, { asOfDate }),
     getBracketSlicesForSeason(seasonId),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;
@@ -923,11 +936,12 @@ export async function runTournamentFirstRoundMatchupAnalysis(
 export async function runMostLikelySeedAnalysis(
   seasonId: number,
   teamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
-    getRemainingGames(seasonId),
-    fetchSeasonStandingsData(seasonId),
+    getRemainingGames(seasonId, asOfDate),
+    fetchSeasonStandingsData(seasonId, { asOfDate }),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;
 
@@ -971,11 +985,12 @@ export async function runTournamentMostLikelySeedAnalysis(
 export async function runMostLikelyMatchupAnalysis(
   seasonId: number,
   teamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
-    getRemainingGames(seasonId),
-    fetchSeasonStandingsData(seasonId),
+    getRemainingGames(seasonId, asOfDate),
+    fetchSeasonStandingsData(seasonId, { asOfDate }),
     getBracketSlicesForSeason(seasonId),
   ]);
   const maxRunDiff = standingsData.config.maxrundiff;

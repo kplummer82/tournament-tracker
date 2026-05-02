@@ -61,9 +61,9 @@ export function evaluateTiebreaker(
     case "head_to_group_rundiff":
       return headToHeadRunDiff(teamId, memberIds, h2hGames, config, true);
     case "head_to_head_runs_against":
-      return headToHeadRunsAgainst(teamId, memberIds, h2hGames, false);
+      return headToHeadRunsAgainst(teamId, memberIds, h2hGames, config, false);
     case "head_to_group_runs_against":
-      return headToHeadRunsAgainst(teamId, memberIds, h2hGames, true);
+      return headToHeadRunsAgainst(teamId, memberIds, h2hGames, config, true);
   }
 
   // --- Complex tiebreakers (need all games + allStats) -----------------------
@@ -279,12 +279,13 @@ function headToHeadRunDiff(
  * strictGroupOnly = true  → head_to_group_runs_against: all pairs must have played
  * strictGroupOnly = false → head_to_head_runs_against: null only if zero H2H games
  *
- * Forfeits contribute 0 runs against (mirrors how runsagainst is counted in base stats).
+ * Forfeit winner gets 0 runs against; forfeit loser gets forfeit_run_diff runs against.
  */
 function headToHeadRunsAgainst(
   teamId: number,
   memberIds: number[],
   h2hGames: GameRecord[],
+  config: SeasonConfig,
   strictGroupOnly: boolean
 ): number | null {
   const n = memberIds.length;
@@ -303,12 +304,14 @@ function headToHeadRunsAgainst(
   for (const g of h2hGames) {
     if (g.home === teamId) {
       gameCount++;
-      // Runs against home = awayscore (0 for forfeits)
-      total += g.winnerSide !== null ? 0 : (g.awayscore ?? 0);
+      if (g.winnerSide === "home") total += 0;             // won forfeit — 0 RA
+      else if (g.winnerSide === "away") total += config.forfeit_run_diff; // lost forfeit
+      else total += g.awayscore ?? 0;
     } else if (g.away === teamId) {
       gameCount++;
-      // Runs against away = homescore (0 for forfeits)
-      total += g.winnerSide !== null ? 0 : (g.homescore ?? 0);
+      if (g.winnerSide === "away") total += 0;             // won forfeit — 0 RA
+      else if (g.winnerSide === "home") total += config.forfeit_run_diff; // lost forfeit
+      else total += g.homescore ?? 0;
     }
   }
 

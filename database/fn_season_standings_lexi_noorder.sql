@@ -156,10 +156,14 @@ BEGIN
         WHEN (tg.homescore - tg.awayscore) < -s.maxrundiff THEN -s.maxrundiff
         ELSE (tg.homescore - tg.awayscore)
       END AS homerundiff,
-      /* Runs scored: forfeits always 0 */
-      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.homescore END AS home_runs_for,
-      /* Runs against: forfeits always 0 */
-      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.awayscore END AS homerunsagainst
+      /* Runs scored: forfeit winner gets forfeit_run_diff, loser gets 0 */
+      CASE WHEN tg.winner_side = 'home' THEN COALESCE(s.forfeit_run_diff, 0)
+           WHEN tg.winner_side = 'away' THEN 0
+           ELSE tg.homescore END AS home_runs_for,
+      /* Runs against: forfeit winner gets 0, loser gets forfeit_run_diff */
+      CASE WHEN tg.winner_side = 'home' THEN 0
+           WHEN tg.winner_side = 'away' THEN COALESCE(s.forfeit_run_diff, 0)
+           ELSE tg.awayscore END AS homerunsagainst
     FROM seasons s
     JOIN _sg_work tg ON tg.game_type = 'regular'
     LEFT JOIN season_teams sthome ON sthome.team_id = tg.home AND sthome.season_id = s.id
@@ -203,10 +207,14 @@ BEGIN
         WHEN (tg.awayscore - tg.homescore) < -s.maxrundiff THEN -s.maxrundiff
         ELSE (tg.awayscore - tg.homescore)
       END AS awayrundiff,
-      /* Runs scored: forfeits always 0 */
-      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.awayscore END AS away_runs_for,
-      /* Runs against: forfeits always 0 */
-      CASE WHEN tg.winner_side IS NOT NULL THEN 0 ELSE tg.homescore END AS awayrunsagainst
+      /* Runs scored: forfeit winner gets forfeit_run_diff, loser gets 0 */
+      CASE WHEN tg.winner_side = 'away' THEN COALESCE(s.forfeit_run_diff, 0)
+           WHEN tg.winner_side = 'home' THEN 0
+           ELSE tg.awayscore END AS away_runs_for,
+      /* Runs against: forfeit winner gets 0, loser gets forfeit_run_diff */
+      CASE WHEN tg.winner_side = 'away' THEN 0
+           WHEN tg.winner_side = 'home' THEN COALESCE(s.forfeit_run_diff, 0)
+           ELSE tg.homescore END AS awayrunsagainst
     FROM seasons s
     JOIN _sg_work tg ON tg.game_type = 'regular'
     LEFT JOIN season_teams sthome ON sthome.team_id = tg.home AND sthome.season_id = s.id
