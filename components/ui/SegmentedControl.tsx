@@ -17,6 +17,7 @@ export default function SegmentedControl<T extends string>({
       {options.map((o) => (
         <button
           key={o.key}
+          type="button"
           onClick={() => onChange(o.key)}
           className={cn(
             "font-bold tracking-[0.08em] uppercase transition-colors cursor-pointer",

@@ -44,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireAdmin(req, res);
       if (!session) return;
 
-      const { name, address, city, state, zip } = req.body ?? {};
+      const { name, address, city, state, zip, latitude, longitude } = req.body ?? {};
       if (!name?.trim()) {
         return res.status(400).json({ error: "name is required" });
       }
@@ -53,10 +53,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let finalCity = city?.trim() || null;
       let finalState = state?.trim() || null;
       let finalZip = zip?.trim() || null;
+      const finalLat = typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
+      const finalLng = typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
       let uspsVerified = false;
 
-      // Verify address via USPS if address fields are provided
-      if (finalAddress && finalCity && finalState && finalZip) {
+      // Verify address via USPS if enabled and address fields are provided
+      const uspsRows = await sql`SELECT value FROM app_settings WHERE key = 'usps_enabled'`;
+      const uspsEnabled = !uspsRows.length || uspsRows[0].value !== "false";
+
+      if (uspsEnabled && finalAddress && finalCity && finalState && finalZip) {
         const result = await verifyAddress({
           address: finalAddress,
           city: finalCity,
@@ -72,13 +77,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         } else {
           console.warn("[locations] USPS verification failed:", result.error, { address: finalAddress, city: finalCity, state: finalState, zip: finalZip });
         }
+      } else if (!uspsEnabled) {
+        console.info("[locations] USPS disabled — skipping verification");
       } else {
         console.warn("[locations] USPS skipped — missing fields:", { address: finalAddress, city: finalCity, state: finalState, zip: finalZip });
       }
 
       const inserted = await sql`
-        INSERT INTO locations (name, address, city, state, zip, usps_verified)
-        VALUES (${name.trim()}, ${finalAddress}, ${finalCity}, ${finalState}, ${finalZip}, ${uspsVerified})
+        INSERT INTO locations (name, address, city, state, zip, latitude, longitude, usps_verified)
+        VALUES (${name.trim()}, ${finalAddress}, ${finalCity}, ${finalState}, ${finalZip}, ${finalLat}, ${finalLng}, ${uspsVerified})
         RETURNING id, name, address, city, state, zip, latitude, longitude, usps_verified,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;

@@ -32,9 +32,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 async function handleGet(userId: string, res: NextApiResponse) {
   const [teams, leagues, divisions, tournaments] = await Promise.all([
     sql`
-      SELECT t.teamid AS id, t.name
+      SELECT t.teamid AS id, t.name, l.abbreviation AS league_abbreviation, ld.name AS division_name, d.division AS age_division
       FROM user_follows uf
       JOIN teams t ON t.teamid = uf.entity_id
+      LEFT JOIN leagues l ON l.id = t.league_id
+      LEFT JOIN league_divisions ld ON ld.id = t.league_division_id
+      LEFT JOIN divisions d ON d.id = t.division
       WHERE uf.user_id = ${userId} AND uf.entity_type = 'team'
       ORDER BY t.name
     `,
@@ -46,7 +49,7 @@ async function handleGet(userId: string, res: NextApiResponse) {
       ORDER BY l.name
     `,
     sql`
-      SELECT ld.id, ld.name, ld.league_id, l.name AS league_name
+      SELECT ld.id, ld.name, ld.league_id, l.name AS league_name, l.abbreviation AS league_abbreviation
       FROM user_follows uf
       JOIN league_divisions ld ON ld.id = uf.entity_id
       JOIN leagues l ON l.id = ld.league_id

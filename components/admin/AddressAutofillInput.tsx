@@ -21,6 +21,8 @@ interface AddressAutofillInputProps {
   /** Show the street input as the address line (for display / edit) */
   streetInputValue?: string;
   onStreetInputChange?: (val: string) => void;
+  /** When false, forces the manual fallback regardless of token presence */
+  enabled?: boolean;
 }
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
@@ -55,6 +57,7 @@ export default function AddressAutofillInput({
   onAddressChange,
   streetInputValue,
   onStreetInputChange,
+  enabled,
 }: AddressAutofillInputProps) {
   const [resolved, setResolved] = useState(false);
   const [limitReached, setLimitReached] = useState(
@@ -108,7 +111,7 @@ export default function AddressAutofillInput({
     }
   }, [onAddressChange, value.address]);
 
-  if (!MAPBOX_TOKEN || limitReached) {
+  if (!MAPBOX_TOKEN || limitReached || enabled === false) {
     // Fallback: plain text inputs when Mapbox is not configured or daily limit reached
     return (
       <div className="space-y-2">

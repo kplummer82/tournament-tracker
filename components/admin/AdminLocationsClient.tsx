@@ -11,6 +11,11 @@ const AddressAutofillInput = dynamic(
   { ssr: false }
 );
 
+const MapboxPlaceSearch = dynamic(
+  () => import("./MapboxPlaceSearch"),
+  { ssr: false }
+);
+
 type Field = {
   id: number;
   name: string;
@@ -42,8 +47,10 @@ const EMPTY_FORM = { name: "", address: "", city: "", state: "", zip: "" };
 export default function AdminLocationsClient() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(true);
+  const [mapboxEnabled, setMapboxEnabled] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [streetInput, setStreetInput] = useState("");
+  const [createLatLng, setCreateLatLng] = useState<{ latitude: number | null; longitude: number | null }>({ latitude: null, longitude: null });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,6 +65,7 @@ export default function AdminLocationsClient() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
   const [editStreetInput, setEditStreetInput] = useState("");
+  const [editLatLng, setEditLatLng] = useState<{ latitude: number | null; longitude: number | null }>({ latitude: null, longitude: null });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -73,6 +81,13 @@ export default function AdminLocationsClient() {
       .then((d) => setLocations(d.locations ?? []))
       .catch(() => setLocations([]))
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/settings", { credentials: "include" })
+      .then((r) => r.json())
+      .then((d) => setMapboxEnabled(d?.settings?.mapbox_enabled === true))
+      .catch(() => { /* default false */ });
   }, []);
 
   // Load fields when expanding a location
@@ -112,6 +127,8 @@ export default function AdminLocationsClient() {
           city: form.city.trim() || null,
           state: form.state.trim() || null,
           zip: form.zip.trim() || null,
+          latitude: createLatLng.latitude,
+          longitude: createLatLng.longitude,
         }),
       });
       const json = await res.json();
@@ -121,6 +138,7 @@ export default function AdminLocationsClient() {
       );
       setForm({ ...EMPTY_FORM });
       setStreetInput("");
+      setCreateLatLng({ latitude: null, longitude: null });
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -139,6 +157,7 @@ export default function AdminLocationsClient() {
       zip: loc.zip ?? "",
     });
     setEditStreetInput(loc.address ?? "");
+    setEditLatLng({ latitude: loc.latitude, longitude: loc.longitude });
     setEditError(null);
     setConfirmDelete(null);
   };
@@ -162,6 +181,8 @@ export default function AdminLocationsClient() {
           city: editForm.city.trim() || null,
           state: editForm.state.trim() || null,
           zip: editForm.zip.trim() || null,
+          latitude: editLatLng.latitude,
+          longitude: editLatLng.longitude,
         }),
       });
       const json = await res.json();
@@ -289,6 +310,22 @@ export default function AdminLocationsClient() {
           New Location
         </span>
         {error && <p className="text-xs text-destructive">{error}</p>}
+        {mapboxEnabled && (
+          <MapboxPlaceSearch
+            onSelect={(result) => {
+              setForm((p) => ({
+                ...p,
+                name: result.name || p.name,
+                address: result.address,
+                city: result.city,
+                state: result.state,
+                zip: result.zip,
+              }));
+              setStreetInput(result.address);
+              setCreateLatLng({ latitude: result.latitude, longitude: result.longitude });
+            }}
+          />
+        )}
         <input
           className={INPUT}
           placeholder="Location Name *"
@@ -303,6 +340,7 @@ export default function AdminLocationsClient() {
           }
           streetInputValue={streetInput}
           onStreetInputChange={setStreetInput}
+          enabled={mapboxEnabled}
         />
         <div className="flex justify-end">
           <button
@@ -336,6 +374,22 @@ export default function AdminLocationsClient() {
                 /* ── Edit mode ── */
                 <div className="px-4 py-3 space-y-3">
                   {editError && <p className="text-xs text-destructive">{editError}</p>}
+                  {mapboxEnabled && (
+                    <MapboxPlaceSearch
+                      onSelect={(result) => {
+                        setEditForm((p) => ({
+                          ...p,
+                          name: result.name || p.name,
+                          address: result.address,
+                          city: result.city,
+                          state: result.state,
+                          zip: result.zip,
+                        }));
+                        setEditStreetInput(result.address);
+                        setEditLatLng({ latitude: result.latitude, longitude: result.longitude });
+                      }}
+                    />
+                  )}
                   <input
                     className={INPUT}
                     placeholder="Location Name *"
@@ -352,6 +406,7 @@ export default function AdminLocationsClient() {
                     }
                     streetInputValue={editStreetInput}
                     onStreetInputChange={setEditStreetInput}
+                    enabled={mapboxEnabled}
                   />
                   <div className="flex justify-end gap-2">
                     <button

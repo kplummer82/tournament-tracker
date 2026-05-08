@@ -40,6 +40,7 @@ type ScenarioRow = {
   matchup_distribution: MatchupEntry[] | null;
   most_likely_opponent_id: number | null;
   as_of_date: string | null;
+  simulation_method: "monte_carlo" | "pythagorean";
   status: "pending" | "running" | "completed" | "error";
   error_message: string | null;
   created_at: string;
@@ -59,12 +60,14 @@ function SamplePath({
   opponentTeamName,
   teamId,
   opponentTeamId,
+  isPrediction,
 }: {
   sample: SampleGameOutcome[];
   teamName: string | null;
   opponentTeamName?: string | null;
   teamId?: number;
   opponentTeamId?: number;
+  isPrediction?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const isMatchup = opponentTeamName != null && teamId != null && opponentTeamId != null;
@@ -121,8 +124,9 @@ function SamplePath({
         style={{ fontFamily: "var(--font-body)" }}
       >
         {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
-        Sample Path
-        <span className="text-muted-foreground/50 font-normal">(one of many)</span>
+        {isPrediction ? "Deterministic projection" : (
+          <>Sample Path <span className="text-muted-foreground/50 font-normal">(one of many)</span></>
+        )}
       </button>
 
       {open && (
@@ -191,14 +195,22 @@ function SeedDistribution({
   mostLikelySeed,
   probability,
   simulationsRun,
+  countLabel,
+  isPrediction,
+  projectedGames,
 }: {
   distribution: { seed: number; probability: number }[];
   mostLikelySeed: number | null;
   probability: number | null;
   simulationsRun: number;
+  countLabel?: string;
+  isPrediction?: boolean;
+  projectedGames?: SampleGameOutcome[] | null;
 }) {
   const [open, setOpen] = useState(false);
   const maxProb = Math.max(...distribution.map((d) => d.probability), 0);
+
+  const teamGames = projectedGames?.filter((g) => g.category === "target_game") ?? [];
 
   return (
     <div className="space-y-2">
@@ -211,7 +223,7 @@ function SeedDistribution({
             {ordinal(mostLikelySeed)} seed
           </span>
         )}
-        {probability !== null && (
+        {!isPrediction && probability !== null && (
           <span
             className="text-lg font-bold tabular-nums"
             style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
@@ -220,54 +232,91 @@ function SeedDistribution({
           </span>
         )}
         <span className="text-[10px] text-muted-foreground ml-auto">
-          {simulationsRun.toLocaleString()} simulations
+          {countLabel ?? `${simulationsRun.toLocaleString()} simulations`}
         </span>
       </div>
 
       <div className="border-t border-border/50 pt-2.5 mt-0.5">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
-          Full distribution
-          <span className="text-muted-foreground/50 font-normal">(one of many)</span>
-        </button>
-
-        {open && (
-          <div className="mt-2 space-y-1">
-            {distribution.map((d) => {
-              const barPct = maxProb > 0 ? (d.probability / maxProb) * 100 : 0;
-              const isBest = d.seed === mostLikelySeed;
-              return (
-                <div key={d.seed} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="w-14 text-right shrink-0 text-muted-foreground"
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    {ordinal(d.seed)}
-                  </span>
-                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn("h-full rounded-full transition-all", isBest ? "bg-primary" : "bg-muted-foreground/40")}
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-                  <span
-                    className={cn("w-10 tabular-nums shrink-0 text-right", isBest ? "text-foreground font-semibold" : "text-muted-foreground")}
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    {d.probability.toFixed(1)}%
-                  </span>
-                  {isBest && (
-                    <span className="text-[10px] text-muted-foreground/60 shrink-0">← most likely</span>
-                  )}
+        {isPrediction ? (
+          teamGames.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+                Projected remaining games
+              </button>
+              {open && (
+                <div className="mt-2 space-y-1">
+                  {teamGames.map((g) => {
+                    const homeWon = g.homescore > g.awayscore;
+                    const winnerName = homeWon ? g.homeName : g.awayName;
+                    const loserName = homeWon ? g.awayName : g.homeName;
+                    const winScore = homeWon ? g.homescore : g.awayscore;
+                    const loseScore = homeWon ? g.awayscore : g.homescore;
+                    return (
+                      <div key={g.gameId} className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0.5 text-xs" style={{ fontFamily: "var(--font-body)" }}>
+                        <span className="font-semibold text-foreground">{winnerName}</span>
+                        <span className="text-muted-foreground">over</span>
+                        <span className="text-muted-foreground">{loserName}</span>
+                        <span className="text-muted-foreground tabular-nums">{winScore}–{loseScore}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </>
+          )
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+              Full distribution
+              <span className="text-muted-foreground/50 font-normal">(one of many)</span>
+            </button>
+
+            {open && (
+              <div className="mt-2 space-y-1">
+                {distribution.map((d) => {
+                  const barPct = maxProb > 0 ? (d.probability / maxProb) * 100 : 0;
+                  const isBest = d.seed === mostLikelySeed;
+                  return (
+                    <div key={d.seed} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="w-14 text-right shrink-0 text-muted-foreground"
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {ordinal(d.seed)}
+                      </span>
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all", isBest ? "bg-primary" : "bg-muted-foreground/40")}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                      <span
+                        className={cn("w-10 tabular-nums shrink-0 text-right", isBest ? "text-foreground font-semibold" : "text-muted-foreground")}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {d.probability.toFixed(1)}%
+                      </span>
+                      {isBest && (
+                        <span className="text-[10px] text-muted-foreground/60 shrink-0">← most likely</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -280,14 +329,28 @@ function MatchupDistribution({
   distribution,
   probability,
   simulationsRun,
+  countLabel,
+  isPrediction,
+  projectedGames,
+  teamId,
+  opponentTeamId,
 }: {
   distribution: MatchupEntry[];
   probability: number | null;
   simulationsRun: number;
+  countLabel?: string;
+  isPrediction?: boolean;
+  projectedGames?: SampleGameOutcome[] | null;
+  teamId?: number;
+  opponentTeamId?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const maxProb = Math.max(...distribution.map((d) => d.probability), 0);
   const top = distribution[0];
+
+  const teamGames = projectedGames?.filter(
+    (g) => g.category === "target_game" && (g.home === teamId || g.away === teamId)
+  ) ?? [];
 
   return (
     <div className="space-y-2">
@@ -300,7 +363,7 @@ function MatchupDistribution({
             {top.teamName}
           </span>
         )}
-        {probability !== null && (
+        {!isPrediction && probability !== null && (
           <span
             className="text-lg font-bold tabular-nums"
             style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
@@ -309,54 +372,91 @@ function MatchupDistribution({
           </span>
         )}
         <span className="text-[10px] text-muted-foreground ml-auto">
-          {simulationsRun.toLocaleString()} simulations
+          {countLabel ?? `${simulationsRun.toLocaleString()} simulations`}
         </span>
       </div>
 
       <div className="border-t border-border/50 pt-2.5 mt-0.5">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
-          All possible opponents
-        </button>
-
-        {open && (
-          <div className="mt-2 space-y-1">
-            {distribution.map((d) => {
-              const barPct = maxProb > 0 ? (d.probability / maxProb) * 100 : 0;
-              const isBest = d.teamId === top?.teamId;
-              return (
-                <div key={d.teamId} className="flex items-center gap-2 text-xs">
-                  <span
-                    className="w-28 text-right shrink-0 truncate text-muted-foreground"
-                    style={{ fontFamily: "var(--font-body)" }}
-                    title={d.teamName}
-                  >
-                    {d.teamName}
-                  </span>
-                  <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                    <div
-                      className={cn("h-full rounded-full transition-all", isBest ? "bg-primary" : "bg-muted-foreground/40")}
-                      style={{ width: `${barPct}%` }}
-                    />
-                  </div>
-                  <span
-                    className={cn("w-10 tabular-nums shrink-0 text-right", isBest ? "text-foreground font-semibold" : "text-muted-foreground")}
-                    style={{ fontFamily: "var(--font-body)" }}
-                  >
-                    {d.probability.toFixed(1)}%
-                  </span>
-                  {isBest && (
-                    <span className="text-[10px] text-muted-foreground/60 shrink-0">&larr; most likely</span>
-                  )}
+        {isPrediction ? (
+          teamGames.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+                Projected remaining games
+              </button>
+              {open && (
+                <div className="mt-2 space-y-1">
+                  {teamGames.map((g) => {
+                    const homeWon = g.homescore > g.awayscore;
+                    const winnerName = homeWon ? g.homeName : g.awayName;
+                    const loserName = homeWon ? g.awayName : g.homeName;
+                    const winScore = homeWon ? g.homescore : g.awayscore;
+                    const loseScore = homeWon ? g.awayscore : g.homescore;
+                    return (
+                      <div key={g.gameId} className="flex items-baseline flex-wrap gap-x-1.5 gap-y-0.5 text-xs" style={{ fontFamily: "var(--font-body)" }}>
+                        <span className="font-semibold text-foreground">{winnerName}</span>
+                        <span className="text-muted-foreground">over</span>
+                        <span className="text-muted-foreground">{loserName}</span>
+                        <span className="text-muted-foreground tabular-nums">{winScore}–{loseScore}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
-          </div>
+              )}
+            </>
+          )
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {open ? <ChevronUp className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+              All possible opponents
+            </button>
+
+            {open && (
+              <div className="mt-2 space-y-1">
+                {distribution.map((d) => {
+                  const barPct = maxProb > 0 ? (d.probability / maxProb) * 100 : 0;
+                  const isBest = d.teamId === top?.teamId;
+                  return (
+                    <div key={d.teamId} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="w-28 text-right shrink-0 truncate text-muted-foreground"
+                        style={{ fontFamily: "var(--font-body)" }}
+                        title={d.teamName}
+                      >
+                        {d.teamName}
+                      </span>
+                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                        <div
+                          className={cn("h-full rounded-full transition-all", isBest ? "bg-primary" : "bg-muted-foreground/40")}
+                          style={{ width: `${barPct}%` }}
+                        />
+                      </div>
+                      <span
+                        className={cn("w-10 tabular-nums shrink-0 text-right", isBest ? "text-foreground font-semibold" : "text-muted-foreground")}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {d.probability.toFixed(1)}%
+                      </span>
+                      {isBest && (
+                        <span className="text-[10px] text-muted-foreground/60 shrink-0">&larr; most likely</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -385,6 +485,7 @@ function CreateScenarioForm({
   const [seedMode, setSeedMode] = useState<"or_better" | "or_worse" | "exact">("or_better");
   const [timeMode, setTimeMode] = useState<ScenarioTimeMode>("current");
   const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
+  const [simMethod, setSimMethod] = useState<"monte_carlo" | "pythagorean">("monte_carlo");
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -398,10 +499,10 @@ function CreateScenarioForm({
     setErr(null);
     try {
       const base = questionType === "first_round_matchup"
-        ? { questionType, teamId, opponentTeamId }
+        ? { questionType, teamId, opponentTeamId, simulationMethod: simMethod }
         : questionType === "most_likely_seed" || questionType === "most_likely_matchup"
-        ? { questionType, teamId }
-        : { questionType, teamId, targetSeed, seedMode };
+        ? { questionType, teamId, simulationMethod: simMethod }
+        : { questionType, teamId, targetSeed, seedMode, simulationMethod: simMethod };
       const body = timeMode === "as-of" ? { ...base, asOfDate } : base;
 
       const res = await fetch(`/api/seasons/${seasonId}/scenarios`, {
@@ -566,6 +667,30 @@ function CreateScenarioForm({
         )}
       </div>
 
+      {/* Method toggle */}
+      <div className="space-y-2">
+        <SegmentedControl<"monte_carlo" | "pythagorean">
+          options={[
+            { key: "monte_carlo", label: "Simulate" },
+            { key: "pythagorean", label: "Predict" },
+          ]}
+          active={simMethod}
+          onChange={setSimMethod}
+          size="sm"
+        />
+        {simMethod === "pythagorean" && (
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-0.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Pythagorean Prediction
+            </p>
+            <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Projects outcomes from each team&apos;s runs scored and allowed using Pythagorean Expectation and Log5.
+              Deterministic — no simulation required. All teams must have played at least one game.
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
@@ -677,7 +802,7 @@ function ScenarioCard({
             {questionLabel}
             {scenario.as_of_date && (
               <span className="ml-2 inline-block px-1.5 py-px text-[9px] font-bold tracking-[0.05em] uppercase border border-border text-muted-foreground" style={{ fontFamily: "var(--font-display)" }}>
-                As of {new Date(scenario.as_of_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                As of {new Date(scenario.as_of_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
               </span>
             )}
           </p>
@@ -705,96 +830,111 @@ function ScenarioCard({
       {/* Status / Results */}
       {scenario.status === "running" && (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${Math.min(100, (scenario.simulations_run / 100) * 1)}%` }}
-              />
+          {scenario.simulation_method !== "pythagorean" && (
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${Math.min(100, (scenario.simulations_run / 100) * 1)}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {scenario.simulations_run.toLocaleString()} sims
+              </span>
             </div>
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              {scenario.simulations_run.toLocaleString()} sims
-            </span>
-          </div>
+          )}
           <p className="text-xs text-muted-foreground animate-pulse">Analyzing…</p>
         </div>
       )}
 
       {scenario.status === "completed" && (
         <div className="space-y-0">
-          {isMostLikelyMatchup ? (
-            scenario.matchup_distribution && scenario.matchup_distribution.length > 0 ? (
-              <MatchupDistribution
-                distribution={scenario.matchup_distribution}
-                probability={scenario.probability}
-                simulationsRun={scenario.simulations_run}
-              />
+          {(() => {
+            const isPrediction = scenario.simulation_method === "pythagorean";
+            const countLabel = isPrediction ? "Pythagorean projection" : undefined;
+            return isMostLikelyMatchup ? (
+              scenario.matchup_distribution && scenario.matchup_distribution.length > 0 ? (
+                <MatchupDistribution
+                  distribution={scenario.matchup_distribution}
+                  probability={scenario.probability}
+                  simulationsRun={scenario.simulations_run}
+                  countLabel={countLabel}
+                  isPrediction={isPrediction}
+                  projectedGames={scenario.sample_scenario}
+                  teamId={scenario.team_id}
+                  opponentTeamId={scenario.most_likely_opponent_id}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">No matchup data.</p>
+              )
+            ) : isMostLikelySeed ? (
+              scenario.seed_distribution && scenario.seed_distribution.length > 0 ? (
+                <SeedDistribution
+                  distribution={scenario.seed_distribution}
+                  mostLikelySeed={scenario.most_likely_seed}
+                  probability={scenario.probability}
+                  simulationsRun={scenario.simulations_run}
+                  countLabel={countLabel}
+                  isPrediction={isPrediction}
+                  projectedGames={scenario.sample_scenario}
+                />
+              ) : (
+                <p className="text-xs text-muted-foreground">No distribution data.</p>
+              )
             ) : (
-              <p className="text-xs text-muted-foreground">No matchup data.</p>
-            )
-          ) : isMostLikelySeed ? (
-            scenario.seed_distribution && scenario.seed_distribution.length > 0 ? (
-              <SeedDistribution
-                distribution={scenario.seed_distribution}
-                mostLikelySeed={scenario.most_likely_seed}
-                probability={scenario.probability}
-                simulationsRun={scenario.simulations_run}
-              />
-            ) : (
-              <p className="text-xs text-muted-foreground">No distribution data.</p>
-            )
-          ) : (
-            <>
-              <div className="flex items-center gap-3">
-                {scenario.is_possible === false ? (
-                  <span
-                    className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      borderColor: "var(--destructive)",
-                      color: "var(--destructive)",
-                    }}
-                  >
-                    Impossible
-                  </span>
-                ) : (
-                  <>
+              <>
+                <div className="flex items-center gap-3">
+                  {scenario.is_possible === false ? (
                     <span
                       className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
                       style={{
                         fontFamily: "var(--font-display)",
-                        borderColor: "var(--success)",
-                        color: "var(--success)",
+                        borderColor: "var(--destructive)",
+                        color: "var(--destructive)",
                       }}
                     >
-                      Possible
+                      Impossible
                     </span>
-                    {scenario.probability !== null && (
+                  ) : (
+                    <>
                       <span
-                        className="text-lg font-bold tabular-nums"
-                        style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
+                        className="inline-block px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] uppercase border rounded"
+                        style={{
+                          fontFamily: "var(--font-display)",
+                          borderColor: "var(--success)",
+                          color: "var(--success)",
+                        }}
                       >
-                        {Number(scenario.probability) === 0 ? "<1.0%" : `${Number(scenario.probability).toFixed(1)}%`}
+                        Possible
                       </span>
-                    )}
-                  </>
-                )}
-                <span className="text-[10px] text-muted-foreground ml-auto">
-                  {scenario.simulations_run.toLocaleString()} simulations
-                </span>
-              </div>
+                      {!isPrediction && scenario.probability !== null && (
+                        <span
+                          className="text-lg font-bold tabular-nums"
+                          style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
+                        >
+                          {Number(scenario.probability) === 0 ? "<1.0%" : `${Number(scenario.probability).toFixed(1)}%`}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  <span className="text-[10px] text-muted-foreground ml-auto">
+                    {countLabel ?? `${scenario.simulations_run.toLocaleString()} simulations`}
+                  </span>
+                </div>
 
-              {scenario.is_possible !== false && scenario.sample_scenario && scenario.sample_scenario.length > 0 && (
-                <SamplePath
-                  sample={scenario.sample_scenario}
-                  teamName={scenario.team_name}
-                  opponentTeamName={isMatchup ? scenario.opponent_team_name : undefined}
-                  teamId={isMatchup ? scenario.team_id : undefined}
-                  opponentTeamId={isMatchup && scenario.opponent_team_id ? scenario.opponent_team_id : undefined}
-                />
-              )}
-            </>
-          )}
+                {scenario.is_possible !== false && scenario.sample_scenario && scenario.sample_scenario.length > 0 && (
+                  <SamplePath
+                    sample={scenario.sample_scenario}
+                    teamName={scenario.team_name}
+                    opponentTeamName={isMatchup ? scenario.opponent_team_name : undefined}
+                    teamId={isMatchup ? scenario.team_id : undefined}
+                    opponentTeamId={isMatchup && scenario.opponent_team_id ? scenario.opponent_team_id : undefined}
+                    isPrediction={isPrediction}
+                  />
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 

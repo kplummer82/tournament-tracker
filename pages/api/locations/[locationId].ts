@@ -40,16 +40,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireAdmin(req, res);
       if (!session) return;
 
-      const { name, address, city, state, zip } = req.body ?? {};
+      const { name, address, city, state, zip, latitude, longitude } = req.body ?? {};
 
       let finalAddress = address?.trim() ?? null;
       let finalCity = city?.trim() ?? null;
       let finalState = state?.trim() ?? null;
       let finalZip = zip?.trim() ?? null;
+      const finalLat = typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
+      const finalLng = typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
       let uspsVerified = false;
 
-      // Re-verify via USPS if address fields are provided
-      if (finalAddress && finalCity && finalState && finalZip) {
+      // Re-verify via USPS if enabled and address fields are provided
+      const uspsRows = await sql`SELECT value FROM app_settings WHERE key = 'usps_enabled'`;
+      const uspsEnabled = !uspsRows.length || uspsRows[0].value !== "false";
+
+      if (uspsEnabled && finalAddress && finalCity && finalState && finalZip) {
         const result = await verifyAddress({
           address: finalAddress,
           city: finalCity,
@@ -63,16 +68,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           finalZip = result.zip;
           uspsVerified = true;
         }
+      } else if (!uspsEnabled) {
+        console.info("[locations] USPS disabled — skipping verification");
       }
 
       const rows = await sql`
         UPDATE locations
         SET
-          name    = COALESCE(${name?.trim() ?? null}, name),
-          address = COALESCE(${finalAddress}, address),
-          city    = COALESCE(${finalCity}, city),
-          state   = COALESCE(${finalState}, state),
-          zip     = COALESCE(${finalZip}, zip),
+          name      = COALESCE(${name?.trim() ?? null}, name),
+          address   = COALESCE(${finalAddress}, address),
+          city      = COALESCE(${finalCity}, city),
+          state     = COALESCE(${finalState}, state),
+          zip       = COALESCE(${finalZip}, zip),
+          latitude  = COALESCE(${finalLat}, latitude),
+          longitude = COALESCE(${finalLng}, longitude),
           usps_verified = ${uspsVerified}
         WHERE id = ${locationId}
         RETURNING id, name, address, city, state, zip, latitude, longitude, usps_verified,

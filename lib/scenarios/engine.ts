@@ -31,6 +31,7 @@ import {
   meetsSeedTarget,
   isAmbiguous,
 } from "./simulate";
+import { runPythagoreanAnalysis } from "./pythagorean";
 
 type SeedMode = "exact" | "or_better" | "or_worse";
 
@@ -62,7 +63,7 @@ export type EngineResult = {
 };
 
 /** Convert a SimulatedOutcome to a GameRecord for the TypeScript ranker. */
-function toGameRecord(outcome: SimulatedOutcome): GameRecord {
+export function toGameRecord(outcome: SimulatedOutcome): GameRecord {
   return {
     gameid: -1,
     home: outcome.home,
@@ -194,7 +195,7 @@ async function getBracketSlicesForTournament(tournamentId: number): Promise<Brac
  * Within a bracket covering seeds [start, start+size-1], seeds pair when
  * their sum equals start + (start + size - 1) = 2*start + size - 1.
  */
-function meetsFirstRoundMatchup(
+export function meetsFirstRoundMatchup(
   standings: StandingsRow[],
   teamId: number,
   opponentTeamId: number,
@@ -221,7 +222,7 @@ function meetsFirstRoundMatchup(
  * Both teams' games are "target_game". Key games are those where either
  * participant ended within ±2 seeds of either team's final seed.
  */
-function buildMatchupSampleScenario(
+export function buildMatchupSampleScenario(
   outcomes: SimulatedOutcome[],
   remainingGames: RemainingGame[],
   teamId: number,
@@ -273,7 +274,7 @@ function buildMatchupSampleScenario(
  *
  * A game is "key_game" if either participant ended within ±2 seeds of targetSeed.
  */
-function buildSampleScenario(
+export function buildSampleScenario(
   outcomes: SimulatedOutcome[],
   remainingGames: RemainingGame[],
   teamId: number,
@@ -717,7 +718,7 @@ async function runMostLikelySeedMonteCarlo(
  * Given standings and bracket slices, find the first-round opponent for a team.
  * Returns the opponent's teamid, or null if the team isn't in any bracket.
  */
-function findFirstRoundOpponent(
+export function findFirstRoundOpponent(
   standings: StandingsRow[],
   teamId: number,
   bracketSlices: BracketSlice[]
@@ -833,12 +834,18 @@ export async function runScenarioAnalysis(
   targetSeed: number,
   seedMode: SeedMode,
   onProgress?: ProgressCallback,
-  asOfDate?: string
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean"
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
     fetchSeasonStandingsData(seasonId, { asOfDate }),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "seed_achievable", teamId, targetSeed, seedMode, null, []);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -885,13 +892,19 @@ export async function runFirstRoundMatchupAnalysis(
   teamId: number,
   opponentTeamId: number,
   onProgress?: ProgressCallback,
-  asOfDate?: string
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean"
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
     fetchSeasonStandingsData(seasonId, { asOfDate }),
     getBracketSlicesForSeason(seasonId),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "first_round_matchup", teamId, null, null, opponentTeamId, bracketSlices);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -937,12 +950,18 @@ export async function runMostLikelySeedAnalysis(
   seasonId: number,
   teamId: number,
   onProgress?: ProgressCallback,
-  asOfDate?: string
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean"
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
     fetchSeasonStandingsData(seasonId, { asOfDate }),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "most_likely_seed", teamId, null, null, null, []);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -986,13 +1005,19 @@ export async function runMostLikelyMatchupAnalysis(
   seasonId: number,
   teamId: number,
   onProgress?: ProgressCallback,
-  asOfDate?: string
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean"
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
     fetchSeasonStandingsData(seasonId, { asOfDate }),
     getBracketSlicesForSeason(seasonId),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "most_likely_matchup", teamId, null, null, null, bracketSlices);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>

@@ -2,6 +2,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Music, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Module-level cache so multiple WalkupSongInput instances share one fetch per page load.
+let _settingsPromise: Promise<boolean> | null = null;
+function fetchItunesEnabled(): Promise<boolean> {
+  if (!_settingsPromise) {
+    _settingsPromise = fetch("/api/settings")
+      .then((r) => r.json())
+      .then((d) => d?.itunes_enabled !== false)
+      .catch(() => true); // fail open — don't disable the feature on a network error
+  }
+  return _settingsPromise;
+}
+
 /* ─── iTunes search ──────────────────────────────────────────── */
 export type ItunesTrack = {
   trackId: number;
@@ -38,8 +50,13 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
   const [searching, setSearching] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [selected, setSelected] = useState(!!_itunesId);
+  const [itunesEnabled, setItunesEnabled] = useState(true); // default true while loading
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchItunesEnabled().then(setItunesEnabled);
+  }, []);
 
   // sync from parent when it changes externally
   useEffect(() => {
@@ -49,6 +66,7 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
 
   const runSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setDropdownOpen(false); return; }
+    if (!itunesEnabled) { setResults([]); setDropdownOpen(false); return; }
     setSearching(true);
     try {
       const tracks = await searchItunes(q);
@@ -60,7 +78,7 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     } finally {
       setSearching(false);
     }
-  }, []);
+  }, [itunesEnabled]);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;

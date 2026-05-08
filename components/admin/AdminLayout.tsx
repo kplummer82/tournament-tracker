@@ -4,7 +4,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
 
-type AdminTab = "dashboard" | "users" | "roles" | "brackets" | "governing-bodies" | "locations" | "simulations";
+type AdminTab = "dashboard" | "users" | "roles" | "brackets" | "governing-bodies" | "locations" | "simulations" | "apis";
 
 const TAB_CONFIG: { value: AdminTab; label: string; href: string }[] = [
   { value: "dashboard", label: "Dashboard", href: "/admin/dashboard" },
@@ -14,6 +14,7 @@ const TAB_CONFIG: { value: AdminTab; label: string; href: string }[] = [
   { value: "governing-bodies", label: "Governing Bodies", href: "/admin/governing-bodies" },
   { value: "locations", label: "Locations", href: "/admin/locations" },
   { value: "simulations", label: "Simulations", href: "/admin/simulations" },
+  { value: "apis", label: "APIs", href: "/admin/apis" },
 ];
 
 type AdminLayoutProps = {

@@ -4,7 +4,7 @@ import { authClient } from "@/lib/auth/client";
 import { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
-type MinimalItem = { id: number; name: string; league_id?: number; league_name?: string };
+type MinimalItem = { id: number; name: string; league_id?: number; league_name?: string; league_abbreviation?: string; division_name?: string; age_division?: string };
 
 export default function HomePage() {
   const { data: session } = authClient.useSession();
@@ -114,12 +114,30 @@ export default function HomePage() {
           <div className="mx-auto max-w-7xl px-4 md:px-6 divide-y divide-border">
             {(
               [
-                { key: "teams"       as const, label: "My Teams",       items: myTeams,       href: (item: MinimalItem) => `/teams/${item.id}` },
-                { key: "leagues"     as const, label: "My Leagues",     items: myLeagues,     href: (item: MinimalItem) => `/leagues/${item.id}` },
-                { key: "divisions"   as const, label: "My Divisions",   items: myDivisions,   href: (item: MinimalItem) => `/leagues/${item.league_id}/divisions/${item.id}` },
-                { key: "tournaments" as const, label: "My Tournaments", items: myTournaments, href: (item: MinimalItem) => `/tournaments/${item.id}` },
+                {
+                  key: "teams" as const, label: "My Teams", items: myTeams,
+                  href: (item: MinimalItem) => `/teams/${item.id}`,
+                  displayName: (item: MinimalItem) => item.league_abbreviation
+                    ? [item.league_abbreviation, item.division_name, item.name].filter(Boolean).join(" ")
+                    : [item.name, item.age_division].filter(Boolean).join(" "),
+                },
+                {
+                  key: "leagues" as const, label: "My Leagues", items: myLeagues,
+                  href: (item: MinimalItem) => `/leagues/${item.id}`,
+                  displayName: (item: MinimalItem) => item.name,
+                },
+                {
+                  key: "divisions" as const, label: "My Divisions", items: myDivisions,
+                  href: (item: MinimalItem) => `/leagues/${item.league_id}/divisions/${item.id}`,
+                  displayName: (item: MinimalItem) => [item.league_abbreviation, item.name].filter(Boolean).join(" "),
+                },
+                {
+                  key: "tournaments" as const, label: "My Tournaments", items: myTournaments,
+                  href: (item: MinimalItem) => `/tournaments/${item.id}`,
+                  displayName: (item: MinimalItem) => item.name,
+                },
               ]
-            ).map(({ key, label, items, href }) => (
+            ).map(({ key, label, items, href, displayName }) => (
               <div key={key}>
                 <button
                   onClick={() => toggle(key)}
@@ -155,7 +173,7 @@ export default function HomePage() {
                             className="text-foreground group-hover:text-primary transition-colors duration-100 truncate block"
                             style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "13px", textTransform: "uppercase", letterSpacing: "0.02em" }}
                           >
-                            {item.name}
+                            {displayName(item)}
                           </span>
                         </Link>
                       ))}

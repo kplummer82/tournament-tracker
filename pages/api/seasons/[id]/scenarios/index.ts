@@ -24,6 +24,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.most_likely_seed, sq.seed_distribution,
           sq.matchup_distribution, sq.most_likely_opponent_id,
           sq.as_of_date,
+          sq.simulation_method,
           sq.status, sq.error_message,
           sq.created_at, sq.updated_at
         FROM scenario_questions sq
@@ -36,7 +37,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { questionType, teamId, targetSeed, seedMode, opponentTeamId, asOfDate: rawAsOf } = req.body ?? {};
+      const { questionType, teamId, targetSeed, seedMode, opponentTeamId, asOfDate: rawAsOf, simulationMethod: rawMethod } = req.body ?? {};
+      const simulationMethod = rawMethod === "pythagorean" ? "pythagorean" : "monte_carlo";
       const asOfDate = typeof rawAsOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawAsOf) ? rawAsOf : null;
       const qType = questionType === "first_round_matchup"
         ? "first_round_matchup"
@@ -74,8 +76,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(400).json({ error: "targetSeed exceeds number of teams in season" });
         }
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode, as_of_date)
-          VALUES ('season', ${seasonId}, 'seed_achievable', ${teamId}, ${seed}, ${mode}, ${asOfDate})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode, as_of_date, simulation_method)
+          VALUES ('season', ${seasonId}, 'seed_achievable', ${teamId}, ${seed}, ${mode}, ${asOfDate}, ${simulationMethod})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -83,8 +85,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (qType === "most_likely_seed") {
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date)
-          VALUES ('season', ${seasonId}, 'most_likely_seed', ${teamId}, ${asOfDate})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date, simulation_method)
+          VALUES ('season', ${seasonId}, 'most_likely_seed', ${teamId}, ${asOfDate}, ${simulationMethod})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -92,8 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (qType === "most_likely_matchup") {
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date)
-          VALUES ('season', ${seasonId}, 'most_likely_matchup', ${teamId}, ${asOfDate})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date, simulation_method)
+          VALUES ('season', ${seasonId}, 'most_likely_matchup', ${teamId}, ${asOfDate}, ${simulationMethod})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -113,8 +115,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Opponent team is not enrolled in this season" });
       }
       const rows = await sql`
-        INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, opponent_team_id, as_of_date)
-        VALUES ('season', ${seasonId}, 'first_round_matchup', ${teamId}, ${opponentTeamId}, ${asOfDate})
+        INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, opponent_team_id, as_of_date, simulation_method)
+        VALUES ('season', ${seasonId}, 'first_round_matchup', ${teamId}, ${opponentTeamId}, ${asOfDate}, ${simulationMethod})
         RETURNING *
       `;
       return res.status(201).json({ scenario: rows[0] });
