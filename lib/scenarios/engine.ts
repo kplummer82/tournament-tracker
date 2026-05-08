@@ -77,12 +77,14 @@ export function toGameRecord(outcome: SimulatedOutcome): GameRecord {
 /** Get remaining (incomplete) regular-season games. */
 async function getRemainingGames(seasonId: number, asOfDate?: string): Promise<RemainingGame[]> {
   if (asOfDate) {
-    // When viewing as-of a past date: "remaining" = everything NOT in the completed-as-of set
+    // When viewing as-of a past date: "remaining" = everything NOT in the completed-as-of set.
+    // Also exclude rained-out games (status 5) — they are cancelled, not playable.
     const rows = await sql`
       SELECT id, home, away
       FROM season_games
       WHERE season_id = ${seasonId}
         AND game_type = 'regular'
+        AND gamestatusid IS DISTINCT FROM 5
         AND NOT (gamestatusid IN (4, 6, 7) AND gamedate <= ${asOfDate})
     `;
     return rows as unknown as RemainingGame[];
