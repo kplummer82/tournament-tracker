@@ -547,19 +547,17 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
             </div>
           )}
 
-          {/* Manage Game link — season/tournament only */}
-          {row.source !== "scrimmage" && (
-            <div className={row.context_id ? "" : "pt-1"}>
-              <Link
-                href={`/games/${row.source}/${row.id}?team=${teamId}`}
-                className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                onClick={onClose}
-              >
-                <ExternalLink className="h-3 w-3" />
-                Manage Game
-              </Link>
-            </div>
-          )}
+          {/* Manage Game link */}
+          <div className={row.context_id ? "" : "pt-1"}>
+            <Link
+              href={`/games/${row.source}/${row.id}?team=${teamId}`}
+              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              onClick={onClose}
+            >
+              <ExternalLink className="h-3 w-3" />
+              Manage Game
+            </Link>
+          </div>
 
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>

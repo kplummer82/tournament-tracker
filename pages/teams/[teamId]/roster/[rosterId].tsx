@@ -12,6 +12,7 @@ import { Loader2, Pencil, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WalkupSongInput, WalkupSongLink } from "@/components/teams/WalkupSongInput";
 import { usePermissions } from "@/lib/hooks/usePermissions";
+import PlayerPositionsCard from "@/components/teams/PlayerPositionsCard";
 import type { TeamDetail } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 
@@ -448,6 +449,15 @@ export default function RosterDetailPage() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* ── Positions ─────────────────────────────────────────── */}
+        {person.role === "player" && teamId && rosterId && (
+          <PlayerPositionsCard
+            rosterId={Number(rosterId)}
+            teamId={Number(teamId)}
+            canEdit={!!canEdit}
+          />
         )}
 
         {/* ── Danger zone ───────────────────────────────────────── */}

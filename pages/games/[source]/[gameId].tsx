@@ -25,6 +25,8 @@ type ConfirmationRow = {
   last_name: string;
   jersey_number: number | null;
   status: "confirmed" | "declined" | "pending";
+  // keyed by position abbreviation → priority; populated in DefenseTab
+  positionPriorities?: Record<string, "primary" | "secondary">;
 };
 
 type BattingRow = {
@@ -96,16 +98,18 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 </dd>
               </div>
             )}
-            <div>
-              <dt className={labelCls}>{game.source === "season" ? "Season" : "Tournament"}</dt>
-              <dd className={valueCls}>
-                {game.context_id ? (
-                  <Link href={contextHref} className="text-primary hover:underline">
-                    {game.context_name ?? `#${game.context_id}`}
-                  </Link>
-                ) : "—"}
-              </dd>
-            </div>
+            {game.source !== "scrimmage" && (
+              <div>
+                <dt className={labelCls}>{game.source === "season" ? "Season" : "Tournament"}</dt>
+                <dd className={valueCls}>
+                  {game.context_id ? (
+                    <Link href={contextHref} className="text-primary hover:underline">
+                      {game.context_name ?? `#${game.context_id}`}
+                    </Link>
+                  ) : "—"}
+                </dd>
+              </div>
+            )}
             {(game.location || game.field) && (
               <div>
                 <dt className={labelCls}>Location</dt>
@@ -503,8 +507,16 @@ function playerLabel(c: ConfirmationRow) {
   return c.jersey_number != null ? `#${c.jersey_number} ${name}` : name;
 }
 
+function priorityOrder(p: ConfirmationRow, position: string): 0 | 1 | 2 {
+  const pri = p.positionPriorities?.[position];
+  if (pri === "primary") return 0;
+  if (pri === "secondary") return 1;
+  return 2;
+}
+
 function PlayerCombobox({
   players,
+  position,
   value,
   usedIds,
   isDuplicate,
@@ -513,6 +525,7 @@ function PlayerCombobox({
   onChange,
 }: {
   players: ConfirmationRow[];
+  position: string;
   value: number | null;
   usedIds: Set<number>;
   isDuplicate: boolean;
@@ -529,13 +542,19 @@ function PlayerCombobox({
   const selectedPlayer = value != null ? players.find((p) => p.roster_id === value) : null;
   const displayText = selectedPlayer ? playerLabel(selectedPlayer) : "";
 
-  const filtered = players.filter((p) => {
-    if (!query) return true;
-    const q = query.toLowerCase();
-    const full = `${p.first_name} ${p.last_name}`.toLowerCase();
-    const jersey = p.jersey_number != null ? `#${p.jersey_number}` : "";
-    return full.includes(q) || jersey.startsWith(q) || p.first_name.toLowerCase().startsWith(q) || p.last_name.toLowerCase().startsWith(q);
-  });
+  const filtered = players
+    .filter((p) => {
+      if (!query) return true;
+      const q = query.toLowerCase();
+      const full = `${p.first_name} ${p.last_name}`.toLowerCase();
+      const jersey = p.jersey_number != null ? `#${p.jersey_number}` : "";
+      return full.includes(q) || jersey.startsWith(q) || p.first_name.toLowerCase().startsWith(q) || p.last_name.toLowerCase().startsWith(q);
+    })
+    .sort((a, b) => {
+      const diff = priorityOrder(a, position) - priorityOrder(b, position);
+      if (diff !== 0) return diff;
+      return a.first_name.localeCompare(b.first_name);
+    });
 
   const selectPlayer = (id: number | null) => {
     onChange(id);
@@ -671,13 +690,24 @@ function PlayerCombobox({
                   }}
                   onMouseEnter={() => setHlIdx(i)}
                   className={cn(
-                    "w-full text-left px-2 py-1 text-xs transition-colors",
+                    "w-full text-left px-2 py-1 text-xs transition-colors flex items-center justify-between gap-2",
                     isHl && "bg-primary/25 text-foreground",
                     !isHl && "hover:bg-elevated/50",
                     isUsed && "line-through text-muted-foreground"
                   )}
                 >
-                  {playerLabel(p)}
+                  <span>{playerLabel(p)}</span>
+                  {p.positionPriorities?.[position] && (
+                    <span
+                      className={cn(
+                        "shrink-0 text-[9px] font-semibold tracking-[0.04em] tabular-nums",
+                        p.positionPriorities[position] === "primary" ? "text-primary" : "text-primary/50"
+                      )}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {p.positionPriorities[position] === "primary" ? "1°" : "2°"}
+                    </span>
+                  )}
                 </button>
               );
             })
@@ -707,12 +737,21 @@ function DefenseTab({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [lineupRes, confRes] = await Promise.all([
+      const [lineupRes, confRes, posRes] = await Promise.all([
         fetch(`/api/games/${source}/${gameId}/defensive-lineup?team=${teamId}`),
         fetch(`/api/games/${source}/${gameId}/confirmations?team=${teamId}`),
+        fetch(`/api/teams/${teamId}/roster/positions`),
       ]);
       const lineupData = await lineupRes.json();
       const confData = await confRes.json();
+      const posData = posRes.ok ? await posRes.json() : { positions: [] };
+
+      // Build a lookup: roster_id → { position → priority }
+      const posByRoster: Record<number, Record<string, "primary" | "secondary">> = {};
+      for (const entry of (posData.positions ?? [])) {
+        if (!posByRoster[entry.roster_id]) posByRoster[entry.roster_id] = {};
+        posByRoster[entry.roster_id][entry.position] = entry.priority;
+      }
 
       const rows: DefenseRow[] = Array.isArray(lineupData.lineup) ? lineupData.lineup : [];
       const map: LineupMap = {};
@@ -726,6 +765,10 @@ function DefenseTab({
       setConfirmed(
         (Array.isArray(confData.confirmations) ? confData.confirmations : [])
           .filter((c: ConfirmationRow) => c.status === "confirmed")
+          .map((c: ConfirmationRow) => ({
+            ...c,
+            positionPriorities: posByRoster[c.roster_id] ?? {},
+          }))
       );
     } catch { /* silent */ }
     setLoading(false);
@@ -931,6 +974,7 @@ function DefenseTab({
                         <td key={key} className={cn("p-1", isDuplicate && "bg-destructive/10")}>
                           <PlayerCombobox
                             players={confirmed}
+                            position={pos}
                             value={assigned}
                             usedIds={usedInInning}
                             isDuplicate={isDuplicate}
@@ -1030,6 +1074,10 @@ function TeamPickerCard({
  * When role-based access is added, wire this to real permissions.
  */
 function getManageableTeams(game: GameDetail): number[] {
+  // For scrimmages: only the owning team (home/team_id) can manage
+  if (game.source === "scrimmage") {
+    return game.home ? [game.home] : [];
+  }
   const teams: number[] = [];
   if (game.home) teams.push(game.home);
   if (game.away) teams.push(game.away);
@@ -1135,8 +1183,8 @@ export default function GameDetailPage() {
     );
   }
 
-  const sourceLabel = game.source === "season" ? "SEASON" : "TOURNAMENT";
-  const sourceColor = game.source === "season" ? "#6aa5e9" : "#e9a56a";
+  const sourceLabel = game.source === "season" ? "SEASON" : game.source === "scrimmage" ? "SCRIMMAGE" : "TOURNAMENT";
+  const sourceColor = game.source === "season" ? "#6aa5e9" : game.source === "scrimmage" ? "#a5e96a" : "#e9a56a";
 
   return (
     <div className="min-h-screen">

@@ -3,7 +3,7 @@ import { sql } from "@/lib/db";
 
 function parseParams(req: NextApiRequest) {
   const source = String(req.query.source);
-  if (source !== "season" && source !== "tournament") return null;
+  if (source !== "season" && source !== "tournament" && source !== "scrimmage") return null;
   const gameId = parseInt(String(Array.isArray(req.query.gameId) ? req.query.gameId[0] : req.query.gameId), 10);
   if (!Number.isFinite(gameId)) return null;
   return { source, gameId } as const;

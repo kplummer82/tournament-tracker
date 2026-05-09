@@ -3,7 +3,7 @@ import { sql } from "@/lib/db";
 
 export type GameDetail = {
   id: number;
-  source: "season" | "tournament";
+  source: "season" | "tournament" | "scrimmage";
   gamedate: string | null;
   gametime: string | null;
   home: number | null;
@@ -26,7 +26,7 @@ export type GameDetail = {
 
 function parseParams(req: NextApiRequest) {
   const source = String(req.query.source);
-  if (source !== "season" && source !== "tournament") return null;
+  if (source !== "season" && source !== "tournament" && source !== "scrimmage") return null;
   const gameId = parseInt(String(Array.isArray(req.query.gameId) ? req.query.gameId[0] : req.query.gameId), 10);
   if (!Number.isFinite(gameId)) return null;
   return { source, gameId } as const;
@@ -44,7 +44,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     let rows: GameDetail[];
 
-    if (params.source === "season") {
+    if (params.source === "scrimmage") {
+      rows = (await sql`
+        SELECT
+          sc.id,
+          'scrimmage'::text                AS source,
+          sc.gamedate::text                AS gamedate,
+          to_char(sc.gametime, 'HH24:MI') AS gametime,
+          sc.team_id                       AS home,
+          ht.name                          AS home_team,
+          sc.opponent_team_id              AS away,
+          COALESCE(opp.name, sc.opponent_name, 'TBD') AS away_team,
+          sc.homescore,
+          sc.awayscore,
+          sc.gamestatusid,
+          gs.gamestatus                    AS gamestatus_label,
+          NULL::int                        AS context_id,
+          NULL::text                       AS context_name,
+          sc.location,
+          NULL::text                       AS field,
+          NULL::int                        AS location_id,
+          NULL::text                       AS game_type,
+          NULL::int                        AS bracket_id,
+          NULL::text                       AS bracket_game_id
+        FROM scrimmages sc
+        JOIN teams ht ON ht.teamid = sc.team_id
+        LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id
+        LEFT JOIN gamestatusoptions gs ON gs.id = sc.gamestatusid
+        WHERE sc.id = ${params.gameId}
+        LIMIT 1
+      `) as GameDetail[];
+    } else if (params.source === "season") {
       rows = (await sql`
         SELECT
           sg.id,
