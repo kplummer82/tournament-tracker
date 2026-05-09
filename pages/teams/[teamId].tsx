@@ -16,11 +16,43 @@ import {
 import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
+import type { TeamPositionEntry } from "@/pages/api/teams/[teamId]/roster/positions";
 import TeamCalendarTab from "@/components/teams/TeamCalendarTab";
 import { WalkupSongInput, WalkupSongLink } from "@/components/teams/WalkupSongInput";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import FollowButton from "@/components/FollowButton";
 import ManageAccessPanel from "@/components/ManageAccessPanel";
+import { POSITIONS } from "@/lib/positions";
+
+type RosterPositionMap = Record<number, { primary: string[]; secondary: string[] }>;
+
+function PositionBadges({ primary, secondary }: { primary: string[]; secondary: string[] }) {
+  if (primary.length === 0 && secondary.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-0.5">
+      {primary.map((pos) => (
+        <span
+          key={`p-${pos}`}
+          title={`${pos} (Primary)`}
+          className="inline-flex items-center justify-center w-7 h-5 text-[9px] font-bold tracking-[0.04em] border border-primary bg-primary/15 text-primary leading-none"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          {pos}
+        </span>
+      ))}
+      {secondary.map((pos) => (
+        <span
+          key={`s-${pos}`}
+          title={`${pos} (Secondary)`}
+          className="inline-flex items-center justify-center w-7 h-5 text-[9px] font-bold tracking-[0.04em] border border-primary/40 bg-primary/5 text-primary/70 leading-none"
+          style={{ fontFamily: "var(--font-display)" }}
+        >
+          {pos}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 type TabKey = "overview" | "roster" | "calendar";
 
@@ -53,6 +85,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [parentView, setParentView] = useState(false);
   const [parentEdits, setParentEdits] = useState<Record<number, ParentEdit>>({});
+  const [positionMap, setPositionMap] = useState<RosterPositionMap>({});
 
   // Coach view state
   const [coachView, setCoachView] = useState(false);
@@ -84,12 +117,36 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
       setLoading(true);
       setErr(null);
       try {
-        const res = await fetch(`/api/teams/${teamId}/roster`, { cache: "no-store" });
-        if (!res.ok) throw new Error((await res.json()).error || `HTTP ${res.status}`);
-        const data = await res.json();
+        const [rosterRes, posRes] = await Promise.all([
+          fetch(`/api/teams/${teamId}/roster`, { cache: "no-store" }),
+          fetch(`/api/teams/${teamId}/roster/positions`, { cache: "no-store" }),
+        ]);
+        if (!rosterRes.ok) throw new Error((await rosterRes.json()).error || `HTTP ${rosterRes.status}`);
+        const data = await rosterRes.json();
         const rows: RosterRow[] = Array.isArray(data?.roster) ? data.roster : [];
+
+        let posMap: RosterPositionMap = {};
+        if (posRes.ok) {
+          const posData: { positions: TeamPositionEntry[] } = await posRes.json();
+          for (const entry of posData.positions) {
+            if (!posMap[entry.roster_id]) posMap[entry.roster_id] = { primary: [], secondary: [] };
+            if (entry.priority === "primary") {
+              posMap[entry.roster_id].primary.push(entry.position);
+            } else {
+              posMap[entry.roster_id].secondary.push(entry.position);
+            }
+          }
+          // Sort by canonical position order
+          for (const id in posMap) {
+            const order = POSITIONS as readonly string[];
+            posMap[Number(id)].primary.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+            posMap[Number(id)].secondary.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+          }
+        }
+
         if (!cancelled) {
           setRoster(rows);
+          setPositionMap(posMap);
           const edits: Record<number, ParentEdit> = {};
           rows.forEach((r) => {
             edits[r.id] = {
@@ -619,7 +676,15 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                                 : <span className="text-muted-foreground/40 text-sm">—</span>}
                             </td>
                             <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
-                              <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
+                                {(() => {
+                                  const pos = positionMap[r.id];
+                                  return pos && (pos.primary.length > 0 || pos.secondary.length > 0)
+                                    ? <PositionBadges primary={pos.primary} secondary={pos.secondary} />
+                                    : null;
+                                })()}
+                              </div>
                               {!parentView && r.walkup_song && (
                                 <span className="hidden sm:inline">
                                   <WalkupSongLink song={r.walkup_song} itunesId={r.walkup_song_itunes_id} />
