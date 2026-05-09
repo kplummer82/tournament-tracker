@@ -125,7 +125,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
         const data = await rosterRes.json();
         const rows: RosterRow[] = Array.isArray(data?.roster) ? data.roster : [];
 
-        let posMap: RosterPositionMap = {};
+        const posMap: RosterPositionMap = {};
         if (posRes.ok) {
           const posData: { positions: TeamPositionEntry[] } = await posRes.json();
           for (const entry of posData.positions) {
