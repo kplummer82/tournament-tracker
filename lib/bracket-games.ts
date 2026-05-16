@@ -115,7 +115,7 @@ export async function syncBracketGames(
           skipped++;
         }
       } else {
-        // Insert new game record
+        // Insert new game record; ON CONFLICT is a safety net against races
         await sql`
           INSERT INTO season_games (
             season_id, game_type, bracket_id, bracket_game_id,
@@ -124,6 +124,7 @@ export async function syncBracketGames(
             ${seasonId}, 'playoff', ${bracketId}, ${game.id},
             ${homeTeamId}, ${awayTeamId}
           )
+          ON CONFLICT (bracket_id, bracket_game_id) DO NOTHING
         `;
         generated++;
       }
@@ -141,6 +142,29 @@ export async function syncBracketGames(
   }
 
   return { generated, updated, skipped };
+}
+
+/**
+ * Re-propagate winners for all already-scored bracket games.
+ * Call this after seed assignments change so later-round home/away slots
+ * reflect the correct winning teams even if scores were entered before
+ * the current assignment state.
+ */
+export async function repropagateWinners(
+  seasonId: number,
+  bracketId: number
+): Promise<void> {
+  const scoredGames = await sql`
+    SELECT id, bracket_game_id
+    FROM season_games
+    WHERE bracket_id = ${bracketId}
+      AND homescore IS NOT NULL
+      AND awayscore IS NOT NULL
+    ORDER BY id
+  `;
+  for (const g of scoredGames) {
+    await advanceWinner(seasonId, g.id, bracketId, g.bracket_game_id);
+  }
 }
 
 // Forfeit game status IDs

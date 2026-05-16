@@ -10,8 +10,18 @@ import type { BracketStructure } from "@/components/bracket/types";
 import BracketGameScheduleModal from "@/components/bracket/BracketGameScheduleModal";
 import type { BracketGameRecord } from "@/components/bracket/BracketGameScheduleModal";
 import StandingsModeToggle, { type StandingsMode } from "@/components/seasons/StandingsModeToggle";
-import { GitBranch, Plus, Trash2, ChevronDown, ChevronRight, RefreshCw, AlertTriangle, X } from "lucide-react";
+import { GitBranch, Plus, Trash2, ChevronDown, ChevronRight, RefreshCw, AlertTriangle, X, Sparkles, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  type PredictionMethod,
+  type BracketPredictionResult,
+  type ActualGameResult,
+  type GameRecord,
+  type TeamRecord,
+  preparePredictionStats,
+  predictBracketPythagorean,
+  predictBracketMonteCarlo,
+} from "@/lib/bracket-prediction";
 
 type SeasonBracket = {
   id: number;
@@ -38,6 +48,9 @@ function BracketCard({
   seedOffset,
   onDeleted,
   canEdit,
+  standingsMode,
+  asOfDate,
+  projectedGamesCount,
 }: {
   bracket: SeasonBracket;
   seasonId: number;
@@ -47,6 +60,10 @@ function BracketCard({
   seedOffset: number;
   onDeleted: (id: number) => void;
   canEdit: boolean;
+  standingsMode: import("@/components/seasons/StandingsModeToggle").StandingsMode;
+  asOfDate: string;
+  /** Number of regular-season games that were simulated to project seeds. 0 = all played. */
+  projectedGamesCount: number;
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
   const [templateId, setTemplateId] = useState<number | null>(bracket.template_id ?? null);
@@ -62,6 +79,24 @@ function BracketCard({
   const [bracketGames, setBracketGames] = useState<BracketGameRecord[]>([]);
   const [scheduleGame, setScheduleGame] = useState<BracketGameRecord | null>(null);
 
+  // Bracket prediction state
+  const [prediction, setPrediction] = useState<BracketPredictionResult | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  const [predictionMethod, setPredictionMethod] = useState<PredictionMethod>("pythagorean");
+  // Cache all regular-season games (unfiltered); filtering by date applied at predict time
+  const gamesCacheRef = useRef<GameRecord[] | null>(null);
+
+  // Clear prediction and games cache when the standings context changes
+  const prevModeRef = useRef(standingsMode);
+  const prevDateRef = useRef(asOfDate);
+  if (prevModeRef.current !== standingsMode || prevDateRef.current !== asOfDate) {
+    prevModeRef.current = standingsMode;
+    prevDateRef.current = asOfDate;
+    if (prediction) setPrediction(null);
+    // Invalidate cache so next predict re-filters by the new date
+    gamesCacheRef.current = null;
+  }
+
   // Fetch bracket game records
   const fetchBracketGames = useCallback(async () => {
     try {
@@ -71,6 +106,13 @@ function BracketCard({
       setBracketGames(Array.isArray(data?.games) ? data.games : []);
     } catch { /* no-op */ }
   }, [seasonId, bracket.id]);
+
+  // Re-fetch bracket games when the tab regains focus so scores entered elsewhere stay in sync
+  useEffect(() => {
+    const onFocus = () => fetchBracketGames();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fetchBracketGames]);
 
   // Load assignments and bracket games on mount
   useEffect(() => {
@@ -96,9 +138,13 @@ function BracketCard({
     return () => { cancelled = true; };
   }, [seasonId, bracket.id, fetchBracketGames]);
 
-  // Always compute seed assignments from standings (auto-refresh on every visit)
+  // Auto-seed from standings, but only when no bracket games have scores yet.
+  // Once games are scored the bracket is in progress — re-seeding would corrupt
+  // bracket_game_id assignments relative to the scored rows.
   useEffect(() => {
     if (!structure || standingsOrder.length === 0 || loading) return;
+    // Freeze if any bracket game already has a score
+    if (bracketGames.some((g) => g.homescore != null || g.awayscore != null)) return;
     const numSeeds = structure.numTeams;
     const offset = seedOffset;
     const next: Record<number, number> = {};
@@ -119,7 +165,7 @@ function BracketCard({
       body: JSON.stringify({ assignments: arr }),
     }).then(() => fetchBracketGames()).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- assignments intentionally excluded to avoid loop
-  }, [structure, standingsOrder, loading, seedOffset, bracket.id, seasonId, fetchBracketGames]);
+  }, [structure, standingsOrder, loading, seedOffset, bracket.id, seasonId, fetchBracketGames, bracketGames]);
 
   const handleSelectTemplate = useCallback(
     (template: { id: number; name: string; structure: BracketStructure }) => {
@@ -200,6 +246,8 @@ function BracketCard({
         location: g.location,
         homescore: g.homescore,
         awayscore: g.awayscore,
+        home_team: g.home_team,
+        away_team: g.away_team,
       };
     }
   }
@@ -208,6 +256,89 @@ function BracketCard({
     const game = bracketGames.find((g) => g.bracket_game_id === bracketGameId);
     if (game) setScheduleGame(game);
   };
+
+  // Prediction handler
+  const handlePredict = useCallback(async () => {
+    if (!structure || Object.keys(assignments).length === 0) return;
+    setPredicting(true);
+    try {
+      // Fetch all regular-season games once (unfiltered; we apply date filtering below)
+      if (!gamesCacheRef.current) {
+        const res = await fetch(`/api/seasons/${seasonId}/games?game_type=regular`);
+        if (!res.ok) throw new Error("Failed to fetch games");
+        const data = await res.json();
+        const allGames: any[] = Array.isArray(data?.games) ? data.games : [];
+        gamesCacheRef.current = allGames
+          .filter((g: any) => g.gamestatusid === 4 || g.gamestatusid === 6 || g.gamestatusid === 7)
+          .map((g: any): GameRecord => ({
+            gameid: g.id,
+            home: g.home,
+            away: g.away,
+            homescore: g.homescore ?? null,
+            awayscore: g.awayscore ?? null,
+            gamedate: g.gamedate ?? null,
+            winnerSide: g.gamestatusid === 6 ? "away" : g.gamestatusid === 7 ? "home" : null,
+          }));
+      }
+
+      // When using as-of mode, only use games played on or before that date for stats
+      const cutoffDate = standingsMode === "as-of" ? asOfDate : null;
+      const gamesForStats = cutoffDate
+        ? gamesCacheRef.current.filter((g) => !g.gamedate || g.gamedate <= cutoffDate)
+        : gamesCacheRef.current;
+
+      // Build team records from the teams prop
+      const teamRecords: TeamRecord[] = teams.map((t) => ({ teamid: t.id, team: t.name }));
+
+      // Compute Pythagorean stats from the date-filtered games
+      const { statsMap, leagueAvgRaPerG, warning: baseWarning } = preparePredictionStats(
+        gamesForStats,
+        teamRecords,
+      );
+
+      // Build a combined warning that mentions projected seedings when applicable
+      let warning = baseWarning;
+      if (cutoffDate && projectedGamesCount > 0) {
+        const seedNote = `Seeds are projected from simulated results for ${projectedGamesCount} unplayed regular-season game${projectedGamesCount !== 1 ? "s" : ""} as of ${cutoffDate}.`;
+        warning = warning ? `${seedNote} ${warning}` : seedNote;
+      }
+
+      // Build team name lookup
+      const teamNameMap: Record<number, string> = {};
+      for (const t of teams) teamNameMap[t.id] = t.name;
+
+      // Build actual game results — only bracket games played on or before the cutoff date
+      const actualResults: Record<string, ActualGameResult> = {};
+      for (const g of bracketGames) {
+        if (
+          g.bracket_game_id &&
+          g.homescore != null && g.awayscore != null &&
+          g.home != null && g.away != null &&
+          // In as-of mode, exclude games played after the cutoff date
+          (!cutoffDate || !g.gamedate || g.gamedate <= cutoffDate)
+        ) {
+          actualResults[g.bracket_game_id] = {
+            home: g.home,
+            away: g.away,
+            homescore: g.homescore,
+            awayscore: g.awayscore,
+            gamestatusid: g.gamestatusid,
+          };
+        }
+      }
+
+      // Run prediction
+      const result = predictionMethod === "pythagorean"
+        ? predictBracketPythagorean(structure, assignments, teamNameMap, actualResults, statsMap, leagueAvgRaPerG, warning)
+        : predictBracketMonteCarlo(structure, assignments, teamNameMap, actualResults, statsMap, leagueAvgRaPerG, 1000, warning);
+
+      setPrediction(result);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Prediction failed");
+    } finally {
+      setPredicting(false);
+    }
+  }, [structure, assignments, teams, seasonId, bracketGames, predictionMethod, standingsMode, asOfDate, projectedGamesCount]);
 
   return (
     <div className="border border-border bg-card">
@@ -295,7 +426,67 @@ function BracketCard({
         {/* Bracket preview */}
         {structure ? (
           <div>
-            <p className="label-section mb-2">Preview</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="label-section">Preview</p>
+              <div className="flex items-center gap-2">
+                {/* Method toggle */}
+                <div className="flex rounded border border-border overflow-hidden">
+                  {(["pythagorean", "monte_carlo"] as PredictionMethod[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => { setPredictionMethod(m); setPrediction(null); }}
+                      className={cn(
+                        "px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+                        predictionMethod === m
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      )}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {m === "pythagorean" ? "Pythagorean" : "Monte Carlo"}
+                    </button>
+                  ))}
+                </div>
+                {/* Predict / Clear buttons */}
+                {prediction ? (
+                  <button
+                    type="button"
+                    onClick={() => setPrediction(null)}
+                    className={cn(BTN_BASE, "border-border text-muted-foreground hover:bg-muted")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    <X className="h-3 w-3" />
+                    Clear
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handlePredict}
+                    disabled={predicting || Object.keys(assignments).length === 0}
+                    className={cn(
+                      BTN_BASE,
+                      "bg-amber-500 text-white border-amber-500 hover:bg-amber-600 disabled:opacity-40"
+                    )}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {predicting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3.5 w-3.5" />
+                    )}
+                    {predicting ? "Predicting…" : "Predict Bracket"}
+                  </button>
+                )}
+              </div>
+            </div>
+            {/* Warning message */}
+            {prediction?.warning && (
+              <div className="flex items-start gap-2 text-xs text-amber-700 dark:text-amber-400 border border-amber-500/30 bg-amber-500/10 p-2 mb-2">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                <span>{prediction.warning}</span>
+              </div>
+            )}
             <BracketPreview
               structure={structure}
               seedLabels={seedLabels}
@@ -303,7 +494,43 @@ function BracketCard({
               editable={false}
               onGameClick={bracketGames.length > 0 ? handleGameClick : undefined}
               gameDetails={bracketGames.length > 0 ? gameDetailsMap : undefined}
+              predictionOverlay={prediction?.games}
             />
+            {/* Champion banner */}
+            {prediction && prediction.championId != null && (
+              <div className="mt-3 flex items-center gap-3 px-4 py-3 border border-amber-500/40 bg-amber-500/10 rounded">
+                <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
+                <div>
+                  <p className="text-sm font-bold" style={{ fontFamily: "var(--font-display)", textTransform: "uppercase" }}>
+                    Predicted Champion: {prediction.championName}
+                    {prediction.method === "monte_carlo" && prediction.championshipProbabilities?.[prediction.championId] != null && (
+                      <span className="ml-2 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                        ({Math.round(prediction.championshipProbabilities[prediction.championId])}% chance)
+                      </span>
+                    )}
+                  </p>
+                  {prediction.method === "monte_carlo" && prediction.championshipProbabilities && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1">
+                      {Object.entries(prediction.championshipProbabilities)
+                        .sort(([, a], [, b]) => b - a)
+                        .slice(0, 6)
+                        .map(([teamId, pct]) => {
+                          const name = teams.find((t) => t.id === Number(teamId))?.name ?? `Team ${teamId}`;
+                          return (
+                            <span key={teamId} className="text-[10px] text-muted-foreground">
+                              {name} <span className="font-semibold text-foreground">{Math.round(pct)}%</span>
+                            </span>
+                          );
+                        })}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {prediction.method === "pythagorean" ? "Pythagorean expectation" : `${prediction.simulationsRun?.toLocaleString()} simulations`}
+                    {standingsMode === "as-of" && ` · as of ${asOfDate}`}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-32 border border-dashed border-border/60 text-center">
@@ -426,6 +653,8 @@ function PlayoffsBody() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  /** Number of regular-season games projected (not yet played) as of the as-of date. 0 = season complete. */
+  const [projectedGamesCount, setProjectedGamesCount] = useState(0);
 
   const [standingsMode, setStandingsMode] = useState<StandingsMode>("current");
   const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
@@ -461,23 +690,36 @@ function PlayoffsBody() {
     return () => { cancelled = true; };
   }, [seasonId]);
 
-  // Reload standings whenever mode/asOfDate changes
+  // Reload standings whenever mode/asOfDate changes.
+  // In as-of mode: use projected standings (simulates remaining games via Pythagorean)
+  // so seeds reflect where teams *would* have finished, not just the partial table.
   useEffect(() => {
     if (!seasonId) return;
     let cancelled = false;
     (async () => {
       try {
-        let url = `/api/seasons/${seasonId}/standings`;
-        if (standingsMode === "live") {
-          url += "?includeInProgress=true";
-        } else if (standingsMode === "as-of") {
-          url += `?asOfDate=${asOfDate}`;
-        }
-        const standingsRes = await fetch(url);
-        const standingsData = standingsRes.ok ? await standingsRes.json() : { standings: [] };
-        if (!cancelled) {
-          const standings: StandingsRow[] = Array.isArray(standingsData?.standings) ? standingsData.standings : [];
-          setStandingsOrder(standings.slice().sort((a, b) => a.rank_final - b.rank_final).map((r) => r.teamid));
+        let url: string;
+        let projected = 0;
+        if (standingsMode === "as-of") {
+          url = `/api/seasons/${seasonId}/projected-standings?asOfDate=${asOfDate}`;
+          const standingsRes = await fetch(url);
+          const standingsData = standingsRes.ok ? await standingsRes.json() : { standings: [] };
+          if (!cancelled) {
+            const standings: StandingsRow[] = Array.isArray(standingsData?.standings) ? standingsData.standings : [];
+            projected = standingsData?.projectedGamesCount ?? 0;
+            setStandingsOrder(standings.slice().sort((a, b) => a.rank_final - b.rank_final).map((r) => r.teamid));
+            setProjectedGamesCount(projected);
+          }
+        } else {
+          url = `/api/seasons/${seasonId}/standings`;
+          if (standingsMode === "live") url += "?includeInProgress=true";
+          const standingsRes = await fetch(url);
+          const standingsData = standingsRes.ok ? await standingsRes.json() : { standings: [] };
+          if (!cancelled) {
+            const standings: StandingsRow[] = Array.isArray(standingsData?.standings) ? standingsData.standings : [];
+            setStandingsOrder(standings.slice().sort((a, b) => a.rank_final - b.rank_final).map((r) => r.teamid));
+            setProjectedGamesCount(0);
+          }
         }
       } catch { /* no-op */ }
     })();
@@ -513,6 +755,8 @@ function PlayoffsBody() {
               {brackets.length} bracket{brackets.length !== 1 ? "s" : ""}
               {standingsOrder.length > 0 &&
                 ` · ${standingsOrder.length} team${standingsOrder.length !== 1 ? "s" : ""} seeded from standings`}
+              {projectedGamesCount > 0 &&
+                ` · ${projectedGamesCount} game${projectedGamesCount !== 1 ? "s" : ""} projected`}
             </p>
           )}
           <div className="mt-2">
@@ -590,6 +834,9 @@ function PlayoffsBody() {
                   seedOffset={offsets.get(b.id) ?? 0}
                   onDeleted={handleBracketDeleted}
                   canEdit={canEdit}
+                  standingsMode={standingsMode}
+                  asOfDate={asOfDate}
+                  projectedGamesCount={projectedGamesCount}
                 />
               ) : null
             );

@@ -39,7 +39,7 @@ export default function StandingsModeToggle({
           value={asOfDate}
           onChange={(e) => onAsOfDateChange(e.target.value)}
           min={minDate ?? undefined}
-          max={maxDate && maxDate < today ? maxDate : today}
+          max={today}
           className="border border-border bg-input px-2 py-1 text-xs text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
           style={{ fontFamily: "var(--font-body)" }}
         />

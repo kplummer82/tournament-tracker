@@ -21,7 +21,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       FROM season_games
       WHERE season_id = ${seasonId}
         AND game_type = 'regular'
-        AND gamestatusid IN (4, 6, 7)
     `;
     const { min_date, max_date } = rows[0] ?? {};
     return res.status(200).json({

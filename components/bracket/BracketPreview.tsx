@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom";
 import type { BracketStructure, BracketRound, BracketGame } from "./types";
+import type { BracketGamePrediction } from "@/lib/bracket-prediction";
 import {
   validateFirstRoundSeeds,
   cloneStructure,
@@ -60,6 +61,8 @@ export type BracketGameDetails = {
   location?: string | null;
   homescore?: number | null;
   awayscore?: number | null;
+  home_team?: string | null;
+  away_team?: string | null;
 };
 
 type BracketPreviewProps = {
@@ -75,6 +78,8 @@ type BracketPreviewProps = {
   onGameClick?: (bracketGameId: string) => void;
   /** Optional game scheduling details to display on bracket boxes, keyed by bracket_game_id. */
   gameDetails?: Record<string, BracketGameDetails>;
+  /** Prediction overlay data keyed by bracket_game_id. When present, games show prediction styling. */
+  predictionOverlay?: Record<string, BracketGamePrediction>;
 };
 
 /** Center Y (px) for game at round r, game index k (0-based). First round has slots 0..N-1 with centers at (k+0.5)*SLOT_HEIGHT. */
@@ -144,6 +149,7 @@ function GameSlot({
   onToggleBye,
   onGameClick,
   gameDetails,
+  prediction,
 }: {
   game: BracketGame;
   roundIndex: number;
@@ -165,35 +171,65 @@ function GameSlot({
   innerOnly?: boolean;
   onGameClick?: (bracketGameId: string) => void;
   gameDetails?: BracketGameDetails;
+  /** Prediction overlay data for this game. */
+  prediction?: BracketGamePrediction;
 }) {
   const isFirstRound = roundIndex === 0;
   const isByeGame = isFirstRound && (game.seeds?.length ?? 0) === 1;
   const off = seedOffset ?? 0;
+  const isPredicted = prediction != null && !prediction.isActualResult && !prediction.isBye;
+  const hasPredictedTeams = prediction != null && !prediction.isBye;
+
+  // Use prediction team names for later rounds when available
   const slot1 =
-    isFirstRound && game.seeds?.[0]
-      ? seedLabels?.[game.seeds[0]]
-        ? `${seedLabels[game.seeds[0]]} (#${game.seeds[0] + off})`
-        : `Seed ${game.seeds[0] + off}`
-      : game.feedsFrom?.[0]
-        ? `Winner ${game.feedsFrom[0]}`
-        : "—";
+    hasPredictedTeams && !isFirstRound && prediction.homeTeamName && prediction.homeTeamName !== "TBD"
+      ? prediction.homeTeamName
+      : isFirstRound && game.seeds?.[0]
+        ? seedLabels?.[game.seeds[0]]
+          ? `${seedLabels[game.seeds[0]]} (#${game.seeds[0] + off})`
+          : `Seed ${game.seeds[0] + off}`
+        : !isFirstRound && gameDetails?.home_team
+          ? gameDetails.home_team
+          : game.feedsFrom?.[0]
+            ? `Winner ${game.feedsFrom[0]}`
+            : "—";
   const slot2 =
-    isFirstRound && game.seeds?.[1]
-      ? seedLabels?.[game.seeds[1]]
-        ? `${seedLabels[game.seeds[1]]} (#${game.seeds[1] + off})`
-        : `Seed ${game.seeds[1] + off}`
-      : game.feedsFrom?.[1]
-        ? `Winner ${game.feedsFrom[1]}`
-        : "—";
+    hasPredictedTeams && !isFirstRound && prediction.awayTeamName && prediction.awayTeamName !== "TBD"
+      ? prediction.awayTeamName
+      : isFirstRound && game.seeds?.[1]
+        ? seedLabels?.[game.seeds[1]]
+          ? `${seedLabels[game.seeds[1]]} (#${game.seeds[1] + off})`
+          : `Seed ${game.seeds[1] + off}`
+        : !isFirstRound && gameDetails?.away_team
+          ? gameDetails.away_team
+          : game.feedsFrom?.[1]
+            ? `Winner ${game.feedsFrom[1]}`
+            : "—";
 
   const isEditableFirstRound = isFirstRound && editable && onSeedChange != null && numTeams != null && duplicates != null;
   const isEditableLaterRound =
     !isFirstRound && editable && onFeedsFromChange != null && prevRoundGames != null && prevRoundGames.length >= 2;
 
+  // Prediction win probabilities — only show for first-round games where matchups are fixed.
+  // Later-round matchups vary across MC simulations, making per-game % less meaningful.
+  const homeWinPct = isPredicted && isFirstRound && prediction.homeWinProbability != null
+    ? Math.round(prediction.homeWinProbability * 100)
+    : null;
+  const awayWinPct = homeWinPct != null ? 100 - homeWinPct : null;
+
+  // Prediction scores (use prediction scores for predicted games, fall through to gameDetails for actual)
+  const displayHomeScore = isPredicted ? prediction.homescore : gameDetails?.homescore;
+  const displayAwayScore = isPredicted ? prediction.awayscore : gameDetails?.awayscore;
+
   const content = (
     <>
       <div className="flex items-center justify-between gap-1.5 shrink-0 min-w-0">
         <span className="text-[11px] text-muted-foreground leading-snug truncate">{game.id}</span>
+        {isPredicted && (
+          <span className="text-[8px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
+            Predicted
+          </span>
+        )}
         <div className="flex items-center gap-0.5 shrink-0">
           {isEditableFirstRound && onToggleBye && (
             <Button
@@ -314,9 +350,20 @@ function GameSlot({
             )}>
               {homeSlotIndex === 0 ? "H" : homeSlotIndex === 1 ? "V" : ""}
             </span>
-            <span className="text-sm font-medium leading-snug break-words min-w-0 flex-1">{slot1}</span>
-            {gameDetails?.homescore != null && (
-              <span className="text-xs font-semibold tabular-nums text-foreground/70 shrink-0">{gameDetails.homescore}</span>
+            <span className={cn(
+              "text-sm font-medium leading-snug break-words min-w-0 flex-1",
+              isPredicted && prediction.winnerId === prediction.homeTeamId && "font-bold"
+            )}>{slot1}</span>
+            {homeWinPct != null && (
+              <span className="text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400 shrink-0">
+                {homeWinPct}%
+              </span>
+            )}
+            {displayHomeScore != null && (
+              <span className={cn(
+                "text-xs font-semibold tabular-nums shrink-0",
+                isPredicted ? "text-amber-600 dark:text-amber-400" : "text-foreground/70"
+              )}>{displayHomeScore}</span>
             )}
           </div>
           <div className="text-xs text-muted-foreground leading-snug shrink-0">vs</div>
@@ -327,14 +374,30 @@ function GameSlot({
             )}>
               {homeSlotIndex === 1 ? "H" : homeSlotIndex === 0 ? "V" : ""}
             </span>
-            <span className="text-sm font-medium leading-snug break-words min-w-0 flex-1">{slot2}</span>
-            {gameDetails?.awayscore != null && (
-              <span className="text-xs font-semibold tabular-nums text-foreground/70 shrink-0">{gameDetails.awayscore}</span>
+            <span className={cn(
+              "text-sm font-medium leading-snug break-words min-w-0 flex-1",
+              isPredicted && prediction.winnerId === prediction.awayTeamId && "font-bold"
+            )}>{slot2}</span>
+            {awayWinPct != null && (
+              <span className="text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400 shrink-0">
+                {awayWinPct}%
+              </span>
+            )}
+            {displayAwayScore != null && (
+              <span className={cn(
+                "text-xs font-semibold tabular-nums shrink-0",
+                isPredicted ? "text-amber-600 dark:text-amber-400" : "text-foreground/70"
+              )}>{displayAwayScore}</span>
             )}
           </div>
           {gameDetails && (gameDetails.gamedate || gameDetails.gametime) && (
             <div className="text-[9px] text-muted-foreground/60 mt-0.5 truncate">
-              {[gameDetails.gamedate, gameDetails.gametime].filter(Boolean).join(" ")}
+              {[
+                gameDetails.gamedate
+                  ? (() => { const d = new Date(gameDetails.gamedate); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(-2)}`; })()
+                  : null,
+                gameDetails.gametime,
+              ].filter(Boolean).join(" ")}
             </div>
           )}
         </>
@@ -352,7 +415,9 @@ function GameSlot({
         "absolute rounded-lg p-3 box-border flex flex-col justify-center min-h-0",
         isByeGame
           ? "border border-dashed border-border/60 bg-muted/10"
-          : "border border-border bg-muted/30",
+          : isPredicted
+            ? "border border-dashed border-amber-500/50 bg-amber-500/5 dark:bg-amber-500/10"
+            : "border border-border bg-muted/30",
         isClickable && "cursor-pointer hover:border-primary/60 hover:bg-muted/50 transition-colors"
       )}
       style={{
@@ -449,6 +514,7 @@ export default function BracketPreview({
   onStructureChange,
   onGameClick,
   gameDetails,
+  predictionOverlay,
 }: BracketPreviewProps) {
   // Compute dimensions early so hooks can depend on them (hooks must run unconditionally)
   const rounds = (structure?.rounds ?? []) as BracketRound[];
@@ -771,6 +837,7 @@ export default function BracketPreview({
             homeSlotIndex={homeSlotIndex}
             onGameClick={onGameClick}
             gameDetails={gameDetails?.[game.id]}
+            prediction={predictionOverlay?.[game.id]}
           />
         );
       })

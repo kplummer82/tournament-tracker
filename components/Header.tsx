@@ -13,6 +13,7 @@ const NAV_LINKS = [
   { href: "/tournaments",    label: "Tournaments",     key: "tournaments" },
   { href: "/leagues",        label: "Leagues",         key: "leagues" },
   { href: "/teams",          label: "Teams",           key: "teams" },
+  { href: "/scrimmages",     label: "Scrimmages",      key: "scrimmages" },
   { href: "/bracket-builder",label: "Bracket Builder", key: "bracket-builder" },
 ] as const;
 
@@ -43,6 +44,7 @@ export default function Header() {
     pathname.startsWith("/leagues")         ? "leagues" :
     pathname.startsWith("/seasons")         ? "leagues" :
     pathname.startsWith("/teams")           ? "teams" :
+    pathname.startsWith("/scrimmages")     ? "scrimmages" :
     pathname.startsWith("/bracket-builder") ? "bracket-builder" :
     "home";
 

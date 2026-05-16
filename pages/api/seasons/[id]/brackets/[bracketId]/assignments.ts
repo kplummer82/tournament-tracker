@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
-import { syncBracketGames } from "@/lib/bracket-games";
+import { syncBracketGames, repropagateWinners } from "@/lib/bracket-games";
 import type { BracketStructure } from "@/components/bracket/types";
 import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
@@ -75,6 +75,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           bracketData.structure as BracketStructure,
           assignments
         );
+        // Re-propagate winners for any already-scored games so later-round
+        // slots stay correct when seed assignments change.
+        await repropagateWinners(seasonId, bracketId);
       }
 
       const rows = await sql`
