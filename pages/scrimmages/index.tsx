@@ -7,6 +7,9 @@ import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import Header from "@/components/Header";
 import ListingCard, { type ListingRow } from "@/components/scrimmages/ListingCard";
 import CreateListingModal from "@/components/scrimmages/CreateListingModal";
+import ZipRadiusFilter, { type ZipRadiusValue } from "@/components/scrimmages/ZipRadiusFilter";
+import ViewToggle, { type ScrimmageView } from "@/components/scrimmages/ViewToggle";
+import ScrimmageMap from "@/components/scrimmages/ScrimmageMap";
 import Link from "next/link";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 
@@ -113,6 +116,14 @@ export default function ScrimmageMarketplacePage() {
   const { hasAnyRole } = usePermissions();
 
   const [filters, setFilters] = useState<FilterState>({ q: "" });
+  const [geo, setGeo] = useState<ZipRadiusValue>({
+    zip: "",
+    lat: null,
+    lng: null,
+    place: null,
+    radiusMiles: 25,
+  });
+  const [view, setView] = useState<ScrimmageView>("list");
   const pageSize = 20;
   const [page, setPage] = useState(1);
   const debouncedQ = useDebounced(filters.q, 300);
@@ -151,6 +162,11 @@ export default function ScrimmageMarketplacePage() {
       if (filters.age_min) params.set("age_min", filters.age_min);
       if (filters.age_max) params.set("age_max", filters.age_max);
       if (filters.scope) params.set("scope", filters.scope);
+      if (geo.lat !== null && geo.lng !== null) {
+        params.set("lat", String(geo.lat));
+        params.set("lng", String(geo.lng));
+        params.set("radius", String(geo.radiusMiles));
+      }
       params.set("page", String(page));
       params.set("pageSize", String(pageSize));
 
@@ -171,20 +187,22 @@ export default function ScrimmageMarketplacePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, page]);
+  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, geo.lat, geo.lng, geo.radiusMiles, page]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope]);
+  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, geo.lat, geo.lng, geo.radiusMiles]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
   const hasFilters = !!(
     filters.q || filters.sport || filters.date_from || filters.date_to ||
-    filters.age_min || filters.age_max || filters.scope
+    filters.age_min || filters.age_max || filters.scope ||
+    geo.zip || geo.lat !== null
   );
 
   const clearFilters = () => {
     setFilters({ q: "" });
+    setGeo({ zip: "", lat: null, lng: null, place: null, radiusMiles: 25 });
     setPage(1);
   };
 
@@ -342,6 +360,9 @@ export default function ScrimmageMarketplacePage() {
             </SelectContent>
           </Select>
 
+          {/* Zip + radius */}
+          <ZipRadiusFilter value={geo} onChange={setGeo} />
+
           {/* Clear filters */}
           {hasFilters && (
             <button
@@ -362,25 +383,41 @@ export default function ScrimmageMarketplacePage() {
           </div>
         )}
 
-        {/* Results */}
-        <div className="border border-border bg-card">
-          {loading ? (
-            <div className="space-y-0">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-[72px] border-b border-border last:border-0 bg-elevated animate-pulse" />
-              ))}
-            </div>
-          ) : listings.length === 0 ? (
-            <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
-          ) : (
-            listings.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} />
-            ))
-          )}
+        {/* View toggle */}
+        <div className="flex justify-end pb-3">
+          <ViewToggle value={view} onChange={setView} />
         </div>
 
-        {/* Pagination */}
-        {!loading && total > pageSize && (
+        {/* Results */}
+        {view === "list" ? (
+          <div className="border border-border bg-card">
+            {loading ? (
+              <div className="space-y-0">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-[72px] border-b border-border last:border-0 bg-elevated animate-pulse" />
+                ))}
+              </div>
+            ) : listings.length === 0 ? (
+              <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
+            ) : (
+              listings.map((listing) => (
+                <ListingCard key={listing.id} listing={listing} />
+              ))
+            )}
+          </div>
+        ) : (
+          <ScrimmageMap
+            listings={listings}
+            center={
+              geo.lat !== null && geo.lng !== null
+                ? { lat: geo.lat, lng: geo.lng, radiusMiles: geo.radiusMiles }
+                : null
+            }
+          />
+        )}
+
+        {/* Pagination — list view only */}
+        {view === "list" && !loading && total > pageSize && (
           <div className="flex justify-center pt-6">
             <Pagination page={page} pageCount={pageCount} onPage={setPage} />
           </div>

@@ -104,30 +104,23 @@ export default async function handler(
         const maxMiles = parseFloat(String(radius));
 
         if (!isNaN(userLat) && !isNaN(userLng) && !isNaN(maxMiles)) {
-          // SELECT distance
-          const latP1 = $(); params.push(userLat);
-          const lngP1 = $(); params.push(userLng);
-          const latP2 = $(); params.push(userLat);
-
-          geoSelect = `, (3959 * acos(LEAST(1, GREATEST(-1,
-            cos(radians(${latP1})) * cos(radians(sl.location_lat)) *
-            cos(radians(sl.location_lng) - radians(${lngP1})) +
-            sin(radians(${latP2})) * sin(radians(sl.location_lat))
-          )))) AS distance_miles`;
-
-          // WHERE distance filter (duplicate params for WHERE copy)
-          const latP3 = $(); params.push(userLat);
-          const lngP2 = $(); params.push(userLng);
-          const latP4 = $(); params.push(userLat);
+          // Push WHERE-side params first so they remain in `countParams` after
+          // we slice off LIMIT/OFFSET. The SELECT-side reuses the same placeholders.
+          const latP = $(); params.push(userLat);
+          const lngP = $(); params.push(userLng);
           const radiusP = $(); params.push(maxMiles);
 
-          whereParts.push(
-            `(sl.location_lat IS NULL OR (3959 * acos(LEAST(1, GREATEST(-1,
-              cos(radians(${latP3})) * cos(radians(sl.location_lat)) *
-              cos(radians(sl.location_lng) - radians(${lngP2})) +
-              sin(radians(${latP4})) * sin(radians(sl.location_lat))
-            )))) <= ${radiusP})`
-          );
+          // Wrap in CASE: LEAST/GREATEST ignore NULLs in Postgres, so a NULL
+          // location_lat would otherwise yield acos(-1) ≈ 3.14 → 12,437 mi.
+          const distanceExpr = `(CASE WHEN sl.location_lat IS NULL OR sl.location_lng IS NULL THEN NULL ELSE
+            (3959 * acos(LEAST(1, GREATEST(-1,
+              cos(radians(${latP})) * cos(radians(sl.location_lat)) *
+              cos(radians(sl.location_lng) - radians(${lngP})) +
+              sin(radians(${latP})) * sin(radians(sl.location_lat))
+            )))) END)`;
+
+          geoSelect = `, ${distanceExpr} AS distance_miles`;
+          whereParts.push(`(sl.location_lat IS NULL OR ${distanceExpr} <= ${radiusP})`);
 
           orderBy = "distance_miles ASC NULLS LAST, sl.available_date ASC";
         }

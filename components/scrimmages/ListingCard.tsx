@@ -11,6 +11,8 @@ export type ListingRow = {
   will_travel: boolean;
   travel_radius_miles: number | null;
   location_name: string | null;
+  location_lat: number | string | null;
+  location_lng: number | string | null;
   official_location_name: string | null;
   location_city: string | null;
   location_state: string | null;
