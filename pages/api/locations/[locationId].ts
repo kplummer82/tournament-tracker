@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
 import { verifyAddress } from "@/lib/usps";
+import { geocodeAddress } from "@/lib/mapbox/geocodeAddress";
 
 function parseLocationId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.locationId) ? req.query.locationId[0] : req.query.locationId;
@@ -46,8 +47,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let finalCity = city?.trim() ?? null;
       let finalState = state?.trim() ?? null;
       let finalZip = zip?.trim() ?? null;
-      const finalLat = typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
-      const finalLng = typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
+      let finalLat: number | null =
+        typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
+      let finalLng: number | null =
+        typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
       let uspsVerified = false;
 
       // Re-verify via USPS if enabled and address fields are provided
@@ -70,6 +73,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
       } else if (!uspsEnabled) {
         console.info("[locations] USPS disabled — skipping verification");
+      }
+
+      // Re-geocode on every save (per product decision). Overwrites caller-supplied
+      // lat/lng only if Mapbox returns a result; falls back to existing values otherwise.
+      const geocoded = await geocodeAddress({
+        name: name?.trim() ?? null,
+        address: finalAddress,
+        city: finalCity,
+        state: finalState,
+        zip: finalZip,
+      });
+      if (geocoded) {
+        finalLat = geocoded.lat;
+        finalLng = geocoded.lng;
+      }
+      // Propagate refreshed coords to any listings denormalizing this location.
+      if (finalLat != null && finalLng != null) {
+        await sql`
+          UPDATE scrimmage_listings
+          SET location_lat = ${finalLat}, location_lng = ${finalLng}
+          WHERE location_id = ${locationId}
+        `;
       }
 
       const rows = await sql`

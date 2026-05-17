@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { neon } from "@neondatabase/serverless";
 import { sql } from "@/lib/db";
 import { requireSession, requireTeamAccess } from "@/lib/auth/requireSession";
+import { geocodeAddress } from "@/lib/mapbox/geocodeAddress";
 
 const dynamicSql = neon(process.env.DATABASE_URL!);
 
@@ -227,16 +228,44 @@ export default async function handler(
       const teamRows = await sql`SELECT sportid FROM teams WHERE teamid = ${teamId}`;
       const sportId = teamRows[0]?.sportid ?? null;
 
-      // If location_id provided, denormalize lat/lng from locations table
-      let finalLat = location_lat ?? null;
-      let finalLng = location_lng ?? null;
-      if (location_id && (!finalLat || !finalLng)) {
+      // Resolve lat/lng with cascading fallbacks:
+      //   1. Caller supplied (e.g. Mapbox-search-driven flow)
+      //   2. Denormalize from the linked locations row
+      //   3. Geocode the location's address fields (and backfill the locations row)
+      //   4. Geocode the typed location_name when no location_id is set
+      let finalLat: number | null = location_lat ?? null;
+      let finalLng: number | null = location_lng ?? null;
+
+      if (location_id) {
         const locRows = await sql`
-          SELECT latitude, longitude FROM locations WHERE id = ${location_id}
+          SELECT name, address, city, state, zip, latitude, longitude
+          FROM locations WHERE id = ${location_id}
         `;
-        if (locRows[0]) {
-          finalLat = locRows[0].latitude;
-          finalLng = locRows[0].longitude;
+        const loc = locRows[0];
+        if (loc) {
+          if ((finalLat == null || finalLng == null) && loc.latitude != null && loc.longitude != null) {
+            finalLat = loc.latitude;
+            finalLng = loc.longitude;
+          }
+          if (finalLat == null || finalLng == null) {
+            const geocoded = await geocodeAddress({
+              name: loc.name,
+              address: loc.address,
+              city: loc.city,
+              state: loc.state,
+              zip: loc.zip,
+            });
+            if (geocoded) {
+              finalLat = geocoded.lat;
+              finalLng = geocoded.lng;
+              // Backfill so future listings (and the map's distance filter) get this for free.
+              await sql`
+                UPDATE locations
+                SET latitude = ${finalLat}, longitude = ${finalLng}
+                WHERE id = ${location_id} AND (latitude IS NULL OR longitude IS NULL)
+              `;
+            }
+          }
         }
       }
 

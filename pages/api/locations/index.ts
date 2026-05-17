@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
 import { verifyAddress } from "@/lib/usps";
+import { geocodeAddress } from "@/lib/mapbox/geocodeAddress";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
@@ -53,8 +54,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let finalCity = city?.trim() || null;
       let finalState = state?.trim() || null;
       let finalZip = zip?.trim() || null;
-      const finalLat = typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
-      const finalLng = typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
+      let finalLat: number | null =
+        typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
+      let finalLng: number | null =
+        typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
       let uspsVerified = false;
 
       // Verify address via USPS if enabled and address fields are provided
@@ -81,6 +84,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         console.info("[locations] USPS disabled — skipping verification");
       } else {
         console.warn("[locations] USPS skipped — missing fields:", { address: finalAddress, city: finalCity, state: finalState, zip: finalZip });
+      }
+
+      // Re-geocode on every save. Only overrides client-supplied coords if Mapbox returns a hit.
+      const geocoded = await geocodeAddress({
+        name: name?.trim() ?? null,
+        address: finalAddress,
+        city: finalCity,
+        state: finalState,
+        zip: finalZip,
+      });
+      if (geocoded) {
+        finalLat = geocoded.lat;
+        finalLng = geocoded.lng;
       }
 
       const inserted = await sql`
