@@ -76,10 +76,18 @@ async function patchVenue(req: NextApiRequest, res: NextApiResponse, tournamentI
     }
 
     params.push(venueId);
-    await client.query(
-      `UPDATE tournament_venues SET ${sets.join(", ")} WHERE id = $${i}`,
-      params,
-    );
+    try {
+      await client.query(
+        `UPDATE tournament_venues SET ${sets.join(", ")} WHERE id = $${i}`,
+        params,
+      );
+    } catch (e: any) {
+      if (String(e.code) === "23505") {
+        await client.query("ROLLBACK");
+        return res.status(409).json({ error: "A custom venue with that name already exists in this tournament" });
+      }
+      throw e;
+    }
 
     const venues = await loadVenues(client, tournamentId);
     await client.query("COMMIT");
