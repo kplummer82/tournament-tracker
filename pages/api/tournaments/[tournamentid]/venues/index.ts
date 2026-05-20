@@ -2,6 +2,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
 import { requireSession, requireTournamentAccess } from "@/lib/auth/requireSession";
+import { getUserRoles, hasTournamentAccess } from "@/lib/auth/permissions";
 import { loadVenues, runAutoPromotionIfNeeded } from "@/lib/tournaments/venues";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -18,10 +19,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 async function getVenues(req: NextApiRequest, res: NextApiResponse, tournamentId: number) {
   const session = await requireSession(req, res);
   if (!session) return;
+
+  // Auto-promotion writes data; only run it for callers with tournament_admin
+  // access. Non-admin readers just see whatever venues already exist.
+  const canAdmin =
+    session.user.role === "admin" ||
+    hasTournamentAccess(await getUserRoles(session.user.id), tournamentId);
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await runAutoPromotionIfNeeded(client, tournamentId);
+    if (canAdmin) {
+      await runAutoPromotionIfNeeded(client, tournamentId);
+    }
     const venues = await loadVenues(client, tournamentId);
     await client.query("COMMIT");
     return res.status(200).json({ venues });
@@ -96,23 +106,31 @@ async function createVenue(req: NextApiRequest, res: NextApiResponse, tournament
         await client.query("ROLLBACK");
         return res.status(400).json({ error: "name required for custom kind" });
       }
-      const { rows: ins } = await client.query(
-        `INSERT INTO tournament_venues
-           (tournament_id, custom_name, custom_address, custom_city, custom_state, sort_order, created_by)
-         VALUES ($1, $2, $3, $4, $5,
-           COALESCE((SELECT MAX(sort_order) + 1 FROM tournament_venues WHERE tournament_id = $1), 0),
-           $6)
-         RETURNING id`,
-        [
-          tournamentId,
-          name,
-          typeof body.address === "string" ? body.address.trim() || null : null,
-          typeof body.city === "string" ? body.city.trim() || null : null,
-          typeof body.state === "string" ? body.state.trim() || null : null,
-          session.user.id,
-        ],
-      );
-      venueId = Number(ins[0].id);
+      try {
+        const { rows: ins } = await client.query(
+          `INSERT INTO tournament_venues
+             (tournament_id, custom_name, custom_address, custom_city, custom_state, sort_order, created_by)
+           VALUES ($1, $2, $3, $4, $5,
+             COALESCE((SELECT MAX(sort_order) + 1 FROM tournament_venues WHERE tournament_id = $1), 0),
+             $6)
+           RETURNING id`,
+          [
+            tournamentId,
+            name,
+            typeof body.address === "string" ? body.address.trim() || null : null,
+            typeof body.city === "string" ? body.city.trim() || null : null,
+            typeof body.state === "string" ? body.state.trim() || null : null,
+            session.user.id,
+          ],
+        );
+        venueId = Number(ins[0].id);
+      } catch (e: any) {
+        if (String(e.code) === "23505") {
+          await client.query("ROLLBACK");
+          return res.status(409).json({ error: "Tournament already includes a custom venue with this name" });
+        }
+        throw e;
+      }
 
       const fields: unknown = body.fields;
       if (Array.isArray(fields)) {
@@ -139,8 +157,12 @@ async function createVenue(req: NextApiRequest, res: NextApiResponse, tournament
     }
 
     const venues = await loadVenues(client, tournamentId);
-    await client.query("COMMIT");
     const created = venues.find((v) => v.id === venueId);
+    if (!created) {
+      await client.query("ROLLBACK");
+      return res.status(500).json({ error: "Venue created but could not be loaded" });
+    }
+    await client.query("COMMIT");
     return res.status(201).json({ venue: created });
   } catch (e: any) {
     await client.query("ROLLBACK");
