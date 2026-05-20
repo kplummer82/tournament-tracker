@@ -90,8 +90,12 @@ async function patchVenue(req: NextApiRequest, res: NextApiResponse, tournamentI
     }
 
     const venues = await loadVenues(client, tournamentId);
-    await client.query("COMMIT");
     const updated = venues.find((v) => v.id === venueId);
+    if (!updated) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "Venue not found" });
+    }
+    await client.query("COMMIT");
     return res.status(200).json({ venue: updated });
   } catch (e: any) {
     await client.query("ROLLBACK");

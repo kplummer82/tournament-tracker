@@ -54,3 +54,20 @@ ALTER TABLE tournamentgames
 
 CREATE INDEX IF NOT EXISTS idx_tournamentgames_venue
   ON tournamentgames (tournament_venue_id);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- IMPORTANT: After running this migration, also update the `poolgames_view`
+-- to expose tournamentgames.tournament_venue_id, otherwise BracketGameScheduleModal
+-- won't pre-populate the venue picker when re-opening an already-scheduled game.
+--
+-- 1. Inspect the current view definition:
+--      SELECT pg_get_viewdef('poolgames_view'::regclass, true);
+--
+-- 2. CREATE OR REPLACE VIEW poolgames_view AS (...) including:
+--      tg.tournament_venue_id
+--    in the SELECT list, alongside the existing columns. The rest of the view
+--    definition should be left unchanged.
+--
+-- See database/poolgames_view_status_README.md for the same pattern when
+-- gamestatusid was added previously.
+-- ────────────────────────────────────────────────────────────────────────────

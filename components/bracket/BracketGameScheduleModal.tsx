@@ -22,6 +22,7 @@ export type BracketGameRecord = {
   location: string | null;
   field: string | null;
   location_id: number | null;
+  tournament_venue_id: number | null;
   home: number | null;
   away: number | null;
   home_team: string | null;
@@ -53,7 +54,7 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
   const [field, setField] = useState(game.field ?? "");
   const [locationId, setLocationId] = useState<number | null>(game.location_id ?? null);
   const [tournamentVenueId, setTournamentVenueId] = useState<number | null>(
-    (game as BracketGameRecord & { tournament_venue_id?: number | null }).tournament_venue_id ?? null,
+    game.tournament_venue_id ?? null,
   );
   const [homescore, setHomescore] = useState(game.homescore != null ? String(game.homescore) : "");
   const [awayscore, setAwayscore] = useState(game.awayscore != null ? String(game.awayscore) : "");
