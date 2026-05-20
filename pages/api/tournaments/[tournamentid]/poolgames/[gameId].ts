@@ -8,30 +8,93 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!Number.isFinite(tournamentid)) return res.status(400).json({ error: "Invalid tournament id" });
   if (!Number.isFinite(gameId)) return res.status(400).json({ error: "Invalid game id" });
 
-  if (req.method !== "DELETE") {
-    res.setHeader("Allow", "DELETE");
-    return res.status(405).json({ error: "Method not allowed" });
-  }
-
   const session = await requireTournamentAccess(req, res, tournamentid);
   if (!session) return;
+
+  if (req.method === "PATCH") return patchGame(req, res, tournamentid, gameId);
+  if (req.method === "DELETE") return deleteGame(req, res, tournamentid, gameId);
+
+  res.setHeader("Allow", ["PATCH", "DELETE"]);
+  return res.status(405).json({ error: "Method not allowed" });
+}
+
+async function patchGame(req: NextApiRequest, res: NextApiResponse, tournamentid: number, gameId: number) {
+  const body = req.body ?? {};
+  const sets: string[] = [];
+  const params: any[] = [];
+  let i = 1;
+
+  // Allow-listed columns. All optional; only set what's provided.
+  const stringCols: Record<string, string> = {
+    gamedate: "gamedate",
+    gametime: "gametime",
+    location: "location",
+    field: "field",
+  };
+  for (const [bodyKey, col] of Object.entries(stringCols)) {
+    if (bodyKey in body) {
+      const v = body[bodyKey];
+      sets.push(`${col} = $${i++}`);
+      params.push(v == null || v === "" ? null : String(v));
+    }
+  }
+
+  const intCols: Record<string, string> = {
+    location_id: "location_id",
+    tournament_venue_id: "tournament_venue_id",
+    homescore: "homescore",
+    awayscore: "awayscore",
+    gamestatusid: "gamestatusid",
+  };
+  for (const [bodyKey, col] of Object.entries(intCols)) {
+    if (bodyKey in body) {
+      const v = body[bodyKey];
+      sets.push(`${col} = $${i++}`);
+      params.push(v == null || v === "" ? null : Number(v));
+    }
+  }
+
+  if (sets.length === 0) {
+    return res.status(400).json({ error: "No updatable fields provided" });
+  }
+
+  params.push(gameId, tournamentid);
 
   try {
     const client = await pool.connect();
     try {
-      // Pool games live in tournamentgames (poolgames_view is a view on top).
       const r = await client.query(
-        `DELETE FROM tournamentgames WHERE id = $1 AND tournamentid = $2 AND poolorbracket = 'Pool'`,
-        [gameId, tournamentid]
+        `UPDATE tournamentgames
+            SET ${sets.join(", ")}
+          WHERE id = $${i++} AND tournamentid = $${i++}
+          RETURNING id`,
+        params,
       );
-      if (!r.rowCount) {
-        return res.status(404).json({ error: "Game not found" });
-      }
+      if (!r.rowCount) return res.status(404).json({ error: "Game not found" });
       return res.status(200).json({ ok: true });
     } finally {
       client.release();
     }
-  } catch (e) {
+  } catch (e: any) {
+    console.error(e);
+    return res.status(500).json({ error: e.message || "Failed to update game" });
+  }
+}
+
+async function deleteGame(_req: NextApiRequest, res: NextApiResponse, tournamentid: number, gameId: number) {
+  try {
+    const client = await pool.connect();
+    try {
+      const r = await client.query(
+        `DELETE FROM tournamentgames WHERE id = $1 AND tournamentid = $2 AND poolorbracket = 'Pool'`,
+        [gameId, tournamentid],
+      );
+      if (!r.rowCount) return res.status(404).json({ error: "Game not found" });
+      return res.status(200).json({ ok: true });
+    } finally {
+      client.release();
+    }
+  } catch (e: any) {
     console.error(e);
     return res.status(500).json({ error: "Failed to delete game" });
   }

@@ -110,10 +110,9 @@ export async function runAutoPromotionIfNeeded(
   // Predefined: distinct location_id values among this tournament's games.
   const { rows: predefRows } = await client.query(
     `
-    SELECT location_id, MIN(tournamentgameid) AS first_game
+    SELECT DISTINCT location_id
     FROM tournamentgames
     WHERE tournamentid = $1 AND location_id IS NOT NULL
-    GROUP BY location_id
     `,
     [tournamentId],
   );
