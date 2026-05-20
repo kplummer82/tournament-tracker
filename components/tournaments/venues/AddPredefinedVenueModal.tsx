@@ -87,7 +87,7 @@ export default function AddPredefinedVenueModal({ open, onOpenChange, tournament
             Add Predefined Venue
           </DialogTitle>
           <DialogDescription>
-            Pick from the existing locations directory. To add a venue that isn't in the directory, use "Add Custom" instead.
+            Pick from the existing locations directory. To add a venue that isn&apos;t in the directory, use &quot;Add Custom&quot; instead.
           </DialogDescription>
         </DialogHeader>
 

@@ -366,6 +366,8 @@ export default function AdminLocationsClient() {
             New Location
           </span>
           <div className="flex items-center gap-2">
+            {/* CSV file download — must be a plain <a>, not next/link. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
             <a
               href="/api/locations/export"
               className={cn(

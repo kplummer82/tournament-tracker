@@ -385,7 +385,7 @@ export default function LocationPicker({
             ) : results.length === 0 && debouncedQuery ? (
               <>
                 <div className="px-3 py-2 text-xs text-muted-foreground">
-                  No matches for "{debouncedQuery}".
+                  No matches for &quot;{debouncedQuery}&quot;.
                 </div>
                 <button
                   type="button"
