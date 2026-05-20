@@ -10,6 +10,9 @@ import {
 import { cn } from "@/lib/utils";
 import LocationPicker from "@/components/LocationPicker";
 import type { LocationPickerValue } from "@/components/LocationPicker";
+import TournamentVenuePicker, {
+  type TournamentVenuePickerValue,
+} from "@/components/tournaments/TournamentVenuePicker";
 
 export type BracketGameRecord = {
   id: number;
@@ -19,6 +22,7 @@ export type BracketGameRecord = {
   location: string | null;
   field: string | null;
   location_id: number | null;
+  tournament_venue_id: number | null;
   home: number | null;
   away: number | null;
   home_team: string | null;
@@ -32,7 +36,8 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   game: BracketGameRecord;
-  seasonId: number;
+  seasonId?: number;
+  tournamentId?: number;
   onSaved: () => void;
 };
 
@@ -42,12 +47,15 @@ const INPUT =
 const BTN =
   "inline-flex items-center justify-center gap-1.5 px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
 
-export default function BracketGameScheduleModal({ open, onOpenChange, game, seasonId, onSaved }: Props) {
+export default function BracketGameScheduleModal({ open, onOpenChange, game, seasonId, tournamentId, onSaved }: Props) {
   const [gamedate, setGamedate] = useState(game.gamedate?.slice(0, 10) ?? "");
   const [gametime, setGametime] = useState(game.gametime?.slice(0, 5) ?? "");
   const [location, setLocation] = useState(game.location ?? "");
   const [field, setField] = useState(game.field ?? "");
   const [locationId, setLocationId] = useState<number | null>(game.location_id ?? null);
+  const [tournamentVenueId, setTournamentVenueId] = useState<number | null>(
+    game.tournament_venue_id ?? null,
+  );
   const [homescore, setHomescore] = useState(game.homescore != null ? String(game.homescore) : "");
   const [awayscore, setAwayscore] = useState(game.awayscore != null ? String(game.awayscore) : "");
   const [saving, setSaving] = useState(false);
@@ -61,12 +69,16 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
     setSaving(true);
     setError(null);
     try {
+      if ((seasonId == null) === (tournamentId == null)) {
+        throw new Error("BracketGameScheduleModal: pass exactly one of seasonId or tournamentId");
+      }
       const body: Record<string, unknown> = {
         gamedate: gamedate || null,
         gametime: gametime || null,
         location: location || null,
         field: field || null,
         location_id: locationId ?? null,
+        tournament_venue_id: tournamentVenueId ?? null,
       };
       // Only include scores if both teams are assigned
       if (hasBothTeams) {
@@ -74,7 +86,11 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
         body.awayscore = awayscore !== "" ? Number(awayscore) : null;
       }
 
-      const res = await fetch(`/api/seasons/${seasonId}/games/${game.id}`, {
+      const url =
+        tournamentId != null
+          ? `/api/tournaments/${tournamentId}/poolgames/${game.id}`
+          : `/api/seasons/${seasonId}/games/${game.id}`;
+      const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -138,16 +154,34 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
             <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground mb-1 block">
               Location & Field
             </label>
-            <LocationPicker
-              locationId={locationId}
-              location={location}
-              field={field}
-              onChange={(val: LocationPickerValue) => {
-                setLocationId(val.locationId);
-                setLocation(val.location);
-                setField(val.field);
-              }}
-            />
+            {tournamentId != null ? (
+              <TournamentVenuePicker
+                tournamentId={tournamentId}
+                value={{
+                  tournamentVenueId,
+                  locationId,
+                  location,
+                  field,
+                }}
+                onChange={(val: TournamentVenuePickerValue) => {
+                  setTournamentVenueId(val.tournamentVenueId);
+                  setLocationId(val.locationId);
+                  setLocation(val.location);
+                  setField(val.field);
+                }}
+              />
+            ) : (
+              <LocationPicker
+                locationId={locationId}
+                location={location}
+                field={field}
+                onChange={(val: LocationPickerValue) => {
+                  setLocationId(val.locationId);
+                  setLocation(val.location);
+                  setField(val.field);
+                }}
+              />
+            )}
           </div>
 
           {hasBothTeams && (

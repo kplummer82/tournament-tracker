@@ -8,6 +8,7 @@ import type { TabKey } from "./types";
 const items: { key: TabKey; label: string; path: (id: number) => string }[] = [
   { key: "overview",    label: "Overview",    path: (id) => `/tournaments/${id}/overview` },
   { key: "teams",       label: "Teams",       path: (id) => `/tournaments/${id}/teams` },
+  { key: "venues",      label: "Venues",      path: (id) => `/tournaments/${id}/venues` },
   { key: "pool",        label: "Pool Play",   path: (id) => `/tournaments/${id}/pool` },
   { key: "standings",   label: "Standings",   path: (id) => `/tournaments/${id}/standings` },
   { key: "bracket",     label: "Bracket",     path: (id) => `/tournaments/${id}/bracket` },
