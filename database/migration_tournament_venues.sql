@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS tournament_venues (
     OR
     (location_id IS NULL AND custom_name IS NOT NULL)
   ),
-  CONSTRAINT tournament_venues_unique_predefined UNIQUE (tournament_id, location_id)
+  CONSTRAINT tournament_venues_unique_predefined UNIQUE (tournament_id, location_id),
+  CONSTRAINT tournament_venues_unique_custom UNIQUE (tournament_id, custom_name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_tournament_venues_tid

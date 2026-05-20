@@ -178,6 +178,7 @@ export async function runAutoPromotionIfNeeded(
     const { rows: ins } = await client.query(
       `INSERT INTO tournament_venues (tournament_id, custom_name, sort_order)
          VALUES ($1, $2, 0)
+         ON CONFLICT (tournament_id, custom_name) DO UPDATE SET sort_order = tournament_venues.sort_order
          RETURNING id`,
       [tournamentId, sampleName],
     );
