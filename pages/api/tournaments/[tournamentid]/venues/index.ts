@@ -96,7 +96,7 @@ async function createVenue(req: NextApiRequest, res: NextApiResponse, tournament
         await client.query(
           `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
              VALUES ($1, $2, $3)
-             ON CONFLICT (tournament_venue_id, name) DO NOTHING`,
+             ON CONFLICT (tournament_venue_id, LOWER(name)) DO NOTHING`,
           [venueId, String(f.name).trim(), order++],
         );
       }
@@ -146,7 +146,7 @@ async function createVenue(req: NextApiRequest, res: NextApiResponse, tournament
           await client.query(
             `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
                VALUES ($1, $2, $3)
-               ON CONFLICT (tournament_venue_id, name) DO NOTHING`,
+               ON CONFLICT (tournament_venue_id, LOWER(name)) DO NOTHING`,
             [venueId, t, order++],
           );
         }

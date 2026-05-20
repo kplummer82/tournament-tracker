@@ -37,17 +37,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(409).json({ error: "Field already exists on this venue" });
     }
 
-    const { rows: ins } = await client.query(
-      `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
-       VALUES ($1, $2,
-         COALESCE((SELECT MAX(sort_order) + 1 FROM tournament_venue_fields
-                    WHERE tournament_venue_id = $1), 0))
-       RETURNING id, name, sort_order`,
-      [venueId, name],
-    );
-    return res.status(201).json({
-      field: { id: Number(ins[0].id), name: ins[0].name, sortOrder: Number(ins[0].sort_order) },
-    });
+    try {
+      const { rows: ins } = await client.query(
+        `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
+         VALUES ($1, $2,
+           COALESCE((SELECT MAX(sort_order) + 1 FROM tournament_venue_fields
+                      WHERE tournament_venue_id = $1), 0))
+         RETURNING id, name, sort_order`,
+        [venueId, name],
+      );
+      return res.status(201).json({
+        field: { id: Number(ins[0].id), name: ins[0].name, sortOrder: Number(ins[0].sort_order) },
+      });
+    } catch (e: any) {
+      if (String(e.code) === "23505") {
+        return res.status(409).json({ error: "Field already exists on this venue" });
+      }
+      throw e;
+    }
   } catch (e: any) {
     console.error(e);
     return res.status(500).json({ error: e.message || "Failed to add field" });

@@ -33,10 +33,14 @@ CREATE TABLE IF NOT EXISTS tournament_venue_fields (
   id                    serial PRIMARY KEY,
   tournament_venue_id   int NOT NULL REFERENCES tournament_venues(id) ON DELETE CASCADE,
   name                  text NOT NULL,
-  sort_order            int NOT NULL DEFAULT 0,
-  CONSTRAINT tournament_venue_fields_unique_name
-    UNIQUE (tournament_venue_id, name)
+  sort_order            int NOT NULL DEFAULT 0
 );
+
+-- Case-insensitive uniqueness within a venue: "Field 1" and "field 1"
+-- are the same field. Expression index so the constraint is enforced at
+-- the DB layer (the API also checks, but this is the backstop).
+CREATE UNIQUE INDEX IF NOT EXISTS tournament_venue_fields_unique_name_ci
+  ON tournament_venue_fields (tournament_venue_id, LOWER(name));
 
 CREATE INDEX IF NOT EXISTS idx_tournament_venue_fields_venue
   ON tournament_venue_fields (tournament_venue_id, sort_order);

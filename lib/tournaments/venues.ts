@@ -164,7 +164,7 @@ export async function runAutoPromotionIfNeeded(
       await client.query(
         `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
            VALUES ($1, $2, $3)
-           ON CONFLICT (tournament_venue_id, name) DO NOTHING`,
+           ON CONFLICT (tournament_venue_id, LOWER(name)) DO NOTHING`,
         [venueId, String(f.field).trim(), order++],
       );
     }
@@ -206,7 +206,7 @@ export async function runAutoPromotionIfNeeded(
       await client.query(
         `INSERT INTO tournament_venue_fields (tournament_venue_id, name, sort_order)
            VALUES ($1, $2, $3)
-           ON CONFLICT (tournament_venue_id, name) DO NOTHING`,
+           ON CONFLICT (tournament_venue_id, LOWER(name)) DO NOTHING`,
         [venueId, String(f.field).trim(), order++],
       );
     }
