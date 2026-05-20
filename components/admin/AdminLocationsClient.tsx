@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown, ChevronRight, MapPin, Pencil, Plus, Trash2, X, CheckCircle2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, MapPin, Pencil, Plus, Trash2, Upload, X, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AddressFields } from "./AddressAutofillInput";
+import BulkImportLocationsModal from "./BulkImportLocationsModal";
 
 const AddressAutofillInput = dynamic(
   () => import("./AddressAutofillInput"),
@@ -75,13 +76,60 @@ export default function AdminLocationsClient() {
   const [confirmDeleteField, setConfirmDeleteField] = useState<number | null>(null);
   const [deletingField, setDeletingField] = useState(false);
 
+  // Bulk import modal
+  const [bulkOpen, setBulkOpen] = useState(false);
+
+  // Search + pagination
+  const PAGE_SIZE = 25;
+  const [searchInput, setSearchInput] = useState("");
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+
+  // Debounce search input -> q
   useEffect(() => {
-    fetch("/api/locations")
-      .then((r) => r.json())
-      .then((d) => setLocations(d.locations ?? []))
-      .catch(() => setLocations([]))
-      .finally(() => setLoading(false));
-  }, []);
+    const t = setTimeout(() => {
+      setQ(searchInput.trim());
+      setPage(1);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const fetchPage = async (nextQ: string, nextPage: number) => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        pageSize: String(PAGE_SIZE),
+      });
+      if (nextQ) params.set("q", nextQ);
+      const res = await fetch(`/api/locations?${params}`);
+      const data = await res.json();
+      setLocations(data.rows ?? []);
+      setTotal(typeof data.total === "number" ? data.total : 0);
+    } catch {
+      setLocations([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Refetch the current page (used after create/edit/delete/field changes).
+  const refreshLocations = () => fetchPage(q, page);
+
+  // Reset to page 1 with no search, used after bulk import.
+  const refreshAfterBulkImport = () => {
+    setSearchInput("");
+    setQ("");
+    setPage(1);
+    fetchPage("", 1);
+  };
+
+  useEffect(() => {
+    fetchPage(q, page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, page]);
 
   useEffect(() => {
     fetch("/api/admin/settings", { credentials: "include" })
@@ -89,6 +137,8 @@ export default function AdminLocationsClient() {
       .then((d) => setMapboxEnabled(d?.settings?.mapbox_enabled === true))
       .catch(() => { /* default false */ });
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Load fields when expanding a location
   const toggleExpand = async (id: number) => {
@@ -133,12 +183,12 @@ export default function AdminLocationsClient() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
-      setLocations((prev) =>
-        [...prev, json].sort((a, b) => a.name.localeCompare(b.name))
-      );
       setForm({ ...EMPTY_FORM });
       setStreetInput("");
       setCreateLatLng({ latitude: null, longitude: null });
+      // New row might land on any page alphabetically; jump to page 1 + clear search
+      // so the user has a reasonable chance of seeing it without hunting.
+      refreshAfterBulkImport();
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -301,14 +351,48 @@ export default function AdminLocationsClient() {
 
   return (
     <div className="space-y-6">
+      <BulkImportLocationsModal
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        onImportComplete={refreshAfterBulkImport}
+      />
       {/* Create form */}
       <form onSubmit={handleCreate} className="p-4 border border-border bg-card space-y-3">
-        <span
-          className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground block"
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          New Location
-        </span>
+        <div className="flex items-center justify-between">
+          <span
+            className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            New Location
+          </span>
+          <div className="flex items-center gap-2">
+            <a
+              href="/api/locations/export"
+              className={cn(
+                BTN_BASE,
+                "border-border text-muted-foreground hover:text-foreground hover:bg-elevated"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+              title="Download all locations as CSV"
+            >
+              <Download className="h-3 w-3" />
+              Bulk Export
+            </a>
+            <button
+              type="button"
+              onClick={() => setBulkOpen(true)}
+              className={cn(
+                BTN_BASE,
+                "border-border text-muted-foreground hover:text-foreground hover:bg-elevated"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+              title="Import multiple locations from a CSV file"
+            >
+              <Upload className="h-3 w-3" />
+              Bulk Import
+            </button>
+          </div>
+        </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
         {mapboxEnabled && (
           <MapboxPlaceSearch
@@ -357,6 +441,22 @@ export default function AdminLocationsClient() {
         </div>
       </form>
 
+      {/* Search + result count */}
+      <div className="flex items-center gap-3">
+        <input
+          className={cn(INPUT, "flex-1")}
+          placeholder="Search by name, city, or state…"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+        />
+        <span
+          className="text-xs text-muted-foreground tabular-nums shrink-0"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          {loading ? "…" : `${total} location${total === 1 ? "" : "s"}`}
+        </span>
+      </div>
+
       {/* List */}
       {loading ? (
         <div className="space-y-2">
@@ -365,7 +465,9 @@ export default function AdminLocationsClient() {
           ))}
         </div>
       ) : locations.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-4">No locations yet.</p>
+        <p className="text-sm text-muted-foreground py-4">
+          {q ? `No locations match "${q}".` : "No locations yet."}
+        </p>
       ) : (
         <div className="border border-border divide-y divide-border">
           {locations.map((loc) => (
@@ -641,6 +743,42 @@ export default function AdminLocationsClient() {
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between pt-2">
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1 || loading}
+            className={cn(
+              BTN_BASE,
+              "border-border text-muted-foreground hover:text-foreground disabled:opacity-40"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Prev
+          </button>
+          <span
+            className="text-xs text-muted-foreground tabular-nums"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Page {page} of {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages || loading}
+            className={cn(
+              BTN_BASE,
+              "border-border text-muted-foreground hover:text-foreground disabled:opacity-40"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            Next
+          </button>
         </div>
       )}
     </div>

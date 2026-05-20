@@ -465,12 +465,25 @@ function SchedulingRules({
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button type="button" onClick={onSave} disabled={saving}
-              className={cn(BTN, "border-border text-muted-foreground hover:border-foreground hover:text-foreground disabled:opacity-50")}>
-              {saving ? 'Saving…' : 'Save Rules'}
-            </button>
-          </div>
+          {(() => {
+            const customCount = config.dayRules.reduce(
+              (n, r) => n + r.gameSlots.filter(gs => gs.fieldLocation && gs.locationId == null).length,
+              0
+            );
+            return (
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <span className="text-[10px] text-muted-foreground">
+                  {customCount > 0
+                    ? `${customCount} slot${customCount === 1 ? '' : 's'} use${customCount === 1 ? 's' : ''} a custom location — click the search icon on a slot to link it to the official directory.`
+                    : ''}
+                </span>
+                <button type="button" onClick={onSave} disabled={saving}
+                  className={cn(BTN, "border-border text-muted-foreground hover:border-foreground hover:text-foreground disabled:opacity-50")}>
+                  {saving ? 'Saving…' : 'Save Rules'}
+                </button>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

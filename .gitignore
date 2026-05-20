@@ -46,6 +46,12 @@ yarn-error.log*
 # superpowers AI assistant config
 .superpowers/
 
+# Claude Code local working state
+.claude/
+
+# Local-only data and seeds (not part of source)
+/data/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
