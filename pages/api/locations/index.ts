@@ -3,41 +3,107 @@ import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
 import { verifyAddress } from "@/lib/usps";
 
+const toInt = (v: any, fallback: number) => {
+  const n = parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     if (req.method === "GET") {
       const includeFields = req.query.include === "fields";
+      const q = (Array.isArray(req.query.q) ? req.query.q[0] : req.query.q ?? "").toString().trim();
+      // Paginate only when the caller opts in (passes ?q=, ?page=, or ?pageSize=).
+      // Without any of those, return the full list to preserve the legacy
+      // behavior existing callers (AdminLocationsClient, LocationPicker) rely on.
+      const paginated =
+        q.length > 0 || req.query.page != null || req.query.pageSize != null;
 
-      const rows = await sql`
-        SELECT
-          l.id, l.name, l.address, l.city, l.state, l.zip,
-          l.latitude, l.longitude, l.usps_verified,
-          to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
-          (SELECT COUNT(*)::int FROM location_fields lf WHERE lf.location_id = l.id) AS field_count
-        FROM locations l
-        ORDER BY l.name ASC
-      `;
+      const params: any[] = [];
+      let whereSQL = "";
+      if (q) {
+        params.push(`%${q}%`);
+        whereSQL = `WHERE l.name ILIKE $1 OR l.city ILIKE $1 OR l.state ILIKE $1`;
+      }
 
-      if (includeFields) {
-        const fields = await sql`
-          SELECT id, location_id, name
-          FROM location_fields
-          ORDER BY name ASC
-        `;
+      let total = 0;
+      let rows: any[];
+      let _page = 1;
+      let _pageSize = 0;
+
+      if (paginated) {
+        _page = Math.max(1, toInt(req.query.page, 1));
+        _pageSize = Math.min(100, Math.max(1, toInt(req.query.pageSize, 25)));
+        const offset = (_page - 1) * _pageSize;
+
+        const totalResult = await sql.query(
+          `SELECT COUNT(*)::text AS count FROM locations l ${whereSQL}`,
+          params
+        );
+        total = Number(
+          Array.isArray(totalResult) ? totalResult[0]?.count ?? 0 : 0
+        );
+
+        const pageParams = [...params, _pageSize, offset];
+        rows = (await sql.query(
+          `
+          SELECT
+            l.id, l.name, l.address, l.city, l.state, l.zip,
+            l.latitude, l.longitude, l.usps_verified,
+            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+            (SELECT COUNT(*)::int FROM location_fields lf WHERE lf.location_id = l.id) AS field_count
+          FROM locations l
+          ${whereSQL}
+          ORDER BY l.name ASC
+          LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}
+          `,
+          pageParams
+        )) as any[];
+      } else {
+        rows = (await sql.query(
+          `
+          SELECT
+            l.id, l.name, l.address, l.city, l.state, l.zip,
+            l.latitude, l.longitude, l.usps_verified,
+            to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
+            (SELECT COUNT(*)::int FROM location_fields lf WHERE lf.location_id = l.id) AS field_count
+          FROM locations l
+          ORDER BY l.name ASC
+          `,
+          []
+        )) as any[];
+        total = rows.length;
+      }
+
+      const pageRows: any[] = Array.isArray(rows) ? rows : [];
+
+      let resultRows = pageRows;
+      if (includeFields && pageRows.length > 0) {
+        const ids = pageRows.map((r) => r.id);
+        const fields = await sql.query(
+          `SELECT id, location_id, name FROM location_fields WHERE location_id = ANY($1::int[]) ORDER BY name ASC`,
+          [ids]
+        );
         const fieldsByLoc = new Map<number, { id: number; name: string }[]>();
-        for (const f of fields) {
+        for (const f of fields as any[]) {
           const arr = fieldsByLoc.get(f.location_id) ?? [];
           arr.push({ id: f.id, name: f.name });
           fieldsByLoc.set(f.location_id, arr);
         }
-        const locations = rows.map((r: any) => ({
+        resultRows = pageRows.map((r) => ({
           ...r,
           fields: fieldsByLoc.get(r.id) ?? [],
         }));
-        return res.status(200).json({ locations });
       }
 
-      return res.status(200).json({ locations: rows });
+      return res.status(200).json({
+        rows: resultRows,
+        // Back-compat: existing callers read `locations`. Keep both keys.
+        locations: resultRows,
+        total,
+        page: _page,
+        pageSize: _pageSize,
+      });
     }
 
     if (req.method === "POST") {
