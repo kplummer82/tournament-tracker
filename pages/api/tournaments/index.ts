@@ -94,6 +94,12 @@ function toIntOrNull(v: any): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function toNumOrNull(v: any): number | null {
+  if (v === "" || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
  * Prefer a numeric id (inputId). If it's absent, and a name is provided (inputName),
  * resolve the id by case-insensitive match on the given table/nameCol.
@@ -218,6 +224,8 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       "name",
       "city",
       "state",
+      "latitude",
+      "longitude",
       "year",
       "division",              // stores the division ID in your schema
       "maxrundiff",
@@ -233,6 +241,8 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       name,
       body.city ?? null,
       body.state ?? null,
+      toNumOrNull(body.latitude),
+      toNumOrNull(body.longitude),
       toIntOrNull(body.year),
       divisionId,
       body.maxrundiff === "" || body.maxrundiff == null ? null : toIntOrNull(body.maxrundiff),

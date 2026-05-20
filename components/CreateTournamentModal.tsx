@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, AlertTriangle } from "lucide-react";
+import MapboxCitySearch from "@/components/MapboxCitySearch";
 
 /* ---------- Types ---------- */
 
@@ -25,6 +26,11 @@ type FormState = {
   name?: string;
   city?: string;
   state?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  // True when city/state were set via the Mapbox picker; locks the State dropdown
+  // until the chip is cleared.
+  cityLockedByPicker?: boolean;
   year?: number;
   // store ids from selects as strings (Select emits strings)
   divisionId?: string;    // shows "10u", stores its id as string
@@ -134,6 +140,8 @@ export default function CreateTournamentModal({
       name: form.name?.trim(),
       city: form.city?.trim() || null,
       state: form.state || null,
+      latitude: form.latitude ?? null,
+      longitude: form.longitude ?? null,
       year: form.year ?? null,
       division: toIntOrNull(form.divisionId),
       divisionid: toIntOrNull(form.divisionId),
@@ -236,16 +244,41 @@ export default function CreateTournamentModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="city" className="label-section">City</Label>
-              <Input
-                id="city"
-                placeholder="City"
-                value={form.city ?? ""}
-                onChange={(e) => update("city", e.target.value)}
+              <MapboxCitySearch
+                value={
+                  form.cityLockedByPicker && form.city
+                    ? { city: form.city, state: form.state ?? "" }
+                    : null
+                }
+                onSelect={(r) =>
+                  setForm((f) => ({
+                    ...f,
+                    city: r.city,
+                    state: r.stateCode,
+                    latitude: r.latitude,
+                    longitude: r.longitude,
+                    cityLockedByPicker: true,
+                  }))
+                }
+                onClear={() =>
+                  setForm((f) => ({
+                    ...f,
+                    city: "",
+                    state: "",
+                    latitude: null,
+                    longitude: null,
+                    cityLockedByPicker: false,
+                  }))
+                }
               />
             </div>
             <div className="grid gap-2">
               <Label htmlFor="state" className="label-section">State</Label>
-              <Select value={form.state} onValueChange={(v) => update("state", v)}>
+              <Select
+                value={form.state}
+                onValueChange={(v) => update("state", v)}
+                disabled={form.cityLockedByPicker}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select state" />
                 </SelectTrigger>
