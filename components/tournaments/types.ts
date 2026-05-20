@@ -2,6 +2,7 @@
 export type TabKey =
   | "overview"
   | "teams"
+  | "venues"
   | "pool"
   | "standings"
   | "bracket"
