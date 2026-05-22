@@ -99,6 +99,11 @@ export default function SignUpPage() {
         window.location.href = "/login?registered=1";
         return;
       }
+      // Real error — user stays on /sign-up to retry. Clear the in-progress
+      // flag so a later login from another path doesn't see a stale flag.
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem("signup-in-progress");
+      }
       setError(clientError);
       setLoading(false);
       return;

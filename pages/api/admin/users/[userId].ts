@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireAdmin } from "@/lib/auth/requireSession";
-import { sql } from "@/lib/db";
+import { pool } from "@/lib/db";
 
 /**
  * Hard-delete a user. Used by E2E tests to clean up throwaway users
@@ -35,18 +35,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: "userId required" });
   }
 
-  // 1. Delete app-side rows that reference the user.
-  await sql`BEGIN`;
+  // 1. Delete app-side rows that reference the user, atomically. The Neon
+  // HTTP `sql` tag is stateless per call, so BEGIN/COMMIT against it would
+  // hit three independent connections and never form a real transaction.
+  // Use the WebSocket `pool` so the three DELETEs share one connection.
+  const client = await pool.connect();
   try {
-    await sql`DELETE FROM user_follows  WHERE user_id = ${userId}`;
-    await sql`DELETE FROM user_roles    WHERE user_id = ${userId}`;
-    await sql`DELETE FROM user_profiles WHERE user_id = ${userId}`;
-    await sql`COMMIT`;
+    await client.query("BEGIN");
+    await client.query("DELETE FROM user_follows  WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM user_roles    WHERE user_id = $1", [userId]);
+    await client.query("DELETE FROM user_profiles WHERE user_id = $1", [userId]);
+    await client.query("COMMIT");
   } catch (err) {
-    await sql`ROLLBACK`;
+    await client.query("ROLLBACK").catch(() => {});
     console.error("[admin delete user] app-side cleanup failed", err);
+    client.release();
     return res.status(500).json({ error: "Internal Server Error" });
   }
+  client.release();
 
   // 2. Delete the Neon Auth user via the existing auth-admin proxy.
   //    Better Auth admin plugin: POST /admin/remove-user with body { userId }.
