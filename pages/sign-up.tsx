@@ -33,6 +33,7 @@ export default function SignUpPage() {
       try {
         const res = await fetch(`/api/invites/peek?token=${encodeURIComponent(token)}`);
         if (!res.ok) return; // 404 = no invite, fall through
+        if (cancelled) return;
         const data = (await res.json()) as Partial<InvitePayload>;
         if (cancelled) return;
         if (data?.intent) {
@@ -199,6 +200,7 @@ export default function SignUpPage() {
           <IntentPicker onPick={setIntent} />
         ) : (
           <CredentialsForm
+            key={invite?.email ?? "no-invite"}
             intent={intent!}
             prefilledEmail={invite?.email}
             onChangeIntent={() => setIntent(null)}
