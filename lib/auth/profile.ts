@@ -23,15 +23,26 @@ export async function getUserSignupIntent(
 /**
  * Set the signup_intent for a user. Upserts so it works even if the
  * user_profiles row was not created (defensive — the auth proxy normally
- * creates it on signup).
+ * creates it on signup). The status fallback honors require_user_approval:
+ * if we end up inserting a new row, it picks up 'inactive' when approval
+ * mode is on, matching what the auth proxy would have written.
  */
 export async function setUserSignupIntent(
   userId: string,
   intent: SignupIntent
 ): Promise<void> {
   await sql`
-    INSERT INTO user_profiles (user_id, signup_intent, updated_at)
-    VALUES (${userId}, ${intent}, NOW())
+    INSERT INTO user_profiles (user_id, signup_intent, status, updated_at)
+    VALUES (
+      ${userId},
+      ${intent},
+      COALESCE(
+        (SELECT CASE WHEN value = 'true' THEN 'inactive' ELSE 'active' END
+         FROM app_settings WHERE key = 'require_user_approval' LIMIT 1),
+        'active'
+      ),
+      NOW()
+    )
     ON CONFLICT (user_id) DO UPDATE
       SET signup_intent = ${intent}, updated_at = NOW()
   `;
