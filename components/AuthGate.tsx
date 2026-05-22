@@ -29,8 +29,20 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
 
   // --- Public pages ---
   if (PUBLIC_PAGES.has(router.pathname)) {
-    // Redirect logged-in users away from login/sign-up
-    if (!isPending && session?.user && !redirectingRef.current) {
+    // Redirect logged-in users away from login/sign-up — but NOT when a
+    // signup is mid-flight, because the sign-up page's own handler does
+    // post-signup routing (intent write, status read, persona-specific
+    // landing). AuthGate racing us here causes the user to land on /
+    // instead of the persona target.
+    const signupInProgress =
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem("signup-in-progress") === "1";
+    if (
+      !isPending &&
+      session?.user &&
+      !redirectingRef.current &&
+      !signupInProgress
+    ) {
       redirectingRef.current = true;
       router.replace("/");
       return null;

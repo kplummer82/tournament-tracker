@@ -7,6 +7,15 @@ import { signUpWithIntent, cleanupTestUser } from "./helpers/signup";
 // as the regular fixture user.
 test.use({ storageState: { cookies: [], origins: [] } });
 
+// Skip in the `mobile` (needs WebKit install) and `ldqa` (F2 not deployed
+// yet) projects. Run locally against the `default` Chromium project.
+test.beforeEach(({}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "default",
+    "signup-intent specs run only in the default (local) project for now"
+  );
+});
+
 const createdUserIds: string[] = [];
 
 /**

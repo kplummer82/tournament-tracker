@@ -24,6 +24,13 @@ export default function SignUpPage() {
   // On mount, if there's an ?invite=<token> param, try to peek.
   // F2 ships with the peek stub returning 404 for all tokens, so this
   // gracefully falls through to the normal stage-1 flow.
+  // Also clear any leftover signup-in-progress flag from a previous attempt.
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("signup-in-progress");
+    }
+  }, []);
+
   useEffect(() => {
     if (!router.isReady) return;
     const token = router.query.invite;
@@ -61,6 +68,13 @@ export default function SignUpPage() {
     if (!intent) return; // guarded by the form being mounted only after intent set
     setError(null);
     setLoading(true);
+
+    // Tell AuthGate not to redirect us away from /sign-up the instant the
+    // session cookie is set — its useSession() re-renders the layout
+    // before our intent-write/status-read/redirect chain completes.
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("signup-in-progress", "1");
+    }
 
     let clientError: string | null = null;
     try {
