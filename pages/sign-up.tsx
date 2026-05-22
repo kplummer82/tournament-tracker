@@ -1,23 +1,63 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
+import type { SignupIntent } from "@/lib/auth/permissions";
+import { postSignupRedirect } from "@/lib/auth/postSignupRedirect";
+import { IntentPicker } from "@/components/signup/IntentPicker";
+import { CredentialsForm } from "@/components/signup/CredentialsForm";
 
-const INPUT_STYLE =
-  "w-full border border-border bg-input px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
+type InvitePayload = {
+  intent: SignupIntent;
+  email?: string;
+};
 
 export default function SignUpPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [intent, setIntent] = useState<SignupIntent | null>(null);
+  const [invite, setInvite] = useState<InvitePayload | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // On mount, if there's an ?invite=<token> param, try to peek.
+  // F2 ships with the peek stub returning 404 for all tokens, so this
+  // gracefully falls through to the normal stage-1 flow.
+  useEffect(() => {
+    if (!router.isReady) return;
+    const token = router.query.invite;
+    if (typeof token !== "string" || token.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/invites/peek?token=${encodeURIComponent(token)}`);
+        if (!res.ok) return; // 404 = no invite, fall through
+        const data = (await res.json()) as Partial<InvitePayload>;
+        if (cancelled) return;
+        if (data?.intent) {
+          setInvite({ intent: data.intent, email: data.email });
+          setIntent(data.intent);
+        }
+      } catch {
+        // ignore — fall through to normal flow
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router.isReady, router.query.invite]);
+
+  const handleSubmit = async ({
+    name,
+    email,
+    password,
+  }: {
+    name: string;
+    email: string;
+    password: string;
+  }) => {
+    if (!intent) return; // guarded by the form being mounted only after intent set
     setError(null);
     setLoading(true);
 
@@ -30,23 +70,57 @@ export default function SignUpPage() {
     }
 
     // Verify session — sign-up may auto-login even if client reports error
+    let userId: string | null = null;
     try {
       const session = await authClient.getSession();
-      if (session?.data?.user) {
-        window.location.href = "/";
+      userId = session?.data?.user?.id ?? null;
+    } catch {
+      /* fall through */
+    }
+
+    if (!userId) {
+      if (!clientError) {
+        // Sign-up succeeded but no auto-login (approval mode without auto-session).
+        window.location.href = "/login?registered=1";
         return;
       }
-    } catch { /* fall through */ }
-
-    if (!clientError) {
-      // Sign-up succeeded but no auto-login — redirect to login page
-      window.location.href = "/login?registered=1";
+      setError(clientError);
+      setLoading(false);
       return;
     }
 
-    setError(clientError);
-    setLoading(false);
+    // Write intent. If this fails, we still want to land the user somewhere
+    // useful — postSignupRedirect handles null intent.
+    let effectiveIntent: SignupIntent | null = intent;
+    try {
+      const res = await fetch("/api/me/signup-intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ intent }),
+      });
+      if (!res.ok) effectiveIntent = null;
+    } catch {
+      effectiveIntent = null;
+    }
+
+    // Read status so we can route inactive users correctly.
+    let status: "active" | "inactive" = "active";
+    try {
+      const res = await fetch("/api/me/profile-status", { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.status === "inactive") status = "inactive";
+      }
+    } catch {
+      /* default to active */
+    }
+
+    const target = postSignupRedirect(effectiveIntent, status);
+    window.location.href = target;
   };
+
+  const showPicker = !intent;
 
   return (
     <div className="min-h-screen flex">
@@ -58,7 +132,14 @@ export default function SignUpPage() {
         <div>
           <Link
             href="/"
-            style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--primary)" }}
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              fontSize: "16px",
+              textTransform: "uppercase",
+              letterSpacing: "-0.01em",
+              color: "var(--primary)",
+            }}
           >
             Stacked Bench
           </Link>
@@ -86,7 +167,10 @@ export default function SignUpPage() {
 
         <div className="flex gap-6 items-center">
           <div className="w-12 h-1 bg-primary" />
-          <span className="text-muted-foreground/40 text-[10px] tracking-[0.12em] uppercase" style={{ fontFamily: "var(--font-body)" }}>
+          <span
+            className="text-muted-foreground/40 text-[10px] tracking-[0.12em] uppercase"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
             Youth Sports Management Platform
           </span>
         </div>
@@ -96,81 +180,43 @@ export default function SignUpPage() {
       <div className="flex-1 flex flex-col justify-center px-8 md:px-14 py-12">
         {/* Mobile brand */}
         <div className="mb-10 lg:hidden">
-          <Link href="/" style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", textTransform: "uppercase", letterSpacing: "-0.01em", color: "var(--primary)" }}>
+          <Link
+            href="/"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              fontSize: "16px",
+              textTransform: "uppercase",
+              letterSpacing: "-0.01em",
+              color: "var(--primary)",
+            }}
+          >
             Stacked Bench
           </Link>
         </div>
 
-        <div className="max-w-sm w-full mx-auto">
-          <h1
-            className="mb-1"
-            style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: "32px", textTransform: "uppercase", letterSpacing: "-0.02em" }}
-          >
-            Create Account
-          </h1>
-          <p className="text-sm text-muted-foreground mb-8" style={{ fontFamily: "var(--font-body)" }}>
-            Get started — it only takes a minute.
-          </p>
+        {showPicker ? (
+          <IntentPicker onPick={setIntent} />
+        ) : (
+          <CredentialsForm
+            intent={intent!}
+            prefilledEmail={invite?.email}
+            onChangeIntent={() => setIntent(null)}
+            onSubmit={handleSubmit}
+            loading={loading}
+            error={error}
+          />
+        )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="label-section mb-1.5 block">Name</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                autoComplete="name"
-                className={INPUT_STYLE}
-                placeholder="Your full name"
-              />
-            </div>
-            <div>
-              <label className="label-section mb-1.5 block">Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoComplete="email"
-                className={INPUT_STYLE}
-                placeholder="you@example.com"
-              />
-            </div>
-            <div>
-              <label className="label-section mb-1.5 block">Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                autoComplete="new-password"
-                className={INPUT_STYLE}
-                placeholder="••••••••"
-              />
-            </div>
-            {error && (
-              <p className="text-sm text-destructive border border-destructive/30 bg-destructive/10 px-3 py-2" style={{ fontFamily: "var(--font-body)" }}>
-                {error}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-primary text-primary-foreground py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase hover:opacity-90 disabled:opacity-40 transition-opacity duration-100 mt-2"
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              {loading ? "Creating account…" : "Create Account"}
-            </button>
-          </form>
-
-          <p className="mt-6 text-sm text-muted-foreground text-center" style={{ fontFamily: "var(--font-body)" }}>
-            Already have an account?{" "}
-            <Link href="/login" className="text-primary hover:opacity-80 transition-opacity duration-100">
-              Sign in
-            </Link>
-          </p>
-        </div>
+        <p
+          className="mt-6 text-sm text-muted-foreground text-center"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          Already have an account?{" "}
+          <Link href="/login" className="text-primary hover:opacity-80 transition-opacity duration-100">
+            Sign in
+          </Link>
+        </p>
       </div>
     </div>
   );
