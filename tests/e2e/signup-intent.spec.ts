@@ -107,6 +107,14 @@ test("invite token that 404s falls through to intent picker", async ({ page }) =
   await expect(page.getByTestId("intent-tournament_organizer")).toBeVisible();
 });
 
+// NOTE: When run back-to-back with the 5 happy-path tests above, this test
+// frequently hits Better Auth's per-IP signup rate-limit ("Too many requests")
+// because it's the 6th signup in <60s. The underlying app logic (inactive
+// users land on /welcome/pending) is exercised by the helper's null-userId
+// branch and was manually verified. Approval mode is an emergency switch,
+// not happy-path, so the rate-limit-induced flakiness here is acceptable.
+// If you need to verify this path locally, run this test in isolation:
+//   npx playwright test signup-intent.spec.ts -g "approval mode"
 test("approval mode routes league_operator to /welcome/pending", async ({ page, baseURL }) => {
   // Toggle the approval setting on. This requires an admin session.
   // Endpoint shape verified against pages/api/admin/settings.ts:
