@@ -9,6 +9,25 @@ export type AppRole =
   | "team_manager"
   | "team_parent";
 
+// --------------- Signup Intent ---------------
+
+export type SignupIntent =
+  | "follower"
+  | "coach"
+  | "league_operator"
+  | "tournament_organizer";
+
+export const VALID_SIGNUP_INTENTS: SignupIntent[] = [
+  "follower",
+  "coach",
+  "league_operator",
+  "tournament_organizer",
+];
+
+export function isValidSignupIntent(value: unknown): value is SignupIntent {
+  return typeof value === "string" && (VALID_SIGNUP_INTENTS as string[]).includes(value);
+}
+
 export type ScopeType = "league" | "division" | "tournament" | "team";
 
 export interface UserRoleRow {
