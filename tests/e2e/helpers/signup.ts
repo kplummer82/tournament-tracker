@@ -26,7 +26,7 @@ export function generateTestEmail(intent: SignupIntent): string {
 export async function signUpWithIntent(
   page: Page,
   intent: SignupIntent
-): Promise<{ email: string; password: string; userId: string }> {
+): Promise<{ email: string; password: string; userId: string | null }> {
   const email = generateTestEmail(intent);
   const password = DEFAULT_PASSWORD;
   const name = `E2E ${intent} ${Date.now()}`;
@@ -45,17 +45,21 @@ export async function signUpWithIntent(
     { timeout: 20000 }
   );
 
-  // The user is now signed in (unless approval mode redirected to /login).
-  // Look up their id via the auth client session endpoint.
-  const userId = await page.evaluate(async () => {
-    const res = await fetch("/api/auth/get-session", { credentials: "include" });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data?.user?.id ?? data?.data?.user?.id ?? null;
-  });
-  expect(userId, "expected a user id after signup").toBeTruthy();
+  // In approval mode without auto-login, the redirect lands on /login and
+  // the user has no live session — don't assert userId in that case.
+  const onLoginPage = new URL(page.url()).pathname.startsWith("/login");
+  let userId: string | null = null;
+  if (!onLoginPage) {
+    userId = await page.evaluate(async () => {
+      const res = await fetch("/api/auth/get-session", { credentials: "include" });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data?.user?.id ?? data?.data?.user?.id ?? null;
+    });
+    expect(userId, "expected a user id after signup").toBeTruthy();
+  }
 
-  return { email, password, userId: userId as string };
+  return { email, password, userId };
 }
 
 /**

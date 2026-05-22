@@ -45,9 +45,19 @@ test.afterAll(async ({ baseURL }) => {
   await ctx.dispose();
 });
 
+// Force serial execution. The approval-mode test mutates the global
+// `require_user_approval` setting; running it in parallel with the
+// happy-path tests would race them onto /welcome/pending. The shared
+// createdUserIds array also reads cleaner with serial appends.
+test.describe.configure({ mode: "serial" });
+
+function recordUser(id: string | null) {
+  if (id) createdUserIds.push(id);
+}
+
 test("follower signup lands on /tournaments and stores intent", async ({ page }) => {
   const { userId } = await signUpWithIntent(page, "follower");
-  createdUserIds.push(userId);
+  recordUser(userId);
 
   expect(page.url()).toMatch(/\/tournaments(\?|$)/);
 
@@ -59,7 +69,7 @@ test("follower signup lands on /tournaments and stores intent", async ({ page })
 
 test("coach signup lands on /welcome/coach", async ({ page }) => {
   const { userId, email } = await signUpWithIntent(page, "coach");
-  createdUserIds.push(userId);
+  recordUser(userId);
 
   await expect(page).toHaveURL(/\/welcome\/coach$/);
   await expect(page.locator("body")).toContainText(email);
@@ -67,14 +77,14 @@ test("coach signup lands on /welcome/coach", async ({ page }) => {
 
 test("league_operator signup lands on /leagues/new", async ({ page }) => {
   const { userId } = await signUpWithIntent(page, "league_operator");
-  createdUserIds.push(userId);
+  recordUser(userId);
 
   await expect(page).toHaveURL(/\/leagues\/new$/);
 });
 
 test("tournament_organizer signup lands on /tournaments/new", async ({ page }) => {
   const { userId } = await signUpWithIntent(page, "tournament_organizer");
-  createdUserIds.push(userId);
+  recordUser(userId);
 
   await expect(page).toHaveURL(/\/tournaments\/new$/);
 });
@@ -102,7 +112,7 @@ test("approval mode routes league_operator to /welcome/pending", async ({ page, 
 
   try {
     const { userId } = await signUpWithIntent(page, "league_operator");
-    createdUserIds.push(userId);
+    recordUser(userId);
     await expect(page).toHaveURL(/\/welcome\/pending$/);
   } finally {
     // Always restore the setting, even if the assertion fails.
