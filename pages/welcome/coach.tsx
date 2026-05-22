@@ -30,7 +30,7 @@ export default function CoachWelcome({ email, status }: Props) {
       <main className="flex-1 mx-auto max-w-2xl w-full px-6 py-16">
         {status === "inactive" && (
           <div
-            className="mb-8 border border-border bg-card px-4 py-3 text-sm"
+            className="mb-8 border border-primary/30 bg-primary/10 text-foreground px-4 py-3 text-sm"
             style={{ fontFamily: "var(--font-body)" }}
           >
             Your account is awaiting approval before you can be added to a team.
