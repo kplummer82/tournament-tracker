@@ -36,17 +36,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   // 1. Delete app-side rows that reference the user.
+  await sql`BEGIN`;
   try {
     await sql`DELETE FROM user_follows  WHERE user_id = ${userId}`;
     await sql`DELETE FROM user_roles    WHERE user_id = ${userId}`;
     await sql`DELETE FROM user_profiles WHERE user_id = ${userId}`;
+    await sql`COMMIT`;
   } catch (err) {
+    await sql`ROLLBACK`;
     console.error("[admin delete user] app-side cleanup failed", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 
   // 2. Delete the Neon Auth user via the existing auth-admin proxy.
   //    Better Auth admin plugin: POST /admin/remove-user with body { userId }.
+  //
+  // Order matters: app-side rows first, auth user second. If the auth
+  // delete fails we return 500 — the app rows are already gone, but a
+  // retry is safe because the app-side DELETEs become no-ops on the
+  // now-empty rows. Orphaned auth users from failures here are an
+  // acceptable leak for this admin/E2E cleanup endpoint.
   try {
     const origin = getOrigin(req);
     const url = `${origin}/api/auth/admin/remove-user`;
