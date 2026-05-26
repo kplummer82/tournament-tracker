@@ -30,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const updated = await sql`
         WITH upd AS (
-          UPDATE scrimmage_bats SET
+          UPDATE bats SET
             name     = COALESCE(${trimmedName}, name),
             sport_id = COALESCE(${sportId}::int, sport_id)
           WHERE id = ${batId}
@@ -46,7 +46,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === "DELETE") {
       const deleted = await sql`
-        DELETE FROM scrimmage_bats WHERE id = ${batId} RETURNING id
+        DELETE FROM bats WHERE id = ${batId} RETURNING id
       `;
       if (deleted.length === 0) return res.status(404).json({ error: "Bat not found" });
       return res.status(200).json({ ok: true });

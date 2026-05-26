@@ -10,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const rows = await sql`
         SELECT sb.id, sb.name, sb.sport_id, sp.sportname AS sport_name
-        FROM scrimmage_bats sb
+        FROM bats sb
         JOIN sport sp ON sp.id = sb.sport_id
         ORDER BY sp.sportname ASC, sb.name ASC
       `;
@@ -30,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const inserted = await sql`
         WITH ins AS (
-          INSERT INTO scrimmage_bats (name, sport_id)
+          INSERT INTO bats (name, sport_id)
           VALUES (${trimmed}, ${sportId})
           RETURNING id, name, sport_id
         )
