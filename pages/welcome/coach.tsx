@@ -47,7 +47,7 @@ export default function CoachWelcome({ email, status }: Props) {
             letterSpacing: "-0.02em",
           }}
         >
-          You're in.
+          You&apos;re in.
         </h1>
 
         <p
