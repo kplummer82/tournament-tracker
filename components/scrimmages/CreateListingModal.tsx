@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import LocationPicker, { type LocationPickerValue } from "@/components/LocationPicker";
 import { usePermissions, type UserRoleRow } from "@/lib/hooks/usePermissions";
+import { geocodeZip } from "@/lib/mapbox/geocodeZip";
 
 type ManagedTeam = {
   id: number;
@@ -40,6 +41,10 @@ export default function CreateListingModal({
   const [timeLatest, setTimeLatest] = useState("");
   const [willTravel, setWillTravel] = useState(false);
   const [travelRadius, setTravelRadius] = useState("25");
+  const [travelZip, setTravelZip] = useState("");
+  const [travelGeo, setTravelGeo] = useState<{ lat: number; lng: number; place: string } | null>(null);
+  const [travelZipError, setTravelZipError] = useState<string | null>(null);
+  const [travelZipResolving, setTravelZipResolving] = useState(false);
   const [location, setLocation] = useState<LocationPickerValue>({
     locationId: null, location: "", field: "",
   });
@@ -124,7 +129,47 @@ export default function CreateListingModal({
 
   const selectedTeam = teams.find((t) => String(t.id) === teamId);
 
-  const canSubmit = !!(teamId && availableDate && selectedBats.length > 0 && !saving);
+  // Debounced geocoding of the travel zip via Mapbox.
+  useEffect(() => {
+    if (!willTravel) return;
+    const trimmed = travelZip.trim();
+    if (trimmed === "") {
+      setTravelGeo(null);
+      setTravelZipError(null);
+      return;
+    }
+    if (!/^\d{5}$/.test(trimmed)) {
+      setTravelGeo(null);
+      setTravelZipError(trimmed.length < 5 ? null : "Enter a 5-digit US zip");
+      return;
+    }
+    let cancelled = false;
+    setTravelZipResolving(true);
+    setTravelZipError(null);
+    const t = setTimeout(async () => {
+      const result = await geocodeZip(trimmed);
+      if (cancelled) return;
+      setTravelZipResolving(false);
+      if (!result) {
+        setTravelGeo(null);
+        setTravelZipError("Could not find that zip code");
+        return;
+      }
+      setTravelGeo(result);
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [travelZip, willTravel]);
+
+  const canSubmit = !!(
+    teamId &&
+    availableDate &&
+    selectedBats.length > 0 &&
+    !saving &&
+    (!willTravel || (travelGeo !== null))
+  );
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -140,7 +185,11 @@ export default function CreateListingModal({
         will_travel: willTravel,
         travel_radius_miles: willTravel ? parseInt(travelRadius, 10) || null : null,
         location_id: !willTravel ? location.locationId : null,
-        location_name: !willTravel && !location.locationId ? location.location : null,
+        location_name: willTravel
+          ? (travelGeo ? `ZIP ${travelZip.trim()} — ${travelGeo.place}` : `ZIP ${travelZip.trim()}`)
+          : (!location.locationId ? location.location : null),
+        location_lat: willTravel ? travelGeo?.lat ?? null : null,
+        location_lng: willTravel ? travelGeo?.lng ?? null : null,
         opponent_scope: opponentScope,
         age_range_min: ageMin ? parseInt(ageMin, 10) : null,
         age_range_max: ageMax ? parseInt(ageMax, 10) : null,
@@ -166,6 +215,9 @@ export default function CreateListingModal({
       setTimeLatest("");
       setWillTravel(false);
       setTravelRadius("25");
+      setTravelZip("");
+      setTravelGeo(null);
+      setTravelZipError(null);
       setLocation({ locationId: null, location: "", field: "" });
       setOpponentScope("any");
       setAgeMin("");
@@ -282,16 +334,43 @@ export default function CreateListingModal({
             </div>
 
             {willTravel ? (
-              <div>
-                <Label className="text-[11px] uppercase tracking-wider">Travel Radius (miles)</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  max="500"
-                  value={travelRadius}
-                  onChange={(e) => setTravelRadius(e.target.value)}
-                  className="mt-1 h-9 w-32"
-                />
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div>
+                    <Label className="text-[11px] uppercase tracking-wider">
+                      Starting ZIP <span className="text-destructive">*</span>
+                    </Label>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={5}
+                      value={travelZip}
+                      onChange={(e) => setTravelZip(e.target.value.replace(/\D/g, "").slice(0, 5))}
+                      placeholder="e.g. 80302"
+                      className="mt-1 h-9 w-32"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-[11px] uppercase tracking-wider">Travel Radius (miles)</Label>
+                    <Input
+                      type="number"
+                      min="1"
+                      max="500"
+                      value={travelRadius}
+                      onChange={(e) => setTravelRadius(e.target.value)}
+                      className="mt-1 h-9 w-32"
+                    />
+                  </div>
+                </div>
+                {travelZipResolving ? (
+                  <p className="text-[10px] text-muted-foreground">Looking up zip…</p>
+                ) : travelZipError ? (
+                  <p className="text-[10px] text-destructive">{travelZipError}</p>
+                ) : travelGeo ? (
+                  <p className="text-[10px] text-muted-foreground truncate" title={travelGeo.place}>
+                    {travelGeo.place}
+                  </p>
+                ) : null}
               </div>
             ) : (
               <LocationPicker
