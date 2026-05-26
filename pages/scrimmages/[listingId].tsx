@@ -229,8 +229,9 @@ export default function ListingDetailPage() {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-6 border-b border-border">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1
-                className="text-foreground"
+              <Link
+                href={`/teams/${listing.team_id}`}
+                className="text-foreground hover:text-primary transition-colors"
                 style={{
                   fontFamily: "var(--font-display)",
                   fontWeight: 800,
@@ -239,8 +240,8 @@ export default function ListingDetailPage() {
                   textTransform: "uppercase",
                 }}
               >
-                {listing.team_name}
-              </h1>
+                <h1>{listing.team_name}</h1>
+              </Link>
               <span
                 className="px-2 py-0.5 text-[10px] uppercase tracking-wider font-semibold"
                 style={{
