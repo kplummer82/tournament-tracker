@@ -11,7 +11,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       client.query(`SELECT id, tournamentstatus AS name FROM public.tournamentstatus ORDER BY name`),
       client.query(`SELECT id, tournamentvisibility AS name FROM public.tournamentvisibility ORDER BY name`),
       client.query(`SELECT id, division AS name FROM public.divisions ORDER BY sorting_key`),
-      client.query(`SELECT id, name, sport_id FROM public.scrimmage_bats ORDER BY id`),
+      client.query(`SELECT id, name, sport_id FROM public.bats ORDER BY id`),
     ]);
     client.release();
 

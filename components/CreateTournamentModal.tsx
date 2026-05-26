@@ -21,6 +21,7 @@ import MapboxCitySearch from "@/components/MapboxCitySearch";
 /* ---------- Types ---------- */
 
 type LookupRow = { id: number; name: string };
+type BatRow = { id: number; name: string; sport_id: number };
 
 type FormState = {
   name?: string;
@@ -37,6 +38,7 @@ type FormState = {
   sportId?: string;
   statusId?: string;
   visibilityId?: string;
+  batId?: string;
   maxrundiff?: number | null;
   advances_per_group?: number | null;
   num_pool_groups?: number | null;
@@ -55,6 +57,7 @@ function useLookups() {
   const [statuses, setStatuses] = useState<LookupRow[]>([]);
   const [divisions, setDivisions] = useState<LookupRow[]>([]);
   const [visibilities, setVisibilities] = useState<LookupRow[]>([]);
+  const [bats, setBats] = useState<BatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +75,7 @@ function useLookups() {
           setStatuses(Array.isArray(json.statuses) ? json.statuses : []);
           setVisibilities(Array.isArray(json.visibilities) ? json.visibilities : []);
           setDivisions(Array.isArray(json.divisions) ? json.divisions : []);
+          setBats(Array.isArray(json.bats) ? json.bats : []);
         }
       } catch (e: any) {
         if (!cancelled) setError(e.message || "Failed to load lookups");
@@ -82,7 +86,7 @@ function useLookups() {
     return () => { cancelled = true; };
   }, []);
 
-  return { sports, statuses, visibilities, divisions, loading, error };
+  return { sports, statuses, visibilities, divisions, bats, loading, error };
 }
 
 /* ---------- Component ---------- */
@@ -113,7 +117,11 @@ export default function CreateTournamentModal({
   const setOpen = isControlled ? (controlledOnOpenChange!) : setInternalOpen;
 
   const [form, setForm] = useState<FormState>({ year: new Date().getFullYear() });
-  const { sports, statuses, visibilities, divisions, loading, error } = useLookups();
+  const { sports, statuses, visibilities, divisions, bats, loading, error } = useLookups();
+
+  const filteredBats = form.sportId
+    ? bats.filter((b) => String(b.sport_id) === form.sportId)
+    : [];
 
   // When opening with initialValues (e.g. clone), pre-fill form
   useEffect(() => {
@@ -148,6 +156,7 @@ export default function CreateTournamentModal({
       sportid: toIntOrNull(form.sportId),
       statusid: toIntOrNull(form.statusId),
       visibilityid: toIntOrNull(form.visibilityId),
+      bat_id: toIntOrNull(form.batId),
       maxrundiff:
         form.maxrundiff === undefined || form.maxrundiff === null
           ? null
@@ -328,7 +337,7 @@ export default function CreateTournamentModal({
               <Label className="label-section">Sport</Label>
               <Select
                 value={form.sportId ?? ""}
-                onValueChange={(v) => update("sportId", v)}
+                onValueChange={(v) => setForm((f) => ({ ...f, sportId: v, batId: undefined }))}
                 disabled={loading}
               >
                 <SelectTrigger>
@@ -429,6 +438,35 @@ export default function CreateTournamentModal({
                 }
               />
             </div>
+          </div>
+
+          {/* Optional: Bat type (filtered by sport) */}
+          <div className="grid gap-2">
+            <Label className="label-section">Bat (optional)</Label>
+            <Select
+              value={form.batId ?? ""}
+              onValueChange={(v) => update("batId", v)}
+              disabled={loading || !form.sportId || filteredBats.length === 0}
+            >
+              <SelectTrigger>
+                <SelectValue
+                  placeholder={
+                    !form.sportId
+                      ? "Select sport first"
+                      : filteredBats.length === 0
+                      ? "No bats configured for this sport"
+                      : "Select a bat (optional)"
+                  }
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {filteredBats.map((b) => (
+                  <SelectItem key={b.id} value={String(b.id)}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 

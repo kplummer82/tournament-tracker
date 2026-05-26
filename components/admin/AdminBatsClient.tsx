@@ -32,7 +32,7 @@ function sortBats(list: Bat[]): Bat[] {
   );
 }
 
-export default function AdminScrimmageBatsClient() {
+export default function AdminBatsClient() {
   const [bats, setBats] = useState<Bat[]>([]);
   const [sports, setSports] = useState<Sport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,7 +60,7 @@ export default function AdminScrimmageBatsClient() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/admin/scrimmage-bats").then((r) => r.json()),
+      fetch("/api/admin/bats").then((r) => r.json()),
       fetch("/api/lookups").then((r) => r.json()),
     ])
       .then(([batsRes, lookupsRes]) => {
@@ -80,7 +80,7 @@ export default function AdminScrimmageBatsClient() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/scrimmage-bats", {
+      const res = await fetch("/api/admin/bats", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,7 +103,7 @@ export default function AdminScrimmageBatsClient() {
     setDeleting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/scrimmage-bats/${id}`, {
+      const res = await fetch(`/api/admin/bats/${id}`, {
         method: "DELETE",
       });
       if (!res.ok) {
@@ -136,7 +136,7 @@ export default function AdminScrimmageBatsClient() {
     setEditSaving(true);
     setEditError(null);
     try {
-      const res = await fetch(`/api/admin/scrimmage-bats/${id}`, {
+      const res = await fetch(`/api/admin/bats/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -168,7 +168,7 @@ export default function AdminScrimmageBatsClient() {
           className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground block"
           style={{ fontFamily: "var(--font-body)" }}
         >
-          New Bat Certification
+          New Bat
         </span>
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="grid grid-cols-2 gap-3">

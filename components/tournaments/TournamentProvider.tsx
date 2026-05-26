@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { usePermissions } from "@/lib/hooks/usePermissions";
-import type { Tournament, LookupRow } from "./types";
+import type { Tournament, LookupRow, BatRow } from "./types";
 
 type Ctx = {
   tid: number | null;
@@ -11,6 +11,7 @@ type Ctx = {
   divisions: LookupRow[];
   statuses: LookupRow[];
   visibilities: LookupRow[];
+  bats: BatRow[];
   loading: boolean;
   error: string | null;
   saving: boolean;
@@ -38,6 +39,7 @@ export default function TournamentProvider({ children }: { children: React.React
   const [divisions, setDivisions] = useState<LookupRow[]>([]);
   const [statuses, setStatuses] = useState<LookupRow[]>([]);
   const [visibilities, setVisibilities] = useState<LookupRow[]>([]);
+  const [bats, setBats] = useState<BatRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +59,7 @@ export default function TournamentProvider({ children }: { children: React.React
         setDivisions(Array.isArray(lk?.divisions) ? lk.divisions : []);
         setStatuses(Array.isArray(lk?.tournamentstatus) ? lk.tournamentstatus : lk?.statuses ?? []);
         setVisibilities(Array.isArray(lk?.tournamentvisibility) ? lk.tournamentvisibility : lk?.visibilities ?? []);
+        setBats(Array.isArray(lk?.bats) ? lk.bats : []);
         setT(tr as Tournament);
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Failed to load");
@@ -92,6 +95,7 @@ export default function TournamentProvider({ children }: { children: React.React
           divisionid: t.divisionid,
           statusid: t.statusid,
           visibilityid: t.visibilityid,
+          bat_id: t.bat_id ?? null,
         }),
       });
       const json = await res.json();
@@ -114,7 +118,7 @@ export default function TournamentProvider({ children }: { children: React.React
   };
 
   return (
-    <C.Provider value={{ tid, t, setT, divisions, statuses, visibilities, loading, error, saving, save, remove, canEdit }}>
+    <C.Provider value={{ tid, t, setT, divisions, statuses, visibilities, bats, loading, error, saving, save, remove, canEdit }}>
       {children}
     </C.Provider>
   );

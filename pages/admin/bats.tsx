@@ -1,7 +1,7 @@
 import { GetServerSideProps } from "next";
 import { getSessionForRequest } from "@/lib/auth/server";
 import AdminLayout from "@/components/admin/AdminLayout";
-import AdminScrimmageBatsClient from "@/components/admin/AdminScrimmageBatsClient";
+import AdminBatsClient from "@/components/admin/AdminBatsClient";
 
 export const getServerSideProps: GetServerSideProps = async (context) => {
   const session = await getSessionForRequest(context.req);
@@ -11,13 +11,13 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   return { props: {} };
 };
 
-export default function AdminScrimmageBatsPage() {
+export default function AdminBatsPage() {
   return (
-    <AdminLayout activeTab="scrimmage-bats">
+    <AdminLayout activeTab="bats">
       <p className="text-muted-foreground mb-6">
-        Manage bat certifications used in the scrimmage marketplace (e.g. USSSA, USA Baseball, Wood). Each bat is scoped to a sport.
+        Manage bats (e.g. USSSA, USA Baseball, Wood). Each bat is scoped to a sport and can be referenced by tournaments and scrimmage listings.
       </p>
-      <AdminScrimmageBatsClient />
+      <AdminBatsClient />
     </AdminLayout>
   );
 };

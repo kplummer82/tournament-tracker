@@ -33,8 +33,12 @@ function SectionHeader({ label }: { label: string }) {
 }
 
 function OverviewForm() {
-  const { tid, t, setT, divisions, statuses, visibilities, canEdit } = useTournament();
+  const { tid, t, setT, divisions, statuses, visibilities, bats, canEdit } = useTournament();
   if (!t) return null;
+
+  const filteredBats = t.sportid
+    ? bats.filter((b) => b.sport_id === t.sportid)
+    : [];
 
   return (
     <div className="space-y-7 max-w-2xl">
@@ -179,6 +183,29 @@ function OverviewForm() {
             >
               {visibilities.map((v) => (
                 <option key={String(v.id)} value={String(v.id)}>{v.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Bat (optional)">
+            <select
+              className={INPUT}
+              disabled={!canEdit || !t.sportid || filteredBats.length === 0}
+              value={t.bat_id ? String(t.bat_id) : ""}
+              onChange={(e) =>
+                setT((p) =>
+                  p ? { ...p, bat_id: e.target.value === "" ? null : Number(e.target.value) } : p
+                )
+              }
+            >
+              <option value="">
+                {!t.sportid
+                  ? "Select sport first"
+                  : filteredBats.length === 0
+                  ? "No bats for this sport"
+                  : "— None —"}
+              </option>
+              {filteredBats.map((b) => (
+                <option key={b.id} value={String(b.id)}>{b.name}</option>
               ))}
             </select>
           </Field>

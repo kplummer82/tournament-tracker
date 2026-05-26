@@ -58,12 +58,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (err?.code === "23503") {
       return res
         .status(409)
-        .json({ error: "Bat is in use by listing(s); remove or change those listings first." });
+        .json({ error: "Bat is in use; remove or change references first." });
     }
     if (err?.code === "23505") {
       return res.status(409).json({ error: "A bat with that name already exists for that sport" });
     }
-    console.error("[admin/scrimmage-bats] error", err);
+    console.error("[admin/bats] error", err);
     return res.status(500).json({ error: err.message ?? "Server error" });
   }
 }

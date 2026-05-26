@@ -175,7 +175,7 @@ export default async function handler(
           COALESCE((
             SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
             FROM scrimmage_listing_bats slb
-            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            JOIN bats sb ON sb.id = slb.bat_id
             WHERE slb.listing_id = sl.id
           ), '[]'::json) AS bats
           ${geoSelect}
@@ -323,7 +323,7 @@ export default async function handler(
 
       await sql`
         INSERT INTO scrimmage_listing_bats (listing_id, bat_id)
-        SELECT ${newId}, sb.id FROM scrimmage_bats sb WHERE sb.id = ANY(${batIds}::int[])
+        SELECT ${newId}, sb.id FROM bats sb WHERE sb.id = ANY(${batIds}::int[])
       `;
 
       return res.status(201).json({ id: newId });

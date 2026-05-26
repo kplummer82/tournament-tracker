@@ -31,7 +31,7 @@ export default async function handler(
           COALESCE((
             SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
             FROM scrimmage_listing_bats slb
-            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            JOIN bats sb ON sb.id = slb.bat_id
             WHERE slb.listing_id = sl.id
           ), '[]'::json) AS bats
         FROM scrimmage_listings sl
@@ -57,7 +57,7 @@ export default async function handler(
           COALESCE((
             SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
             FROM scrimmage_listing_bats slb
-            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            JOIN bats sb ON sb.id = slb.bat_id
             WHERE slb.listing_id = sl.id
           ), '[]'::json) AS bats
         FROM scrimmage_listings sl

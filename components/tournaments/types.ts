@@ -20,12 +20,17 @@ export type Tournament = {
   advances_per_group: number | null;
   num_pool_groups: number | null;
   divisionid: number | null;
+  sportid: number | null;
   statusid: number | null;
   visibilityid: number | null;
+  bat_id: number | null;
+  bat_name?: string | null;
   // optional labels if your API returns them
   division?: string | null;
+  sport?: string | null;
   tournamentstatus?: string | null;
   tournamentvisibility?: string | null;
 };
 
 export type LookupRow = { id: number | string; name: string };
+export type BatRow = { id: number; name: string; sport_id: number };

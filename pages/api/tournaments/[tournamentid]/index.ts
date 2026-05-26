@@ -28,6 +28,8 @@ type Row = {
   sportid: number | null;
   statusid: number | null;
   visibilityid: number | null;
+  bat_id: number | null;
+  bat_name: string | null;
 
   created_at: string | null;
 };
@@ -51,9 +53,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             v.created_at,
             t.forfeit_run_diff,
             t.advances_per_group,
-            t.num_pool_groups
+            t.num_pool_groups,
+            t.bat_id,
+            b.name AS bat_name
           FROM public.tournaments_api v
           JOIN public.tournaments t ON t.tournamentid = v.id
+          LEFT JOIN public.bats b ON b.id = t.bat_id
           WHERE v.id = ${id};
         `) as Row[];
       if (rows.length === 0) return res.status(404).json({ error: "Not found" });
@@ -71,6 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         forfeit_run_diff,
         advances_per_group,
         num_pool_groups,
+        bat_id,
       } = (req.body ?? {}) as Partial<Row>;
 
       // Write to the VIEW, not the base table. Triggers do the work.
@@ -112,6 +118,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           WHERE tournamentid = ${id};
         `;
       }
+      if (bat_id !== undefined) {
+        await sql/*sql*/`
+          UPDATE public.tournaments
+          SET bat_id = ${bat_id ?? null}
+          WHERE tournamentid = ${id};
+        `;
+      }
 
         const rows = (await sql/*sql*/`
           SELECT
@@ -125,9 +138,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             v.created_at,
             t.forfeit_run_diff,
             t.advances_per_group,
-            t.num_pool_groups
+            t.num_pool_groups,
+            t.bat_id,
+            b.name AS bat_name
           FROM public.tournaments_api v
           JOIN public.tournaments t ON t.tournamentid = v.id
+          LEFT JOIN public.bats b ON b.id = t.bat_id
           WHERE v.id = ${id};
         `) as Row[];
       if (rows.length === 0) return res.status(404).json({ error: "Not found after update" });

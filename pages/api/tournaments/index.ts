@@ -220,6 +220,8 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
         ? null
         : toIntOrNull(body.num_pool_groups);
 
+    const batId = body.bat_id === "" || body.bat_id == null ? null : toIntOrNull(body.bat_id);
+
     const fields = [
       "name",
       "city",
@@ -234,6 +236,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       "tournamentvisibility",
       "advances_per_group",
       "num_pool_groups",
+      "bat_id",
       "created_by",
     ];
 
@@ -251,6 +254,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       visibilityId,
       advancesPerGroup,
       numPoolGroups,
+      batId,
       session.user.id,
     ];
 
