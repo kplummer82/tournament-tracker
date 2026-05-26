@@ -24,6 +24,8 @@ function useDebounced<T>(value: T, delay = 300) {
   return v;
 }
 
+type ListingType = "all" | "hosting" | "traveling";
+
 type FilterState = {
   q: string;
   sport?: string;
@@ -33,6 +35,7 @@ type FilterState = {
   age_max?: string;
   scope?: string;
   bats?: number[];
+  listing_type: ListingType;
 };
 
 /* -------------- Empty state -------------- */
@@ -116,7 +119,7 @@ function Pagination({ page, pageCount, onPage }: { page: number; pageCount: numb
 export default function ScrimmageMarketplacePage() {
   const { hasAnyRole } = usePermissions();
 
-  const [filters, setFilters] = useState<FilterState>({ q: "" });
+  const [filters, setFilters] = useState<FilterState>({ q: "", listing_type: "all" });
   const [geo, setGeo] = useState<ZipRadiusValue>({
     zip: "",
     lat: null,
@@ -176,6 +179,7 @@ export default function ScrimmageMarketplacePage() {
       if (filters.age_max) params.set("age_max", filters.age_max);
       if (filters.scope) params.set("scope", filters.scope);
       if (filters.bats && filters.bats.length > 0) params.set("bats", filters.bats.join(","));
+      if (filters.listing_type !== "all") params.set("listing_type", filters.listing_type);
       if (geo.lat !== null && geo.lng !== null) {
         params.set("lat", String(geo.lat));
         params.set("lng", String(geo.lng));
@@ -201,10 +205,10 @@ export default function ScrimmageMarketplacePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), geo.lat, geo.lng, geo.radiusMiles, page]);
+  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), filters.listing_type, geo.lat, geo.lng, geo.radiusMiles, page]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, geo.lat, geo.lng, geo.radiusMiles]);
+  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, filters.listing_type, geo.lat, geo.lng, geo.radiusMiles]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
@@ -212,11 +216,12 @@ export default function ScrimmageMarketplacePage() {
     filters.q || filters.sport || filters.date_from || filters.date_to ||
     filters.age_min || filters.age_max || filters.scope ||
     (filters.bats && filters.bats.length > 0) ||
+    filters.listing_type !== "all" ||
     geo.zip || geo.lat !== null
   );
 
   const clearFilters = () => {
-    setFilters({ q: "" });
+    setFilters({ q: "", listing_type: "all" });
     setGeo({ zip: "", lat: null, lng: null, place: null, radiusMiles: 25 });
     setPage(1);
   };
@@ -290,6 +295,37 @@ export default function ScrimmageMarketplacePage() {
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
+          </div>
+
+          {/* Listing type — hosting / traveling */}
+          <div
+            className="inline-flex h-9 border border-border bg-input"
+            role="group"
+            aria-label="Filter by listing type"
+          >
+            {([
+              { value: "all", label: "All" },
+              { value: "hosting", label: "Hosting" },
+              { value: "traveling", label: "Traveling" },
+            ] as { value: ListingType; label: string }[]).map((opt) => {
+              const active = filters.listing_type === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setFilters((f) => ({ ...f, listing_type: opt.value }))}
+                  aria-pressed={active}
+                  className={`px-3 text-[10px] uppercase tracking-wider transition-colors duration-100 ${
+                    active
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Sport */}

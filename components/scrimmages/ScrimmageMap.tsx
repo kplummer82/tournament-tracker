@@ -109,9 +109,13 @@ export default function ScrimmageMap({ listings, center }: Props) {
   const listingsById = useRef(new Map<number, ListingRow>());
 
   // Build a GeoJSON FeatureCollection from listings with coords.
+  // Travel listings ("will travel") are excluded — their coords represent the
+  // traveling team's starting ZIP, not a venue, so pinning them on the map is
+  // misleading. They surface in the list view instead.
   const featureCollection = React.useMemo(() => {
     const features = listings
       .map((l) => {
+        if (l.will_travel) return null;
         if (l.location_lat == null || l.location_lng == null) return null;
         const lat = Number(l.location_lat);
         const lng = Number(l.location_lng);

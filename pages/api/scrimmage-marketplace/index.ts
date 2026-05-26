@@ -29,6 +29,7 @@ export default async function handler(
       age_max,
       scope,
       bats,
+      listing_type,
       page = "1",
       pageSize = "20",
     } = req.query;
@@ -90,6 +91,12 @@ export default async function handler(
       if (scope === "division" || scope === "league") {
         whereParts.push(`sl.opponent_scope IN (${$()}, 'any')`);
         params.push(String(scope));
+      }
+
+      if (listing_type === "hosting") {
+        whereParts.push(`sl.will_travel = false`);
+      } else if (listing_type === "traveling") {
+        whereParts.push(`sl.will_travel = true`);
       }
 
       // Bats filter: any-overlap. Listings that include ANY of the requested bats match.
