@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 type RoleAssignment = {
   id: number;
   user_id: string;
+  user_email: string | null;
+  user_name: string | null;
   role: string;
   scope_type: string;
   scope_id: number;
@@ -432,7 +434,20 @@ export default function AdminRolesClient() {
             <tbody className="divide-y divide-border">
               {filteredRoles.map((role) => (
                 <tr key={role.id} className="hover:bg-muted/20">
-                  <td className="px-4 py-3 font-mono text-xs">{role.user_id.slice(0, 12)}...</td>
+                  <td className="px-4 py-3">
+                    {role.user_email ? (
+                      <div className="flex flex-col">
+                        <span>{role.user_email}</span>
+                        {role.user_name && (
+                          <span className="text-xs text-muted-foreground">{role.user_name}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="font-mono text-xs text-muted-foreground" title={role.user_id}>
+                        {role.user_id.slice(0, 12)}…
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">
                       {ROLE_LABELS[role.role] ?? role.role}
@@ -441,7 +456,16 @@ export default function AdminRolesClient() {
                   <td className="px-4 py-3 text-muted-foreground">
                     {SCOPE_LABELS[role.scope_type] ?? role.scope_type}
                   </td>
-                  <td className="px-4 py-3">{role.entity_name ?? `#${role.scope_id}`}</td>
+                  <td className="px-4 py-3">
+                    {role.entity_name ? (
+                      role.entity_name
+                    ) : (
+                      <span className="text-muted-foreground">
+                        {SCOPE_LABELS[role.scope_type] ?? role.scope_type} #{role.scope_id}{" "}
+                        <span className="text-xs text-red-600">(deleted)</span>
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">
                     {new Date(role.created_at).toLocaleDateString()}
                   </td>
