@@ -25,6 +25,7 @@ function useDebounced<T>(value: T, delay = 300) {
 }
 
 type ListingType = "all" | "hosting" | "traveling";
+type SortKey = "date_asc" | "posted_desc" | "distance_asc";
 
 type FilterState = {
   q: string;
@@ -36,6 +37,7 @@ type FilterState = {
   scope?: string;
   bats?: number[];
   listing_type: ListingType;
+  sort: SortKey;
 };
 
 /* -------------- Empty state -------------- */
@@ -119,7 +121,7 @@ function Pagination({ page, pageCount, onPage }: { page: number; pageCount: numb
 export default function ScrimmageMarketplacePage() {
   const { hasAnyRole } = usePermissions();
 
-  const [filters, setFilters] = useState<FilterState>({ q: "", listing_type: "all" });
+  const [filters, setFilters] = useState<FilterState>({ q: "", listing_type: "all", sort: "date_asc" });
   const [geo, setGeo] = useState<ZipRadiusValue>({
     zip: "",
     lat: null,
@@ -138,7 +140,7 @@ export default function ScrimmageMarketplacePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [sports, setSports] = useState<{ id: number; name: string }[]>([]);
-  const [bats, setBats] = useState<{ id: number; name: string }[]>([]);
+  const [bats, setBats] = useState<{ id: number; name: string; sport_id: number | null }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
 
   // Load lookups
@@ -152,11 +154,35 @@ export default function ScrimmageMarketplacePage() {
       .catch(() => {});
   }, []);
 
+  const activeSportId = filters.sport ? parseInt(filters.sport, 10) : null;
+
+  const isBatDisabled = (bat: { sport_id: number | null }) =>
+    activeSportId != null && bat.sport_id != null && bat.sport_id !== activeSportId;
+
   const toggleBatFilter = (id: number) => {
+    const bat = bats.find((b) => b.id === id);
+    if (bat && isBatDisabled(bat)) return;
     setFilters((f) => {
       const current = f.bats ?? [];
       const next = current.includes(id) ? current.filter((b) => b !== id) : [...current, id];
       return { ...f, bats: next.length === 0 ? undefined : next };
+    });
+  };
+
+  const setSportFilter = (sportValue: string | undefined) => {
+    setFilters((f) => {
+      const nextSportId = sportValue ? parseInt(sportValue, 10) : null;
+      // Drop any selected bats that aren't tied to the new sport.
+      const prunedBats = (f.bats ?? []).filter((id) => {
+        const bat = bats.find((b) => b.id === id);
+        if (!bat || bat.sport_id == null) return true;
+        return nextSportId == null || bat.sport_id === nextSportId;
+      });
+      return {
+        ...f,
+        sport: sportValue,
+        bats: prunedBats.length === 0 ? undefined : prunedBats,
+      };
     });
   };
 
@@ -180,6 +206,7 @@ export default function ScrimmageMarketplacePage() {
       if (filters.scope) params.set("scope", filters.scope);
       if (filters.bats && filters.bats.length > 0) params.set("bats", filters.bats.join(","));
       if (filters.listing_type !== "all") params.set("listing_type", filters.listing_type);
+      params.set("sort", filters.sort);
       if (geo.lat !== null && geo.lng !== null) {
         params.set("lat", String(geo.lat));
         params.set("lng", String(geo.lng));
@@ -205,10 +232,22 @@ export default function ScrimmageMarketplacePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), filters.listing_type, geo.lat, geo.lng, geo.radiusMiles, page]);
+  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), filters.listing_type, filters.sort, geo.lat, geo.lng, geo.radiusMiles, page]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, filters.listing_type, geo.lat, geo.lng, geo.radiusMiles]);
+  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, filters.listing_type, filters.sort, geo.lat, geo.lng, geo.radiusMiles]);
+
+  // When ZIP first becomes available, auto-select distance sort. When it's
+  // cleared while distance was active, fall back to date_asc.
+  useEffect(() => {
+    const hasGeo = geo.lat !== null && geo.lng !== null;
+    if (hasGeo && filters.sort === "date_asc") {
+      setFilters((f) => ({ ...f, sort: "distance_asc" }));
+    } else if (!hasGeo && filters.sort === "distance_asc") {
+      setFilters((f) => ({ ...f, sort: "date_asc" }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geo.lat, geo.lng]);
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
@@ -221,7 +260,7 @@ export default function ScrimmageMarketplacePage() {
   );
 
   const clearFilters = () => {
-    setFilters({ q: "", listing_type: "all" });
+    setFilters({ q: "", listing_type: "all", sort: "date_asc" });
     setGeo({ zip: "", lat: null, lng: null, place: null, radiusMiles: 25 });
     setPage(1);
   };
@@ -331,7 +370,7 @@ export default function ScrimmageMarketplacePage() {
           {/* Sport */}
           <Select
             value={filters.sport ?? "__all__"}
-            onValueChange={(v) => setFilters((f) => ({ ...f, sport: v === "__all__" ? undefined : v }))}
+            onValueChange={(v) => setSportFilter(v === "__all__" ? undefined : v)}
           >
             <SelectTrigger className="w-[130px] h-9 text-xs">
               <SelectValue placeholder="Sport" />
@@ -420,15 +459,20 @@ export default function ScrimmageMarketplacePage() {
               <div className="flex items-center gap-1">
                 {bats.map((b) => {
                   const active = filters.bats?.includes(b.id) ?? false;
+                  const disabled = isBatDisabled(b);
                   return (
                     <button
                       key={b.id}
                       type="button"
                       onClick={() => toggleBatFilter(b.id)}
+                      disabled={disabled}
+                      title={disabled ? "Not used in the selected sport" : undefined}
                       className={`px-2 h-9 text-[10px] uppercase tracking-wider border transition-colors duration-100 ${
-                        active
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                        disabled
+                          ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
+                          : active
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary hover:text-primary"
                       }`}
                       style={{ fontFamily: "var(--font-body)" }}
                     >
@@ -463,8 +507,31 @@ export default function ScrimmageMarketplacePage() {
           </div>
         )}
 
-        {/* View toggle */}
-        <div className="flex justify-end pb-3">
+        {/* Sort + View toggle */}
+        <div className="flex items-center justify-end gap-3 pb-3">
+          <div className="flex items-center gap-2">
+            <label
+              className="text-[10px] uppercase tracking-wider text-muted-foreground"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              Sort
+            </label>
+            <Select
+              value={filters.sort}
+              onValueChange={(v) => setFilters((f) => ({ ...f, sort: v as SortKey }))}
+            >
+              <SelectTrigger className="w-[170px] h-9 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="date_asc">Soonest available</SelectItem>
+                <SelectItem value="posted_desc">Recently posted</SelectItem>
+                <SelectItem value="distance_asc" disabled={geo.lat === null}>
+                  Nearest{geo.lat === null ? " (set ZIP)" : ""}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <ViewToggle value={view} onChange={setView} />
         </div>
 

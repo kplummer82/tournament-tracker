@@ -30,6 +30,7 @@ export default async function handler(
       scope,
       bats,
       listing_type,
+      sort,
       page = "1",
       pageSize = "20",
     } = req.query;
@@ -116,7 +117,7 @@ export default async function handler(
 
       // Geo filter (Haversine)
       let geoSelect = "";
-      let orderBy = "sl.available_date ASC, sl.created_at DESC";
+      let distanceAvailable = false;
 
       const hasGeo =
         lat && lng && radius &&
@@ -145,9 +146,24 @@ export default async function handler(
 
           geoSelect = `, ${distanceExpr} AS distance_miles`;
           whereParts.push(`(sl.location_lat IS NULL OR ${distanceExpr} <= ${radiusP})`);
-
-          orderBy = "distance_miles ASC NULLS LAST, sl.available_date ASC";
+          distanceAvailable = true;
         }
+      }
+
+      // Sort: explicit `sort` param wins; otherwise default to distance when
+      // a ZIP is set, else by soonest available date.
+      const sortKey = typeof sort === "string" ? sort : "";
+      let orderBy: string;
+      if (sortKey === "distance_asc" && distanceAvailable) {
+        orderBy = "distance_miles ASC NULLS LAST, sl.available_date ASC";
+      } else if (sortKey === "posted_desc") {
+        orderBy = "sl.created_at DESC, sl.available_date ASC";
+      } else if (sortKey === "date_asc") {
+        orderBy = "sl.available_date ASC, sl.created_at DESC";
+      } else {
+        orderBy = distanceAvailable
+          ? "distance_miles ASC NULLS LAST, sl.available_date ASC"
+          : "sl.available_date ASC, sl.created_at DESC";
       }
 
       const whereClause = whereParts.join(" AND ");
