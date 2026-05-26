@@ -6,11 +6,12 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
   try {
     const client = await pool.connect();
     //const [sports, statuses, vis] = await Promise.all([
-    const [sports, statuses, vis, divisions] = await Promise.all([
+    const [sports, statuses, vis, divisions, bats] = await Promise.all([
       client.query(`SELECT id, sportname AS name FROM public.sport ORDER BY name`),
       client.query(`SELECT id, tournamentstatus AS name FROM public.tournamentstatus ORDER BY name`),
       client.query(`SELECT id, tournamentvisibility AS name FROM public.tournamentvisibility ORDER BY name`),
       client.query(`SELECT id, division AS name FROM public.divisions ORDER BY sorting_key`),
+      client.query(`SELECT id, name FROM public.scrimmage_bats ORDER BY id`),
     ]);
     client.release();
 
@@ -19,6 +20,7 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
       statuses: statuses.rows,      // [{id, name}]
       visibilities: vis.rows,       // [{id, name}]
       divisions: divisions.rows,    // [{id, name}]
+      bats: bats.rows,              // [{id, name}]
     });
   } catch (e: any) {
     console.error(e);

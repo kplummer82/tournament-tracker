@@ -48,8 +48,25 @@ export default function CreateListingModal({
   const [ageMax, setAgeMax] = useState("");
   const [notes, setNotes] = useState("");
 
+  const [batOptions, setBatOptions] = useState<{ id: number; name: string }[]>([]);
+  const [selectedBats, setSelectedBats] = useState<number[]>([]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Load bat options once on mount
+  useEffect(() => {
+    fetch("/api/lookups")
+      .then((r) => r.json())
+      .then((d) => setBatOptions(d?.bats ?? []))
+      .catch(() => {});
+  }, []);
+
+  const toggleBat = (id: number) => {
+    setSelectedBats((prev) =>
+      prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]
+    );
+  };
 
   // Load managed teams when modal opens
   useEffect(() => {
@@ -107,7 +124,7 @@ export default function CreateListingModal({
 
   const selectedTeam = teams.find((t) => String(t.id) === teamId);
 
-  const canSubmit = !!(teamId && availableDate && !saving);
+  const canSubmit = !!(teamId && availableDate && selectedBats.length > 0 && !saving);
 
   const handleSubmit = async () => {
     if (!canSubmit) return;
@@ -128,6 +145,7 @@ export default function CreateListingModal({
         age_range_min: ageMin ? parseInt(ageMin, 10) : null,
         age_range_max: ageMax ? parseInt(ageMax, 10) : null,
         notes: notes.trim() || null,
+        bats: selectedBats,
       };
 
       const res = await fetch("/api/scrimmage-marketplace", {
@@ -153,6 +171,7 @@ export default function CreateListingModal({
       setAgeMin("");
       setAgeMax("");
       setNotes("");
+      setSelectedBats([]);
 
       onOpenChange(false);
       onCreated();
@@ -314,6 +333,38 @@ export default function CreateListingModal({
             {selectedTeam && !selectedTeam.league_id && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 This team isn&apos;t in a league, so scope is limited to &quot;Any team&quot;.
+              </p>
+            )}
+          </div>
+
+          {/* Bats (required, multi-select) */}
+          <div>
+            <Label className="text-[11px] uppercase tracking-wider mb-2 block">
+              Bats <span className="text-destructive">*</span>
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              {batOptions.map((b) => {
+                const active = selectedBats.includes(b.id);
+                return (
+                  <button
+                    key={b.id}
+                    type="button"
+                    onClick={() => toggleBat(b.id)}
+                    className={`px-3 py-1.5 text-xs uppercase tracking-wider border transition-colors duration-100 ${
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {b.name}
+                  </button>
+                );
+              })}
+            </div>
+            {selectedBats.length === 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Select at least one bat type.
               </p>
             )}
           </div>

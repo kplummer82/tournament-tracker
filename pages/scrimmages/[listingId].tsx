@@ -84,6 +84,7 @@ type Listing = {
   notes: string | null;
   pending_offers: number;
   created_at: string;
+  bats: { id: number; name: string }[];
 };
 
 export default function ListingDetailPage() {
@@ -332,6 +333,28 @@ export default function ListingDetailPage() {
             {ageStr && (
               <div className="text-foreground" style={{ fontFamily: "var(--font-body)", fontSize: "14px" }}>
                 {ageStr}
+              </div>
+            )}
+
+            {listing.bats?.length > 0 && (
+              <div>
+                <div
+                  className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Bats
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {listing.bats.map((b) => (
+                    <span
+                      key={b.id}
+                      className="border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-wider text-foreground"
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {b.name}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
 

@@ -32,6 +32,7 @@ type FilterState = {
   age_min?: string;
   age_max?: string;
   scope?: string;
+  bats?: number[];
 };
 
 /* -------------- Empty state -------------- */
@@ -134,15 +135,27 @@ export default function ScrimmageMarketplacePage() {
   const [error, setError] = useState<string | null>(null);
 
   const [sports, setSports] = useState<{ id: number; name: string }[]>([]);
+  const [bats, setBats] = useState<{ id: number; name: string }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
 
-  // Load sports lookup
+  // Load lookups
   useEffect(() => {
     fetch("/api/lookups")
       .then((r) => r.json())
-      .then((d) => setSports(d?.sports ?? []))
+      .then((d) => {
+        setSports(d?.sports ?? []);
+        setBats(d?.bats ?? []);
+      })
       .catch(() => {});
   }, []);
+
+  const toggleBatFilter = (id: number) => {
+    setFilters((f) => {
+      const current = f.bats ?? [];
+      const next = current.includes(id) ? current.filter((b) => b !== id) : [...current, id];
+      return { ...f, bats: next.length === 0 ? undefined : next };
+    });
+  };
 
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -162,6 +175,7 @@ export default function ScrimmageMarketplacePage() {
       if (filters.age_min) params.set("age_min", filters.age_min);
       if (filters.age_max) params.set("age_max", filters.age_max);
       if (filters.scope) params.set("scope", filters.scope);
+      if (filters.bats && filters.bats.length > 0) params.set("bats", filters.bats.join(","));
       if (geo.lat !== null && geo.lng !== null) {
         params.set("lat", String(geo.lat));
         params.set("lng", String(geo.lng));
@@ -187,7 +201,7 @@ export default function ScrimmageMarketplacePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, geo.lat, geo.lng, geo.radiusMiles, page]);
+  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), geo.lat, geo.lng, geo.radiusMiles, page]);
 
   // Reset page on filter change
   useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, geo.lat, geo.lng, geo.radiusMiles]);
@@ -197,6 +211,7 @@ export default function ScrimmageMarketplacePage() {
   const hasFilters = !!(
     filters.q || filters.sport || filters.date_from || filters.date_to ||
     filters.age_min || filters.age_max || filters.scope ||
+    (filters.bats && filters.bats.length > 0) ||
     geo.zip || geo.lat !== null
   );
 
@@ -359,6 +374,35 @@ export default function ScrimmageMarketplacePage() {
               <SelectItem value="league">League only</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* Bats (multi-select) */}
+          {bats.length > 0 && (
+            <div className="flex items-center gap-1">
+              <label className="text-[10px] uppercase tracking-wider text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                Bats
+              </label>
+              <div className="flex items-center gap-1">
+                {bats.map((b) => {
+                  const active = filters.bats?.includes(b.id) ?? false;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => toggleBatFilter(b.id)}
+                      className={`px-2 h-9 text-[10px] uppercase tracking-wider border transition-colors duration-100 ${
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                      }`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {b.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Zip + radius */}
           <ZipRadiusFilter value={geo} onChange={setGeo} />

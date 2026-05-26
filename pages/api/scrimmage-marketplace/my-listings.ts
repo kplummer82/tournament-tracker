@@ -27,7 +27,13 @@ export default async function handler(
           ld.name AS division_name, ld.age_range AS division_age_range,
           sp.sportname AS sport_name,
           loc.name AS official_location_name,
-          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending') AS pending_offers
+          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending') AS pending_offers,
+          COALESCE((
+            SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
+            FROM scrimmage_listing_bats slb
+            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            WHERE slb.listing_id = sl.id
+          ), '[]'::json) AS bats
         FROM scrimmage_listings sl
         JOIN teams t ON t.teamid = sl.team_id
         LEFT JOIN leagues l ON l.id = t.league_id
@@ -47,7 +53,13 @@ export default async function handler(
           ld.name AS division_name, ld.age_range AS division_age_range,
           sp.sportname AS sport_name,
           loc.name AS official_location_name,
-          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending') AS pending_offers
+          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending') AS pending_offers,
+          COALESCE((
+            SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
+            FROM scrimmage_listing_bats slb
+            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            WHERE slb.listing_id = sl.id
+          ), '[]'::json) AS bats
         FROM scrimmage_listings sl
         JOIN teams t ON t.teamid = sl.team_id
         LEFT JOIN leagues l ON l.id = t.league_id

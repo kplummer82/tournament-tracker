@@ -162,6 +162,30 @@ export default function ScrimmageMap({ listings, center }: Props) {
       map.on("load", () => {
         if (disposed) return;
 
+        // Custom teardrop pin (SVG → image) — primary orange with white stroke.
+        if (!map.hasImage("scrimmage-pin")) {
+          const pinSvg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="56" viewBox="0 0 40 56">
+              <defs>
+                <filter id="s" x="-20%" y="-10%" width="140%" height="130%">
+                  <feDropShadow dx="0" dy="1.5" stdDeviation="1.2" flood-color="#000" flood-opacity="0.35"/>
+                </filter>
+              </defs>
+              <path filter="url(#s)" fill="#ff4b00" stroke="#ffffff" stroke-width="2.5"
+                d="M20 2 C10 2 3 9.5 3 19 C3 31 20 53 20 53 C20 53 37 31 37 19 C37 9.5 30 2 20 2 Z"/>
+              <circle cx="20" cy="19" r="6" fill="#ffffff"/>
+            </svg>
+          `.trim();
+          const img = new Image(40, 56);
+          img.onload = () => {
+            if (disposed || !mapRef.current) return;
+            if (!mapRef.current.hasImage("scrimmage-pin")) {
+              mapRef.current.addImage("scrimmage-pin", img, { pixelRatio: 2 });
+            }
+          };
+          img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(pinSvg)}`;
+        }
+
         map.addSource("listings", {
           type: "geojson",
           data: { type: "FeatureCollection", features: [] },
@@ -205,17 +229,18 @@ export default function ScrimmageMap({ listings, center }: Props) {
           paint: { "text-color": "#ffffff" },
         });
 
-        // Unclustered pins.
+        // Unclustered pins — teardrop marker anchored at the bottom tip.
         map.addLayer({
           id: "unclustered-point",
-          type: "circle",
+          type: "symbol",
           source: "listings",
           filter: ["!", ["has", "point_count"]],
-          paint: {
-            "circle-color": "#ff4b00",
-            "circle-radius": 8,
-            "circle-stroke-color": "#ffffff",
-            "circle-stroke-width": 2,
+          layout: {
+            "icon-image": "scrimmage-pin",
+            "icon-size": 0.875,
+            "icon-anchor": "bottom",
+            "icon-allow-overlap": true,
+            "icon-ignore-placement": true,
           },
         });
 
@@ -246,7 +271,7 @@ export default function ScrimmageMap({ listings, center }: Props) {
           if (!listing) return;
 
           popupRef.current?.remove();
-          popupRef.current = new mapboxgl.Popup({ closeButton: true, offset: 14 })
+          popupRef.current = new mapboxgl.Popup({ closeButton: true, offset: 52 })
             .setLngLat(f.geometry.coordinates as [number, number])
             .setHTML(popupHtml(listing))
             .addTo(map);

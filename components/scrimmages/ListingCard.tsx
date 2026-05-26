@@ -30,6 +30,7 @@ export type ListingRow = {
   pending_offers: number;
   distance_miles?: number | null;
   notes: string | null;
+  bats: { id: number; name: string }[];
 };
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -119,6 +120,11 @@ export default function ListingCard({ listing }: { listing: ListingRow }) {
           )}
           {ageStr && (
             <span>{ageStr}</span>
+          )}
+          {listing.bats?.length > 0 && (
+            <span>
+              Bats: {listing.bats.map((b) => b.name).join(", ")}
+            </span>
           )}
         </div>
       </div>

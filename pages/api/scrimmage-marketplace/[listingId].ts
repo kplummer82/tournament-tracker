@@ -24,7 +24,13 @@ export default async function handler(
           ld.name AS division_name, ld.age_range AS division_age_range,
           sp.sportname AS sport_name,
           loc.name AS official_location_name, loc.address AS location_address,
-          loc.city AS location_city, loc.state AS location_state
+          loc.city AS location_city, loc.state AS location_state,
+          COALESCE((
+            SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
+            FROM scrimmage_listing_bats slb
+            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            WHERE slb.listing_id = sl.id
+          ), '[]'::json) AS bats
         FROM scrimmage_listings sl
         JOIN teams t ON t.teamid = sl.team_id
         LEFT JOIN leagues l ON l.id = t.league_id
@@ -112,7 +118,19 @@ export default async function handler(
         age_range_min,
         age_range_max,
         notes,
+        bats,
       } = req.body ?? {};
+
+      let batIds: number[] | null = null;
+      if (bats !== undefined) {
+        if (!Array.isArray(bats)) {
+          return res.status(400).json({ error: "bats must be an array" });
+        }
+        batIds = bats.map((b: unknown) => parseInt(String(b), 10)).filter((n) => !isNaN(n));
+        if (batIds.length === 0) {
+          return res.status(400).json({ error: "At least one bat type is required" });
+        }
+      }
 
       // Denormalize lat/lng if location_id changed
       let finalLat = location_lat ?? null;
@@ -145,6 +163,14 @@ export default async function handler(
           updated_at = NOW()
         WHERE id = ${listingId}
       `;
+
+      if (batIds) {
+        await sql`DELETE FROM scrimmage_listing_bats WHERE listing_id = ${listingId}`;
+        await sql`
+          INSERT INTO scrimmage_listing_bats (listing_id, bat_id)
+          SELECT ${listingId}, sb.id FROM scrimmage_bats sb WHERE sb.id = ANY(${batIds}::int[])
+        `;
+      }
 
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {

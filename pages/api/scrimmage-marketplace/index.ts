@@ -28,6 +28,7 @@ export default async function handler(
       age_min,
       age_max,
       scope,
+      bats,
       page = "1",
       pageSize = "20",
     } = req.query;
@@ -89,6 +90,21 @@ export default async function handler(
       if (scope === "division" || scope === "league") {
         whereParts.push(`sl.opponent_scope IN (${$()}, 'any')`);
         params.push(String(scope));
+      }
+
+      // Bats filter: any-overlap. Listings that include ANY of the requested bats match.
+      if (bats && String(bats).trim()) {
+        const batIds = String(bats)
+          .split(",")
+          .map((s) => parseInt(s.trim(), 10))
+          .filter((n) => !isNaN(n));
+        if (batIds.length > 0) {
+          whereParts.push(`EXISTS (
+            SELECT 1 FROM scrimmage_listing_bats slb
+            WHERE slb.listing_id = sl.id AND slb.bat_id = ANY(${$()}::int[])
+          )`);
+          params.push(batIds);
+        }
       }
 
       // Geo filter (Haversine)
@@ -155,7 +171,13 @@ export default async function handler(
           sp.sportname AS sport_name,
           loc.name AS official_location_name, loc.city AS location_city,
           loc.state AS location_state,
-          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending')::int AS pending_offers
+          (SELECT COUNT(*) FROM scrimmage_offers so WHERE so.listing_id = sl.id AND so.status = 'pending')::int AS pending_offers,
+          COALESCE((
+            SELECT json_agg(json_build_object('id', sb.id, 'name', sb.name) ORDER BY sb.id)
+            FROM scrimmage_listing_bats slb
+            JOIN scrimmage_bats sb ON sb.id = slb.bat_id
+            WHERE slb.listing_id = sl.id
+          ), '[]'::json) AS bats
           ${geoSelect}
         FROM scrimmage_listings sl
         JOIN teams t ON t.teamid = sl.team_id
@@ -210,10 +232,18 @@ export default async function handler(
       age_range_min,
       age_range_max,
       notes,
+      bats,
     } = req.body ?? {};
 
     if (!team_id || !available_date) {
       return res.status(400).json({ error: "team_id and available_date are required" });
+    }
+
+    const batIds = Array.isArray(bats)
+      ? bats.map((b: unknown) => parseInt(String(b), 10)).filter((n) => !isNaN(n))
+      : [];
+    if (batIds.length === 0) {
+      return res.status(400).json({ error: "At least one bat type is required" });
     }
 
     const teamId = parseInt(String(team_id), 10);
@@ -289,7 +319,14 @@ export default async function handler(
         RETURNING id
       `;
 
-      return res.status(201).json({ id: rows[0].id });
+      const newId = rows[0].id;
+
+      await sql`
+        INSERT INTO scrimmage_listing_bats (listing_id, bat_id)
+        SELECT ${newId}, sb.id FROM scrimmage_bats sb WHERE sb.id = ANY(${batIds}::int[])
+      `;
+
+      return res.status(201).json({ id: newId });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Server error";
       console.error("[scrimmage-marketplace] POST error", err);
