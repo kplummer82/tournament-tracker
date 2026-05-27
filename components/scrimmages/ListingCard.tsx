@@ -31,6 +31,7 @@ export type ListingRow = {
   distance_miles?: number | null;
   notes: string | null;
   bats: { id: number; name: string }[];
+  team_record?: { w: number; l: number; t: number } | null;
 };
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -84,19 +85,30 @@ export default function ListingCard({ listing }: { listing: ListingRow }) {
     >
       {/* Left: team + meta */}
       <div className="flex-1 min-w-0">
-        {/* Team name */}
-        <span
-          className="block truncate text-foreground group-hover:text-primary transition-colors duration-100"
-          style={{
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
-            fontSize: "17px",
-            textTransform: "uppercase",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {listing.team_name}
-        </span>
+        {/* Team name + record */}
+        <div className="flex items-baseline gap-3 min-w-0">
+          <span
+            className="truncate text-foreground group-hover:text-primary transition-colors duration-100"
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 700,
+              fontSize: "17px",
+              textTransform: "uppercase",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {listing.team_name}
+          </span>
+          {listing.team_record &&
+            listing.team_record.w + listing.team_record.l + listing.team_record.t > 0 && (
+              <span
+                className="shrink-0 text-muted-foreground tabular-nums"
+                style={{ fontFamily: "var(--font-body)", fontSize: "12px", letterSpacing: "0.04em" }}
+              >
+                {listing.team_record.w}-{listing.team_record.l}-{listing.team_record.t}
+              </span>
+            )}
+        </div>
 
         {/* Badges row */}
         <div

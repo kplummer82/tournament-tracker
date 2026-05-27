@@ -38,6 +38,7 @@ type FilterState = {
   bats?: number[];
   listing_type: ListingType;
   sort: SortKey;
+  include_expired?: boolean;
 };
 
 /* -------------- Empty state -------------- */
@@ -206,6 +207,7 @@ export default function ScrimmageMarketplacePage() {
       if (filters.scope) params.set("scope", filters.scope);
       if (filters.bats && filters.bats.length > 0) params.set("bats", filters.bats.join(","));
       if (filters.listing_type !== "all") params.set("listing_type", filters.listing_type);
+      if (filters.include_expired) params.set("include_expired", "true");
       params.set("sort", filters.sort);
       if (geo.lat !== null && geo.lng !== null) {
         params.set("lat", String(geo.lat));
@@ -232,10 +234,10 @@ export default function ScrimmageMarketplacePage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), filters.listing_type, filters.sort, geo.lat, geo.lng, geo.radiusMiles, page]);
+  }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, (filters.bats ?? []).join(","), filters.listing_type, filters.sort, filters.include_expired, geo.lat, geo.lng, geo.radiusMiles, page]);
 
   // Reset page on filter change
-  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, filters.listing_type, filters.sort, geo.lat, geo.lng, geo.radiusMiles]);
+  useEffect(() => { setPage(1); }, [debouncedQ, filters.sport, filters.date_from, filters.date_to, filters.age_min, filters.age_max, filters.scope, filters.listing_type, filters.sort, filters.include_expired, geo.lat, geo.lng, geo.radiusMiles]);
 
   // When ZIP first becomes available, auto-select distance sort. When it's
   // cleared while distance was active, fall back to date_asc.
@@ -256,6 +258,7 @@ export default function ScrimmageMarketplacePage() {
     filters.age_min || filters.age_max || filters.scope ||
     (filters.bats && filters.bats.length > 0) ||
     filters.listing_type !== "all" ||
+    filters.include_expired ||
     geo.zip || geo.lat !== null
   );
 
@@ -486,6 +489,20 @@ export default function ScrimmageMarketplacePage() {
 
           {/* Zip + radius */}
           <ZipRadiusFilter value={geo} onChange={setGeo} />
+
+          {/* Include expired */}
+          <label
+            className="flex items-center gap-2 h-9 px-2 cursor-pointer select-none text-[10px] uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <input
+              type="checkbox"
+              checked={!!filters.include_expired}
+              onChange={(e) => setFilters((f) => ({ ...f, include_expired: e.target.checked || undefined }))}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            Include expired
+          </label>
 
           {/* Clear filters */}
           {hasFilters && (

@@ -69,20 +69,26 @@ function popupHtml(l: ListingRow) {
           ? `Ages ≤${l.age_range_max}`
           : "";
 
+  const rec = l.team_record;
+  const recStr = rec && (rec.w + rec.l + rec.t > 0) ? `${rec.w}-${rec.l}-${rec.t}` : null;
+
   return `
     <div style="font-family: var(--font-body); min-width: 200px; max-width: 260px;">
-      <div style="font-family: var(--font-display); font-weight: 700; text-transform: uppercase; letter-spacing: -0.01em; font-size: 14px; margin-bottom: 4px;">
-        ${escapeHtml(l.team_name)}
+      <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px;">
+        <div style="font-family: var(--font-display); font-weight: 700; text-transform: uppercase; letter-spacing: -0.01em; font-size: 14px; color: #111;">
+          ${escapeHtml(l.team_name)}
+        </div>
+        ${recStr ? `<div style="font-size: 11px; color: #666; font-variant-numeric: tabular-nums; letter-spacing: 0.04em;">${escapeHtml(recStr)}</div>` : ""}
       </div>
-      <div style="font-size: 12px; color: var(--muted-foreground, #888); line-height: 1.5;">
+      <div style="font-size: 12px; color: #666; line-height: 1.5;">
         <div>${escapeHtml(date)}</div>
         <div>${escapeHtml(time ?? "")}</div>
         ${ageStr ? `<div>${escapeHtml(ageStr)}</div>` : ""}
-        ${l.distance_miles != null ? `<div style="color: var(--primary, #ff4b00); font-weight: 600; margin-top: 2px;">${l.distance_miles.toFixed(1)} mi away</div>` : ""}
+        ${l.distance_miles != null ? `<div style="color: #ff4b00; font-weight: 600; margin-top: 2px;">${l.distance_miles.toFixed(1)} mi away</div>` : ""}
       </div>
       <a
         href="/scrimmages/${l.id}"
-        style="display: inline-block; margin-top: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--primary, #ff4b00); text-decoration: none; font-weight: 600;"
+        style="display: inline-block; margin-top: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #ff4b00; text-decoration: none; font-weight: 600;"
       >
         View details →
       </a>

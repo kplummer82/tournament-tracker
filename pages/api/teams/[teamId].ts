@@ -9,6 +9,7 @@ export type TeamDetail = {
   season: string | null;
   year: number | null;
   sport: string | null;
+  sport_id: number | null;
   league_id: number | null;
   league_name: string | null;
   league_division_id: number | null;
@@ -41,6 +42,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           t.season              AS season,
           t.year                AS year,
           s.sportname           AS sport,
+          t.sportid             AS sport_id,
           t.league_id           AS league_id,
           l.name                AS league_name,
           t.league_division_id  AS league_division_id,
@@ -79,6 +81,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         season: teamRows[0].season ?? null,
         year: teamRows[0].year != null ? Number(teamRows[0].year) : null,
         sport: teamRows[0].sport ?? null,
+        sport_id: teamRows[0].sport_id ?? null,
         league_id: teamRows[0].league_id ?? null,
         league_name: teamRows[0].league_name ?? null,
         league_division_id: teamRows[0].league_division_id ?? null,

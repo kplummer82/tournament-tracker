@@ -31,6 +31,7 @@ export default async function handler(
       bats,
       listing_type,
       sort,
+      include_expired,
       page = "1",
       pageSize = "20",
     } = req.query;
@@ -40,10 +41,11 @@ export default async function handler(
     const offset = (pg - 1) * ps;
 
     try {
-      const whereParts: string[] = [
-        "sl.status = 'open'",
-        "sl.available_date >= CURRENT_DATE",
-      ];
+      const includeExpired = String(include_expired ?? "").toLowerCase() === "true";
+      const whereParts: string[] = ["sl.status = 'open'"];
+      if (!includeExpired) {
+        whereParts.push("sl.available_date >= CURRENT_DATE");
+      }
       const params: unknown[] = [];
       let idx = 0;
       const $ = () => `$${++idx}`;
@@ -200,7 +202,52 @@ export default async function handler(
             FROM scrimmage_listing_bats slb
             JOIN bats sb ON sb.id = slb.bat_id
             WHERE slb.listing_id = sl.id
-          ), '[]'::json) AS bats
+          ), '[]'::json) AS bats,
+          -- Team W-L-T from tournament + league season games only (scrimmages excluded).
+          (
+            SELECT json_build_object(
+              'w', COUNT(*) FILTER (WHERE r.result = 'W')::int,
+              'l', COUNT(*) FILTER (WHERE r.result = 'L')::int,
+              't', COUNT(*) FILTER (WHERE r.result = 'T')::int
+            )
+            FROM (
+              SELECT CASE WHEN sg.homescore > sg.awayscore THEN 'W'
+                          WHEN sg.homescore < sg.awayscore THEN 'L'
+                          ELSE 'T' END AS result
+              FROM season_games sg
+              LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
+              WHERE sg.home = sl.team_id
+                AND gs.gamestatus = 'Final'
+                AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
+              UNION ALL
+              SELECT CASE WHEN sg.awayscore > sg.homescore THEN 'W'
+                          WHEN sg.awayscore < sg.homescore THEN 'L'
+                          ELSE 'T' END
+              FROM season_games sg
+              LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
+              WHERE sg.away = sl.team_id
+                AND gs.gamestatus = 'Final'
+                AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
+              UNION ALL
+              SELECT CASE WHEN tg.homescore > tg.awayscore THEN 'W'
+                          WHEN tg.homescore < tg.awayscore THEN 'L'
+                          ELSE 'T' END
+              FROM tournamentgames tg
+              LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+              WHERE tg.home = sl.team_id
+                AND gs.gamestatus = 'Final'
+                AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+              UNION ALL
+              SELECT CASE WHEN tg.awayscore > tg.homescore THEN 'W'
+                          WHEN tg.awayscore < tg.homescore THEN 'L'
+                          ELSE 'T' END
+              FROM tournamentgames tg
+              LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+              WHERE tg.away = sl.team_id
+                AND gs.gamestatus = 'Final'
+                AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+            ) r
+          ) AS team_record
           ${geoSelect}
         FROM scrimmage_listings sl
         JOIN teams t ON t.teamid = sl.team_id

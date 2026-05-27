@@ -14,6 +14,7 @@ import { geocodeZip } from "@/lib/mapbox/geocodeZip";
 type ManagedTeam = {
   id: number;
   name: string;
+  sport_id: number | null;
   league_id: number | null;
   league_division_id: number | null;
   division_age_range: string | null;
@@ -53,7 +54,7 @@ export default function CreateListingModal({
   const [ageMax, setAgeMax] = useState("");
   const [notes, setNotes] = useState("");
 
-  const [batOptions, setBatOptions] = useState<{ id: number; name: string }[]>([]);
+  const [batOptions, setBatOptions] = useState<{ id: number; name: string; sport_id: number | null }[]>([]);
   const [selectedBats, setSelectedBats] = useState<number[]>([]);
 
   const [saving, setSaving] = useState(false);
@@ -94,6 +95,7 @@ export default function CreateListingModal({
             return {
               id: t.teamid ?? t.id,
               name: t.name,
+              sport_id: t.sport_id ?? null,
               league_id: t.league_id ?? null,
               league_division_id: t.league_division_id ?? null,
               division_age_range: t.division_age_range ?? t.league_division_age_range ?? null,
@@ -128,6 +130,20 @@ export default function CreateListingModal({
   }, [teamId, teams]);
 
   const selectedTeam = teams.find((t) => String(t.id) === teamId);
+
+  const visibleBats = selectedTeam?.sport_id
+    ? batOptions.filter((b) => b.sport_id === selectedTeam.sport_id)
+    : batOptions;
+
+  useEffect(() => {
+    if (!selectedTeam?.sport_id) return;
+    setSelectedBats((prev) =>
+      prev.filter((id) => {
+        const bat = batOptions.find((b) => b.id === id);
+        return bat ? bat.sport_id === selectedTeam.sport_id : false;
+      })
+    );
+  }, [selectedTeam?.sport_id, batOptions]);
 
   // Debounced geocoding of the travel zip via Mapbox.
   useEffect(() => {
@@ -422,7 +438,7 @@ export default function CreateListingModal({
               Bats <span className="text-destructive">*</span>
             </Label>
             <div className="flex flex-wrap gap-2">
-              {batOptions.map((b) => {
+              {visibleBats.map((b) => {
                 const active = selectedBats.includes(b.id);
                 return (
                   <button

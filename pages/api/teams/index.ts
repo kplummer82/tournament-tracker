@@ -145,19 +145,93 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
       const pageRows = normalizeRows(pageResult);
 
-      const rows = pageRows.map((r: any) => ({
-        id: r.id,
-        name: r.name,
-        division: r.division_label ?? undefined,
-        season: r.season,
-        year: Number(r.year),
-        sport: r.sport ?? undefined,
-        createdAt: r.created_at ?? new Date().toISOString(),
-        league_id: r.league_id ?? null,
-        league_name: r.league_name ?? null,
-        league_division_id: r.league_division_id ?? null,
-        league_division_name: r.league_division_name ?? null,
-      }));
+      // Compute W-L-T records for the current page of teams.
+      // Counts only tournament games (pool/bracket) and league season games (regular/playoff).
+      // Scrimmages are intentionally excluded.
+      const teamIds = pageRows.map((r: any) => Number(r.id)).filter((n) => Number.isFinite(n));
+      const records: Record<number, { w: number; l: number; t: number }> = {};
+      if (teamIds.length > 0) {
+        const recRes = await sql.query(
+          `
+          WITH all_results AS (
+            SELECT sg.home AS team_id,
+                   CASE WHEN sg.homescore > sg.awayscore THEN 'W'
+                        WHEN sg.homescore < sg.awayscore THEN 'L'
+                        ELSE 'T' END AS result
+            FROM season_games sg
+            LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
+            WHERE sg.home = ANY($1::int[])
+              AND gs.gamestatus = 'Final'
+              AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
+
+            UNION ALL
+
+            SELECT sg.away AS team_id,
+                   CASE WHEN sg.awayscore > sg.homescore THEN 'W'
+                        WHEN sg.awayscore < sg.homescore THEN 'L'
+                        ELSE 'T' END AS result
+            FROM season_games sg
+            LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
+            WHERE sg.away = ANY($1::int[])
+              AND gs.gamestatus = 'Final'
+              AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
+
+            UNION ALL
+
+            SELECT tg.home AS team_id,
+                   CASE WHEN tg.homescore > tg.awayscore THEN 'W'
+                        WHEN tg.homescore < tg.awayscore THEN 'L'
+                        ELSE 'T' END AS result
+            FROM tournamentgames tg
+            LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+            WHERE tg.home = ANY($1::int[])
+              AND gs.gamestatus = 'Final'
+              AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+
+            UNION ALL
+
+            SELECT tg.away AS team_id,
+                   CASE WHEN tg.awayscore > tg.homescore THEN 'W'
+                        WHEN tg.awayscore < tg.homescore THEN 'L'
+                        ELSE 'T' END AS result
+            FROM tournamentgames tg
+            LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+            WHERE tg.away = ANY($1::int[])
+              AND gs.gamestatus = 'Final'
+              AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+          )
+          SELECT team_id,
+                 COUNT(*) FILTER (WHERE result = 'W')::int AS w,
+                 COUNT(*) FILTER (WHERE result = 'L')::int AS l,
+                 COUNT(*) FILTER (WHERE result = 'T')::int AS t
+          FROM all_results
+          GROUP BY team_id;
+          `,
+          [teamIds]
+        );
+        const recRows = normalizeRows<{ team_id: number; w: number; l: number; t: number }>(recRes);
+        for (const r of recRows) {
+          records[Number(r.team_id)] = { w: Number(r.w), l: Number(r.l), t: Number(r.t) };
+        }
+      }
+
+      const rows = pageRows.map((r: any) => {
+        const rec = records[Number(r.id)] ?? { w: 0, l: 0, t: 0 };
+        return {
+          id: r.id,
+          name: r.name,
+          division: r.division_label ?? undefined,
+          season: r.season,
+          year: Number(r.year),
+          sport: r.sport ?? undefined,
+          createdAt: r.created_at ?? new Date().toISOString(),
+          league_id: r.league_id ?? null,
+          league_name: r.league_name ?? null,
+          league_division_id: r.league_division_id ?? null,
+          league_division_name: r.league_division_name ?? null,
+          record: rec,
+        };
+      });
 
       res.status(200).json({ rows, total });
       return;

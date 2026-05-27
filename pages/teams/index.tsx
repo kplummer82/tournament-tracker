@@ -11,6 +11,7 @@ import Header from "@/components/Header";
 import CreateTeamModal from "@/components/CreateTeamModal";
 
 /* ---------------- types ---------------- */
+type TeamRecord = { w: number; l: number; t: number };
 type Team = {
   id: number;
   name: string;
@@ -20,6 +21,7 @@ type Team = {
   sport: string;
   league_name: string | null;
   league_division_name: string | null;
+  record?: TeamRecord;
 };
 type TeamsResponse = { rows: Team[]; total: number };
 type LookupRow = { id: number; name: string };
@@ -72,19 +74,29 @@ function TeamRow({ t }: { t: Team }) {
       href={`/teams/${t.id}`}
       className="group flex items-center gap-4 py-4 pl-4 pr-5 border-b border-border last:border-0 hover:bg-elevated transition-colors duration-100"
     >
-      {/* Name */}
-      <span
-        className="flex-1 min-w-0 truncate text-foreground group-hover:text-primary transition-colors duration-100"
-        style={{
-          fontFamily: "var(--font-display)",
-          fontWeight: 700,
-          fontSize: "17px",
-          textTransform: "uppercase",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {t.name}
-      </span>
+      {/* Name + record */}
+      <div className="flex-1 min-w-0 flex items-baseline gap-3">
+        <span
+          className="min-w-0 truncate text-foreground group-hover:text-primary transition-colors duration-100"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: "17px",
+            textTransform: "uppercase",
+            letterSpacing: "-0.01em",
+          }}
+        >
+          {t.name}
+        </span>
+        {t.record && (t.record.w + t.record.l + t.record.t > 0) && (
+          <span
+            className="shrink-0 text-muted-foreground tabular-nums"
+            style={{ fontFamily: "var(--font-body)", fontSize: "12px", letterSpacing: "0.04em" }}
+          >
+            {t.record.w}-{t.record.l}-{t.record.t}
+          </span>
+        )}
+      </div>
 
       {/* Metadata */}
       <div
