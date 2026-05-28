@@ -115,6 +115,7 @@ type Listing = {
   pending_offers: number;
   created_at: string;
   bats: { id: number; name: string }[];
+  scrimmage_id: number | null;
 };
 
 export default function ListingDetailPage() {
@@ -228,6 +229,24 @@ export default function ListingDetailPage() {
 
   const statusColor = STATUS_COLORS[listing.status] ?? STATUS_COLORS.expired;
 
+  // Build a Google Maps directions URL from the best info we have.
+  // Prefer the full street address; fall back to "name, city, state".
+  const mapsQuery = (() => {
+    const parts = [
+      listing.location_address,
+      listing.location_city,
+      listing.location_state,
+    ].filter(Boolean);
+    if (parts.length > 0) {
+      const prefix = locDisplay ? `${locDisplay}, ` : "";
+      return `${prefix}${parts.join(", ")}`;
+    }
+    return locDisplay || null;
+  })();
+  const mapsUrl = mapsQuery
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`
+    : null;
+
   return (
     <>
       <Header />
@@ -286,6 +305,15 @@ export default function ListingDetailPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {listing.scrimmage_id != null && (
+              <Link
+                href={`/games/scrimmage/${listing.scrimmage_id}`}
+                className="border border-primary text-primary px-4 py-2 text-[11px] font-semibold tracking-[0.08em] uppercase hover:bg-primary hover:text-primary-foreground transition-colors"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                View Scrimmage
+              </Link>
+            )}
             {canOffer && (
               <button
                 type="button"
@@ -338,6 +366,17 @@ export default function ListingDetailPage() {
                 <div style={{ fontFamily: "var(--font-body)", fontSize: "14px" }}>
                   <div>{locDisplay}</div>
                   {locMeta && <div className="text-muted-foreground text-xs">{locMeta}</div>}
+                  {mapsUrl && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 mt-1 text-primary hover:underline text-[11px] uppercase tracking-[0.08em] font-semibold"
+                    >
+                      <Navigation className="h-3 w-3" />
+                      Get Directions
+                    </a>
+                  )}
                 </div>
               </div>
             ) : null}

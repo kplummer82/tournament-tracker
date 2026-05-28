@@ -114,8 +114,19 @@ export default async function handler(
         WHERE listing_id = ${listingId} AND status IN ('pending','countered')
       `;
 
+      // If the listing has been filled, surface the linked scrimmage id so the
+      // detail page can deep-link both teams' managers to the game record.
+      let scrimmageId: number | null = null;
+      if (listing.status === "filled") {
+        const scrimRows = await sql`
+          SELECT id FROM scrimmages WHERE listing_id = ${listingId}
+          ORDER BY id DESC LIMIT 1
+        `;
+        scrimmageId = scrimRows[0]?.id ?? null;
+      }
+
       return res.status(200).json({
-        listing: { ...listing, pending_offers: parseInt(countRows[0].cnt, 10) },
+        listing: { ...listing, pending_offers: parseInt(countRows[0].cnt, 10), scrimmage_id: scrimmageId },
         offers,
         canManage,
         managedTeamIds: managedTeamIds ?? undefined,
