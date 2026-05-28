@@ -50,7 +50,14 @@ export default async function handler(
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const { team_id, proposed_location, proposed_time, message } = req.body ?? {};
+    const {
+      team_id,
+      proposed_location,
+      proposed_location_id,
+      proposed_location_field,
+      proposed_time,
+      message,
+    } = req.body ?? {};
 
     if (!team_id) {
       return res.status(400).json({ error: "team_id is required" });
@@ -67,7 +74,7 @@ export default async function handler(
       // Validate listing exists and is open
       const listingRows = await sql`
         SELECT id, team_id, status, opponent_scope, age_range_min, age_range_max,
-               sport_id
+               sport_id, will_travel
         FROM scrimmage_listings
         WHERE id = ${listingId}
       `;
@@ -112,13 +119,34 @@ export default async function handler(
         }
       }
 
+      // Only accept a proposed location for travel listings (the offering team is
+      // the natural host). For host listings, force all proposed_location_* fields
+      // to null — defense in depth; the UI already hides the picker.
+      let locId: number | null = null;
+      if (listing.will_travel && proposed_location_id != null) {
+        const parsed = parseInt(String(proposed_location_id), 10);
+        if (isNaN(parsed) || parsed <= 0) {
+          return res.status(400).json({ error: "Invalid proposed_location_id" });
+        }
+        locId = parsed;
+      }
+      const locName = listing.will_travel
+        ? (typeof proposed_location === "string" ? proposed_location.trim() : "") || null
+        : null;
+      const locField = listing.will_travel
+        ? (typeof proposed_location_field === "string" ? proposed_location_field.trim() : "") || null
+        : null;
+
       const rows = await sql`
         INSERT INTO scrimmage_offers (
           listing_id, team_id, offered_by,
-          proposed_location, proposed_time, message
+          proposed_location_id, proposed_location, proposed_location_field,
+          proposed_time, message
         ) VALUES (
           ${listingId}, ${offerTeamId}, ${session.user.id},
-          ${proposed_location?.trim() || null},
+          ${locId},
+          ${locName},
+          ${locField},
           ${proposed_time || null},
           ${message?.trim() || null}
         )

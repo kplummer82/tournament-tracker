@@ -220,7 +220,17 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
         ? null
         : toIntOrNull(body.num_pool_groups);
 
-    const batId = body.bat_id === "" || body.bat_id == null ? null : toIntOrNull(body.bat_id);
+    const rawBatIds: unknown = body.bat_ids;
+    let batIds: number[] = [];
+    if (Array.isArray(rawBatIds)) {
+      batIds = rawBatIds
+        .map((b) => Number(b))
+        .filter((n) => Number.isFinite(n));
+    } else if (body.bat_id != null && body.bat_id !== "") {
+      // Back-compat: single bat_id from older clients.
+      const single = toIntOrNull(body.bat_id);
+      if (single !== null) batIds = [single];
+    }
 
     const fields = [
       "name",
@@ -236,7 +246,6 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       "tournamentvisibility",
       "advances_per_group",
       "num_pool_groups",
-      "bat_id",
       "created_by",
     ];
 
@@ -254,7 +263,6 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       visibilityId,
       advancesPerGroup,
       numPoolGroups,
-      batId,
       session.user.id,
     ];
 
@@ -268,6 +276,14 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
 
     const { rows: inserted } = await client.query(insertSql, values);
     const newId = inserted[0].tournamentid;
+
+    if (batIds.length > 0) {
+      await client.query(
+        `INSERT INTO public.tournament_bats (tournament_id, bat_id)
+         SELECT $1, b.id FROM public.bats b WHERE b.id = ANY($2::int[])`,
+        [newId, batIds]
+      );
+    }
 
     // Shape response to match GET
     const { rows } = await client.query(

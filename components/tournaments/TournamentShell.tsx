@@ -123,15 +123,16 @@ export default function TournamentShell({
                     {t.division}
                   </span>
                 )}
-                {t?.bat_name && (
+                {t?.bats?.map((b) => (
                   <span
+                    key={b.id}
                     className="text-[10px] uppercase tracking-wider text-muted-foreground border border-border px-2 py-0.5"
                     style={{ fontFamily: "var(--font-body)" }}
                     title="Bat"
                   >
-                    {t.bat_name}
+                    {b.name}
                   </span>
-                )}
+                ))}
                 {(t?.city || t?.state) && (
                   <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                     {[t.city, t.state].filter(Boolean).join(", ")}

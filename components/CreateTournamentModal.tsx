@@ -38,7 +38,7 @@ type FormState = {
   sportId?: string;
   statusId?: string;
   visibilityId?: string;
-  batId?: string;
+  batIds?: number[];
   maxrundiff?: number | null;
   advances_per_group?: number | null;
   num_pool_groups?: number | null;
@@ -156,7 +156,7 @@ export default function CreateTournamentModal({
       sportid: toIntOrNull(form.sportId),
       statusid: toIntOrNull(form.statusId),
       visibilityid: toIntOrNull(form.visibilityId),
-      bat_id: toIntOrNull(form.batId),
+      bat_ids: form.batIds ?? [],
       maxrundiff:
         form.maxrundiff === undefined || form.maxrundiff === null
           ? null
@@ -337,7 +337,7 @@ export default function CreateTournamentModal({
               <Label className="label-section">Sport</Label>
               <Select
                 value={form.sportId ?? ""}
-                onValueChange={(v) => setForm((f) => ({ ...f, sportId: v, batId: undefined }))}
+                onValueChange={(v) => setForm((f) => ({ ...f, sportId: v, batIds: [] }))}
                 disabled={loading}
               >
                 <SelectTrigger>
@@ -440,33 +440,43 @@ export default function CreateTournamentModal({
             </div>
           </div>
 
-          {/* Optional: Bat type (filtered by sport) */}
+          {/* Optional: Bats (filtered by sport, multi-select) */}
           <div className="grid gap-2">
-            <Label className="label-section">Bat (optional)</Label>
-            <Select
-              value={form.batId ?? ""}
-              onValueChange={(v) => update("batId", v)}
-              disabled={loading || !form.sportId || filteredBats.length === 0}
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    !form.sportId
-                      ? "Select sport first"
-                      : filteredBats.length === 0
-                      ? "No bats configured for this sport"
-                      : "Select a bat (optional)"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {filteredBats.map((b) => (
-                  <SelectItem key={b.id} value={String(b.id)}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label className="label-section">Bats (optional)</Label>
+            {!form.sportId ? (
+              <p className="text-xs text-muted-foreground">Select sport first</p>
+            ) : filteredBats.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No bats configured for this sport</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {filteredBats.map((b) => {
+                  const active = (form.batIds ?? []).includes(b.id);
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() =>
+                        setForm((f) => {
+                          const current = f.batIds ?? [];
+                          const next = current.includes(b.id)
+                            ? current.filter((x) => x !== b.id)
+                            : [...current, b.id];
+                          return { ...f, batIds: next };
+                        })
+                      }
+                      className={`px-3 py-1.5 text-xs uppercase tracking-wider border transition-colors duration-100 ${
+                        active
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                      }`}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {b.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 

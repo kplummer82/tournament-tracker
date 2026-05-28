@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import LocationPicker from "@/components/LocationPicker";
 import { usePermissions, type UserRoleRow } from "@/lib/hooks/usePermissions";
 
 type ManagedTeam = {
@@ -19,12 +20,14 @@ export default function OfferDialog({
   onOpenChange,
   listingId,
   listingTeamId,
+  listingWillTravel,
   onOffered,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   listingId: number;
   listingTeamId: number;
+  listingWillTravel: boolean;
   onOffered: () => void;
 }) {
   const { roles } = usePermissions();
@@ -33,7 +36,9 @@ export default function OfferDialog({
   const [teamsLoading, setTeamsLoading] = useState(false);
 
   const [teamId, setTeamId] = useState("");
-  const [proposedLocation, setProposedLocation] = useState("");
+  const [locationId, setLocationId] = useState<number | null>(null);
+  const [location, setLocation] = useState("");
+  const [field, setField] = useState("");
   const [proposedTime, setProposedTime] = useState("");
   const [message, setMessage] = useState("");
 
@@ -87,7 +92,9 @@ export default function OfferDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           team_id: parseInt(teamId, 10),
-          proposed_location: proposedLocation.trim() || null,
+          proposed_location_id: listingWillTravel ? locationId : null,
+          proposed_location: listingWillTravel ? (location.trim() || null) : null,
+          proposed_location_field: listingWillTravel ? (field.trim() || null) : null,
           proposed_time: proposedTime || null,
           message: message.trim() || null,
         }),
@@ -99,7 +106,9 @@ export default function OfferDialog({
       }
 
       setTeamId("");
-      setProposedLocation("");
+      setLocationId(null);
+      setLocation("");
+      setField("");
       setProposedTime("");
       setMessage("");
       onOpenChange(false);
@@ -153,18 +162,27 @@ export default function OfferDialog({
             )}
           </div>
 
-          {/* Proposed location */}
-          <div>
-            <Label className="text-[11px] uppercase tracking-wider">
-              Proposed Location <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Input
-              value={proposedLocation}
-              onChange={(e) => setProposedLocation(e.target.value)}
-              placeholder="e.g. Our home field at Lincoln Park"
-              className="mt-1 h-9"
-            />
-          </div>
+          {/* Proposed location — only when the listing team is travelling
+              (no host field on the listing, offering team is the natural host) */}
+          {listingWillTravel && (
+            <div>
+              <Label className="text-[11px] uppercase tracking-wider">
+                Proposed Location <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <div className="mt-1">
+                <LocationPicker
+                  locationId={locationId}
+                  location={location}
+                  field={field}
+                  onChange={(v) => {
+                    setLocationId(v.locationId);
+                    setLocation(v.location);
+                    setField(v.field);
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Proposed time */}
           <div>

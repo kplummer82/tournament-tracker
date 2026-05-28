@@ -95,7 +95,7 @@ export default function TournamentProvider({ children }: { children: React.React
           divisionid: t.divisionid,
           statusid: t.statusid,
           visibilityid: t.visibilityid,
-          bat_id: t.bat_id ?? null,
+          bat_ids: (t.bats ?? []).map((b) => b.id),
         }),
       });
       const json = await res.json();

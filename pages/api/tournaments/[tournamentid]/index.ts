@@ -28,11 +28,37 @@ type Row = {
   sportid: number | null;
   statusid: number | null;
   visibilityid: number | null;
-  bat_id: number | null;
-  bat_name: string | null;
+  bats: { id: number; name: string }[];
 
   created_at: string | null;
 };
+
+async function fetchRow(id: number): Promise<Row | null> {
+  const rows = (await sql/*sql*/`
+    SELECT
+      v.id,
+      v.id AS tournamentid,                             -- back-compat
+      v.name, v.city, v.state, v.year, v.maxrundiff,
+      v.division, v.sport,
+      v.status       AS tournamentstatus,               -- back-compat
+      v.visibility   AS tournamentvisibility,           -- back-compat
+      v.divisionid, v.sportid, v.statusid, v.visibilityid,
+      v.created_at,
+      t.forfeit_run_diff,
+      t.advances_per_group,
+      t.num_pool_groups,
+      COALESCE((
+        SELECT json_agg(json_build_object('id', b.id, 'name', b.name) ORDER BY b.id)
+        FROM public.tournament_bats tb
+        JOIN public.bats b ON b.id = tb.bat_id
+        WHERE tb.tournament_id = v.id
+      ), '[]'::json) AS bats
+    FROM public.tournaments_api v
+    JOIN public.tournaments t ON t.tournamentid = v.id
+    WHERE v.id = ${id};
+  `) as Row[];
+  return rows[0] ?? null;
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { tournamentid } = req.query;
@@ -41,28 +67,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     if (req.method === "GET") {
-        const rows = (await sql/*sql*/`
-          SELECT
-            v.id,
-            v.id AS tournamentid,                             -- back-compat
-            v.name, v.city, v.state, v.year, v.maxrundiff,
-            v.division, v.sport,
-            v.status       AS tournamentstatus,               -- back-compat
-            v.visibility   AS tournamentvisibility,           -- back-compat
-            v.divisionid, v.sportid, v.statusid, v.visibilityid,
-            v.created_at,
-            t.forfeit_run_diff,
-            t.advances_per_group,
-            t.num_pool_groups,
-            t.bat_id,
-            b.name AS bat_name
-          FROM public.tournaments_api v
-          JOIN public.tournaments t ON t.tournamentid = v.id
-          LEFT JOIN public.bats b ON b.id = t.bat_id
-          WHERE v.id = ${id};
-        `) as Row[];
-      if (rows.length === 0) return res.status(404).json({ error: "Not found" });
-      return res.status(200).json(rows[0]);
+      const row = await fetchRow(id);
+      if (!row) return res.status(404).json({ error: "Not found" });
+      return res.status(200).json(row);
     }
 
     if (req.method === "PATCH") {
@@ -76,8 +83,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         forfeit_run_diff,
         advances_per_group,
         num_pool_groups,
-        bat_id,
-      } = (req.body ?? {}) as Partial<Row>;
+        bat_ids,
+      } = (req.body ?? {}) as Partial<Row> & { bat_ids?: unknown };
 
       // Write to the VIEW, not the base table. Triggers do the work.
       // Note: triggers on views can't return rows; do a follow-up SELECT below.
@@ -118,36 +125,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           WHERE tournamentid = ${id};
         `;
       }
-      if (bat_id !== undefined) {
-        await sql/*sql*/`
-          UPDATE public.tournaments
-          SET bat_id = ${bat_id ?? null}
-          WHERE tournamentid = ${id};
-        `;
+
+      if (bat_ids !== undefined) {
+        if (!Array.isArray(bat_ids)) {
+          return res.status(400).json({ error: "bat_ids must be an array" });
+        }
+        const normalized = (bat_ids as unknown[])
+          .map((b) => parseInt(String(b), 10))
+          .filter((n) => Number.isFinite(n));
+        await sql/*sql*/`DELETE FROM public.tournament_bats WHERE tournament_id = ${id};`;
+        if (normalized.length > 0) {
+          await sql/*sql*/`
+            INSERT INTO public.tournament_bats (tournament_id, bat_id)
+            SELECT ${id}, b.id FROM public.bats b WHERE b.id = ANY(${normalized}::int[])
+          `;
+        }
       }
 
-        const rows = (await sql/*sql*/`
-          SELECT
-            v.id,
-            v.id AS tournamentid,
-            v.name, v.city, v.state, v.year, v.maxrundiff,
-            v.division, v.sport,
-            v.status     AS tournamentstatus,
-            v.visibility AS tournamentvisibility,
-            v.divisionid, v.sportid, v.statusid, v.visibilityid,
-            v.created_at,
-            t.forfeit_run_diff,
-            t.advances_per_group,
-            t.num_pool_groups,
-            t.bat_id,
-            b.name AS bat_name
-          FROM public.tournaments_api v
-          JOIN public.tournaments t ON t.tournamentid = v.id
-          LEFT JOIN public.bats b ON b.id = t.bat_id
-          WHERE v.id = ${id};
-        `) as Row[];
-      if (rows.length === 0) return res.status(404).json({ error: "Not found after update" });
-      return res.status(200).json(rows[0]);
+      const row = await fetchRow(id);
+      if (!row) return res.status(404).json({ error: "Not found after update" });
+      return res.status(200).json(row);
     }
 
     if (req.method === "DELETE") {

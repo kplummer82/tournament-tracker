@@ -5,6 +5,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import Header from "@/components/Header";
 import OfferDialog from "@/components/scrimmages/OfferDialog";
+import { LocationDisplay } from "@/components/LocationPicker";
 import { ArrowLeft, Calendar, Clock, MapPin, Navigation, Users, MessageSquare } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 
@@ -52,7 +53,9 @@ type Offer = {
   division_name: string | null;
   division_age_range: string | null;
   status: string;
+  proposed_location_id: number | null;
   proposed_location: string | null;
+  proposed_location_field: string | null;
   proposed_time: string | null;
   message: string | null;
   created_at: string;
@@ -430,11 +433,16 @@ export default function ListingDetailPage() {
                         </span>
                       </div>
 
-                      {(offer.proposed_location || offer.proposed_time || offer.message) && (
+                      {(offer.proposed_location || offer.proposed_location_field || offer.proposed_time || offer.message) && (
                         <div className="mt-3 space-y-1 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                          {offer.proposed_location && (
+                          {(offer.proposed_location || offer.proposed_location_field) && (
                             <div className="flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> Proposed: {offer.proposed_location}
+                              <span>Proposed:</span>
+                              <LocationDisplay
+                                locationId={offer.proposed_location_id}
+                                location={offer.proposed_location}
+                                field={offer.proposed_location_field}
+                              />
                             </div>
                           )}
                           {offer.proposed_time && (
@@ -501,6 +509,7 @@ export default function ListingDetailPage() {
           onOpenChange={setOfferOpen}
           listingId={listing.id}
           listingTeamId={listing.team_id}
+          listingWillTravel={listing.will_travel}
           onOffered={() => load()}
         />
       )}

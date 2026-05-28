@@ -186,29 +186,46 @@ function OverviewForm() {
               ))}
             </select>
           </Field>
-          <Field label="Bat (optional)">
-            <select
-              className={INPUT}
-              disabled={!canEdit || !t.sportid || filteredBats.length === 0}
-              value={t.bat_id ? String(t.bat_id) : ""}
-              onChange={(e) =>
-                setT((p) =>
-                  p ? { ...p, bat_id: e.target.value === "" ? null : Number(e.target.value) } : p
-                )
-              }
-            >
-              <option value="">
-                {!t.sportid
-                  ? "Select sport first"
-                  : filteredBats.length === 0
-                  ? "No bats for this sport"
-                  : "— None —"}
-              </option>
-              {filteredBats.map((b) => (
-                <option key={b.id} value={String(b.id)}>{b.name}</option>
-              ))}
-            </select>
-          </Field>
+          <div className="sm:col-span-2">
+            <Field label="Bats (optional)">
+              {!t.sportid ? (
+                <p className="text-xs text-muted-foreground">Select sport first</p>
+              ) : filteredBats.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No bats for this sport</p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {filteredBats.map((b) => {
+                    const selected = (t.bats ?? []).some((x) => x.id === b.id);
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        disabled={!canEdit}
+                        onClick={() =>
+                          setT((p) => {
+                            if (!p) return p;
+                            const current = p.bats ?? [];
+                            const next = selected
+                              ? current.filter((x) => x.id !== b.id)
+                              : [...current, { id: b.id, name: b.name }];
+                            return { ...p, bats: next };
+                          })
+                        }
+                        className={`px-3 py-1.5 text-xs uppercase tracking-wider border transition-colors duration-100 disabled:opacity-50 disabled:cursor-not-allowed ${
+                          selected
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                        }`}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {b.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </Field>
+          </div>
         </div>
       </section>
 

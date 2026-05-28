@@ -23,8 +23,7 @@ export type Tournament = {
   sportid: number | null;
   statusid: number | null;
   visibilityid: number | null;
-  bat_id: number | null;
-  bat_name?: string | null;
+  bats: { id: number; name: string }[];
   // optional labels if your API returns them
   division?: string | null;
   sport?: string | null;
