@@ -8,7 +8,7 @@ import listPlugin from "@fullcalendar/list";
 import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import interactionPlugin from "@fullcalendar/interaction";
-import { Plus, X, Pencil, Trash2, ExternalLink } from "lucide-react";
+import { Plus, X, Pencil, Ban, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { CalendarGameRow, TeamRecord } from "@/pages/api/teams/[teamId]/games";
@@ -399,37 +399,144 @@ function AddScrimmageDialog({
   );
 }
 
+/* ── CancelScrimmageDialog ────────────────────────────────────── */
+type CancelScrimmageDialogProps = {
+  scrimmageId: number;
+  teamId: string;
+  onClose: () => void;
+  onCanceled: () => void;
+};
+
+function CancelScrimmageDialog({ scrimmageId, teamId, onClose, onCanceled }: CancelScrimmageDialogProps) {
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/teams/${teamId}/scrimmages/${scrimmageId}/cancel`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: note.trim() || null }),
+        }
+      );
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d?.error ?? `HTTP ${res.status}`);
+      }
+      onCanceled();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to cancel.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        className="bg-card border border-border w-full max-w-md mx-4"
+        style={{ fontFamily: "var(--font-body)" }}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <h2
+            className="uppercase"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", letterSpacing: "-0.01em" }}
+          >
+            Cancel Scrimmage
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            The game will be marked as canceled and remain on both teams&apos; calendars.
+            Add an optional note to let the other team know why.
+          </p>
+          <div>
+            <label className="block text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-1">
+              Cancellation note (optional)
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+              placeholder="e.g. Field unavailable, players sick…"
+              className="w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors resize-none"
+            />
+          </div>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-border">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground transition-colors"
+          >
+            Keep Game
+          </button>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="inline-flex items-center px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] bg-destructive text-destructive-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {submitting ? "Canceling…" : "Cancel Game"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── EventDetailDialog ────────────────────────────────────────── */
 type EventDetailDialogProps = {
   row: CalendarGameRow;
   teamId: string;
   onClose: () => void;
   onEdit: () => void;
-  onDeleted: () => void;
+  onChanged: () => void;
 };
 
-function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDetailDialogProps) {
-  const [deleting, setDeleting] = useState(false);
+function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDetailDialogProps) {
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [uncanceling, setUncanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isCanceled = row.gamestatus_label === "Canceled";
 
-  const handleDelete = async () => {
-    if (!confirm("Delete this scrimmage?")) return;
-    setDeleting(true);
+  const handleUncancel = async () => {
+    setUncanceling(true);
     setError(null);
     try {
-      const res = await fetch(`/api/teams/${teamId}/scrimmages/${row.id}`, {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        `/api/teams/${teamId}/scrimmages/${row.id}/cancel`,
+        { method: "DELETE" }
+      );
       if (!res.ok) {
         const d = await res.json();
         throw new Error(d?.error ?? `HTTP ${res.status}`);
       }
-      onDeleted();
+      onChanged();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to delete.");
+      setError(e instanceof Error ? e.message : "Failed to restore.");
     } finally {
-      setDeleting(false);
+      setUncanceling(false);
     }
   };
 
@@ -529,6 +636,20 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
             </div>
           )}
 
+          {isScrimmage && isCanceled && (
+            <div className="flex gap-2">
+              <span className="text-muted-foreground w-20 shrink-0">Canceled by</span>
+              <span>
+                {row.canceled_by_team_name ?? "Unknown team"}
+                {row.cancellation_note && (
+                  <span className="block text-muted-foreground italic mt-0.5">
+                    &ldquo;{row.cancellation_note}&rdquo;
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+
           {/* Link to season/tournament context */}
           {row.context_id && (
             <div className="pt-1">
@@ -565,15 +686,25 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
         {/* Actions — scrimmage only */}
         {isScrimmage && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity disabled:opacity-50"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              {deleting ? "Deleting…" : "Delete"}
-            </button>
+            {isCanceled ? (
+              <button
+                type="button"
+                onClick={handleUncancel}
+                disabled={uncanceling}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+              >
+                {uncanceling ? "Restoring…" : "Restore Game"}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCancelOpen(true)}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity"
+              >
+                <Ban className="h-3.5 w-3.5" />
+                Cancel Game
+              </button>
+            )}
             <button
               type="button"
               onClick={() => { onClose(); onEdit(); }}
@@ -585,6 +716,15 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onDeleted }: EventDet
           </div>
         )}
       </div>
+
+      {cancelOpen && (
+        <CancelScrimmageDialog
+          scrimmageId={row.id}
+          teamId={teamId}
+          onClose={() => setCancelOpen(false)}
+          onCanceled={() => { onChanged(); onClose(); }}
+        />
+      )}
     </div>
   );
 }
@@ -856,7 +996,7 @@ export default function TeamCalendarTab({ teamId }: { teamId: string }) {
           teamId={teamId}
           onClose={() => setDetailRow(null)}
           onEdit={() => setEditRow(detailRow)}
-          onDeleted={refresh}
+          onChanged={refresh}
         />
       )}
     </div>

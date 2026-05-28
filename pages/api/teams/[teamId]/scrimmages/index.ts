@@ -26,7 +26,7 @@ export default async function handler(
         JOIN   teams ot  ON ot.teamid  = sc.team_id
         LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id
         LEFT JOIN gamestatusoptions gs ON gs.id = sc.gamestatusid
-        WHERE sc.team_id = ${teamId}
+        WHERE sc.team_id = ${teamId} OR sc.opponent_team_id = ${teamId}
         ORDER BY sc.gamedate NULLS LAST, sc.gametime NULLS LAST, sc.id
       `;
       return res.status(200).json({ scrimmages: rows });

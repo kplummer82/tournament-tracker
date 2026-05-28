@@ -22,6 +22,9 @@ export type CalendarGameRow = {
   opponent_name_raw: string | null;
   location: string | null;
   notes: string | null;
+  cancellation_note: string | null;
+  canceled_by_team_id: number | null;
+  canceled_by_team_name: string | null;
 };
 
 export type TeamRecord = { w: number; l: number; t: number };
@@ -58,7 +61,10 @@ export default async function handler(
         NULL::int                       AS opponent_team_id,
         NULL::text                      AS opponent_name_raw,
         NULL::text                      AS location,
-        NULL::text                      AS notes
+        NULL::text                      AS notes,
+        NULL::text                      AS cancellation_note,
+        NULL::int                       AS canceled_by_team_id,
+        NULL::text                      AS canceled_by_team_name
       FROM season_games sg
       JOIN seasons s  ON s.id = sg.season_id
       JOIN teams ht   ON ht.teamid = sg.home
@@ -87,7 +93,10 @@ export default async function handler(
         NULL::int                       AS opponent_team_id,
         NULL::text                      AS opponent_name_raw,
         NULL::text                      AS location,
-        NULL::text                      AS notes
+        NULL::text                      AS notes,
+        NULL::text                      AS cancellation_note,
+        NULL::int                       AS canceled_by_team_id,
+        NULL::text                      AS canceled_by_team_name
       FROM tournamentgames tg
       JOIN tournaments t ON t.tournamentid = tg.tournamentid
       JOIN teams ht      ON ht.teamid = tg.home
@@ -105,23 +114,35 @@ export default async function handler(
         NULL::text                      AS context_name,
         sc.gamedate::text               AS gamedate,
         to_char(sc.gametime, 'HH24:MI') AS gametime,
-        sc.team_id                      AS home,
-        ot.name                         AS home_team,
-        sc.opponent_team_id             AS away,
-        COALESCE(opp.name, sc.opponent_name, 'TBD') AS away_team,
-        sc.homescore,
-        sc.awayscore,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN sc.opponent_team_id ELSE sc.team_id END AS home,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN COALESCE(opp.name, sc.opponent_name, 'TBD')
+             ELSE ot.name END AS home_team,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN sc.team_id ELSE sc.opponent_team_id END AS away,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN ot.name
+             ELSE COALESCE(opp.name, sc.opponent_name, 'TBD') END AS away_team,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN sc.awayscore ELSE sc.homescore END AS homescore,
+        CASE WHEN sc.opponent_team_id = ${teamId}
+             THEN sc.homescore ELSE sc.awayscore END AS awayscore,
         sc.gamestatusid,
         gs.gamestatus                   AS gamestatus_label,
         sc.opponent_team_id,
         sc.opponent_name                AS opponent_name_raw,
         sc.location,
-        sc.notes
+        sc.notes,
+        sc.cancellation_note,
+        sc.canceled_by_team_id,
+        cbt.name                        AS canceled_by_team_name
       FROM scrimmages sc
       JOIN teams ot ON ot.teamid = sc.team_id
       LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id
+      LEFT JOIN teams cbt ON cbt.teamid = sc.canceled_by_team_id
       LEFT JOIN gamestatusoptions gs  ON gs.id = sc.gamestatusid
-      WHERE sc.team_id = ${teamId}
+      WHERE sc.team_id = ${teamId} OR sc.opponent_team_id = ${teamId}
 
       ORDER BY gamedate NULLS LAST, gametime NULLS LAST, id
     `;

@@ -44,17 +44,24 @@ export default async function handler(
     const gtime = normalizeTime(gametime);
 
     try {
+      const CANCELED_STATUS_ID = 8;
+      const clearCancellation =
+        typeof gamestatusid === "number" && gamestatusid !== CANCELED_STATUS_ID;
+
       const rows = await sql`
         UPDATE scrimmages SET
-          gamedate         = ${gamedate ?? null},
-          gametime         = ${gtime},
-          opponent_team_id = ${typeof opponent_team_id === "number" ? opponent_team_id : null},
-          opponent_name    = ${typeof opponent_name === "string" ? opponent_name.trim() || null : null},
-          location         = ${typeof location === "string" ? location.trim() || null : null},
-          notes            = ${typeof notes === "string" ? notes.trim() || null : null},
-          homescore        = ${homescore ?? null},
-          awayscore        = ${awayscore ?? null},
-          gamestatusid     = ${gamestatusid ?? null}
+          gamedate            = ${gamedate ?? null},
+          gametime            = ${gtime},
+          opponent_team_id    = ${typeof opponent_team_id === "number" ? opponent_team_id : null},
+          opponent_name       = ${typeof opponent_name === "string" ? opponent_name.trim() || null : null},
+          location            = ${typeof location === "string" ? location.trim() || null : null},
+          notes               = ${typeof notes === "string" ? notes.trim() || null : null},
+          homescore           = ${homescore ?? null},
+          awayscore           = ${awayscore ?? null},
+          gamestatusid        = ${gamestatusid ?? null},
+          cancellation_note   = CASE WHEN ${clearCancellation} THEN NULL ELSE cancellation_note END,
+          canceled_by_team_id = CASE WHEN ${clearCancellation} THEN NULL ELSE canceled_by_team_id END,
+          canceled_at         = CASE WHEN ${clearCancellation} THEN NULL ELSE canceled_at END
         WHERE id = ${scrimmageId} AND team_id = ${teamId}
         RETURNING *
       `;
