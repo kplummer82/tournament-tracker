@@ -27,7 +27,8 @@ export default async function handler(
       // Load offer and listing
       const offerRows = await sql`
         SELECT so.*, sl.team_id AS listing_team_id, sl.status AS listing_status,
-               sl.available_date, sl.time_earliest, sl.location_name, sl.location_id
+               sl.available_date, sl.time_earliest, sl.location_name,
+               sl.location_id AS listing_location_id
         FROM scrimmage_offers so
         JOIN scrimmage_listings sl ON sl.id = so.listing_id
         WHERE so.id = ${offerId} AND so.listing_id = ${listingId}
@@ -112,20 +113,26 @@ export default async function handler(
             [session.user.id, listingId, offerId]
           );
 
-          // Create a scrimmage record linking both teams
+          // Create a scrimmage record linking both teams. Prefer the offer's
+          // structured proposal (location_id + field) over the listing's,
+          // falling back to freeform text when neither is structured.
           const gamedate = offer.available_date;
           const gametime = offer.proposed_time || offer.time_earliest || null;
+          const locationId = offer.proposed_location_id ?? offer.listing_location_id ?? null;
+          const field = offer.proposed_location_field ?? null;
           const location = offer.proposed_location || offer.location_name || null;
 
           await client.query(
-            `INSERT INTO scrimmages (team_id, gamedate, gametime, opponent_team_id, location, notes, gamestatusid, listing_id)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            `INSERT INTO scrimmages (team_id, gamedate, gametime, opponent_team_id, location, location_id, field, notes, gamestatusid, listing_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
               offer.listing_team_id,
               gamedate,
               gametime,
               offer.team_id,
               location,
+              locationId,
+              field,
               "Created from scrimmage marketplace",
               1, // Scheduled
               listingId,

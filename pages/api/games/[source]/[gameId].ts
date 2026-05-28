@@ -19,6 +19,9 @@ export type GameDetail = {
   location: string | null;
   field: string | null;
   location_id: number | null;
+  location_address: string | null;
+  location_city: string | null;
+  location_state: string | null;
   game_type: string | null;
   bracket_id: number | null;
   bracket_game_id: string | null;
@@ -62,8 +65,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           NULL::int                        AS context_id,
           NULL::text                       AS context_name,
           sc.location,
-          NULL::text                       AS field,
-          NULL::int                        AS location_id,
+          sc.field,
+          sc.location_id,
           NULL::text                       AS game_type,
           NULL::int                        AS bracket_id,
           NULL::text                       AS bracket_game_id
@@ -140,7 +143,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!rows.length) return res.status(404).json({ error: "Game not found" });
 
-    return res.status(200).json({ game: rows[0] });
+    const game = rows[0];
+    // Hydrate official location address fields so the UI can build a Google
+    // Maps directions link.
+    if (game.location_id != null) {
+      const locRows = await sql`
+        SELECT address, city, state FROM locations WHERE id = ${game.location_id}
+      `;
+      if (locRows[0]) {
+        game.location_address = locRows[0].address ?? null;
+        game.location_city = locRows[0].city ?? null;
+        game.location_state = locRows[0].state ?? null;
+      } else {
+        game.location_address = null;
+        game.location_city = null;
+        game.location_state = null;
+      }
+    } else {
+      game.location_address = null;
+      game.location_city = null;
+      game.location_state = null;
+    }
+
+    return res.status(200).json({ game });
   } catch (err: unknown) {
     console.error("[games/[source]/[gameId]] error", err);
     return res.status(500).json({ error: err instanceof Error ? err.message : "Server error" });

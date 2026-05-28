@@ -4,7 +4,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowLeft, Check, X, Minus, Copy, Save, Shuffle, GripVertical } from "lucide-react";
+import { ArrowLeft, Check, X, Minus, Copy, Save, Shuffle, GripVertical, Navigation } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -115,6 +115,28 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 <dt className={labelCls}>Location</dt>
                 <dd className={valueCls}>
                   <LocationDisplay locationId={game.location_id} location={game.location} field={game.field} />
+                  {(() => {
+                    const parts = [
+                      game.location_address,
+                      game.location_city,
+                      game.location_state,
+                    ].filter(Boolean);
+                    const query = parts.length > 0
+                      ? `${game.location ?? ""}${game.location ? ", " : ""}${parts.join(", ")}`
+                      : game.location;
+                    if (!query) return null;
+                    return (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 ml-2 text-primary hover:underline text-xs uppercase tracking-[0.08em] font-semibold"
+                      >
+                        <Navigation className="h-3 w-3" />
+                        Directions
+                      </a>
+                    );
+                  })()}
                 </dd>
               </div>
             )}
