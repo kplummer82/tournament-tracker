@@ -16,6 +16,7 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
 
 const OFFER_STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   pending: { bg: "#f59e0b18", text: "#f59e0b", border: "#f59e0b40" },
+  countered: { bg: "#3b82f618", text: "#3b82f6", border: "#3b82f640" },
   accepted: { bg: "#00c85318", text: "#00c853", border: "#00c85340" },
   declined: { bg: "#ef444418", text: "#ef4444", border: "#ef444440" },
   withdrawn: { bg: "#5a5a5a18", text: "#888", border: "#5a5a5a40" },
@@ -42,6 +43,7 @@ type OfferRow = {
   team_id: number;
   offer_team_name: string;
   status: string;
+  last_action_team_id: number | null;
   proposed_location: string | null;
   proposed_time: string | null;
   message: string | null;
@@ -214,6 +216,9 @@ export default function MyListingsPage() {
               offers.map((offer) => {
                 const offerColor = OFFER_STATUS_COLORS[offer.status] ?? OFFER_STATUS_COLORS.withdrawn;
                 const listingColor = STATUS_COLORS[offer.listing_status] ?? STATUS_COLORS.expired;
+                const isOpen = offer.status === "pending" || offer.status === "countered";
+                // Your turn = the offering side hasn't acted last on an open offer.
+                const yourTurn = isOpen && offer.last_action_team_id !== offer.team_id;
 
                 return (
                   <div
@@ -261,6 +266,15 @@ export default function MyListingsPage() {
 
                     {/* Status badges + actions */}
                     <div className="flex items-center gap-2 shrink-0">
+                      {yourTurn && (
+                        <Link
+                          href={`/scrimmages/${offer.listing_id}`}
+                          className="px-2 py-0.5 text-[10px] uppercase tracking-wider font-semibold bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                          style={{ fontFamily: "var(--font-body)" }}
+                        >
+                          Your Turn
+                        </Link>
+                      )}
                       <span
                         className="px-2 py-0.5 text-[10px] uppercase tracking-wider font-semibold"
                         style={{
@@ -273,7 +287,7 @@ export default function MyListingsPage() {
                         {offer.status}
                       </span>
 
-                      {offer.status === "pending" && (
+                      {isOpen && (
                         <button
                           type="button"
                           onClick={() => handleWithdraw(offer.id, offer.listing_id)}

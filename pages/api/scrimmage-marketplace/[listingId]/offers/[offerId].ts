@@ -17,10 +17,11 @@ export default async function handler(
     const session = await requireSession(req, res);
     if (!session) return;
 
-    const { status } = req.body ?? {};
+    const { status, note } = req.body ?? {};
     if (!status || !["accepted", "declined", "withdrawn"].includes(status)) {
       return res.status(400).json({ error: "status must be accepted, declined, or withdrawn" });
     }
+    const noteText = typeof note === "string" ? (note.trim() || null) : null;
 
     try {
       // Load offer and listing
@@ -38,18 +39,27 @@ export default async function handler(
 
       const offer = offerRows[0];
 
-      if (offer.status !== "pending") {
+      if (!["pending", "countered"].includes(offer.status)) {
         return res.status(400).json({ error: "This offer has already been resolved" });
       }
 
-      // Auth check depends on the action
+      // Auth check depends on the action.
+      // For accept/decline: whoever is up (not the last actor) responds.
+      // For withdraw: the offering team can always withdraw their own offer.
+      let actingTeamId: number;
       if (status === "withdrawn") {
-        // Only the offering team's manager can withdraw
+        actingTeamId = offer.team_id;
         const authSession = await requireTeamAccess(req, res, offer.team_id);
         if (!authSession) return;
       } else {
-        // Accept/decline: only the listing team's manager
-        const authSession = await requireTeamAccess(req, res, offer.listing_team_id);
+        if (offer.last_action_team_id === offer.team_id) {
+          actingTeamId = offer.listing_team_id;
+        } else if (offer.last_action_team_id === offer.listing_team_id) {
+          actingTeamId = offer.team_id;
+        } else {
+          actingTeamId = offer.listing_team_id;
+        }
+        const authSession = await requireTeamAccess(req, res, actingTeamId);
         if (!authSession) return;
       }
 
@@ -76,9 +86,17 @@ export default async function handler(
 
           // Accept this offer
           await client.query(
-            `UPDATE scrimmage_offers SET status = 'accepted', responded_at = NOW(), responded_by = $1
-             WHERE id = $2`,
-            [session.user.id, offerId]
+            `UPDATE scrimmage_offers SET status = 'accepted', responded_at = NOW(), responded_by = $1,
+               last_action_team_id = $2
+             WHERE id = $3`,
+            [session.user.id, actingTeamId, offerId]
+          );
+
+          await client.query(
+            `INSERT INTO scrimmage_offer_messages
+               (offer_id, sender_team_id, sender_user_id, action, note)
+             VALUES ($1, $2, $3, 'accepted', $4)`,
+            [offerId, actingTeamId, session.user.id, noteText]
           );
 
           // Fill the listing
@@ -87,10 +105,10 @@ export default async function handler(
             [listingId]
           );
 
-          // Decline all other pending offers
+          // Decline all other open offers (pending or countered)
           await client.query(
             `UPDATE scrimmage_offers SET status = 'declined', responded_at = NOW(), responded_by = $1
-             WHERE listing_id = $2 AND id != $3 AND status = 'pending'`,
+             WHERE listing_id = $2 AND id != $3 AND status IN ('pending','countered')`,
             [session.user.id, listingId, offerId]
           );
 
@@ -124,11 +142,18 @@ export default async function handler(
         return res.status(200).json({ ok: true, action: "accepted" });
       }
 
-      // Declined or withdrawn — simple update
+      // Declined or withdrawn — simple update + thread message.
       await sql`
         UPDATE scrimmage_offers
-        SET status = ${status}, responded_at = NOW(), responded_by = ${session.user.id}
+        SET status = ${status}, responded_at = NOW(), responded_by = ${session.user.id},
+            last_action_team_id = ${actingTeamId}
         WHERE id = ${offerId}
+      `;
+
+      await sql`
+        INSERT INTO scrimmage_offer_messages
+          (offer_id, sender_team_id, sender_user_id, action, note)
+        VALUES (${offerId}, ${actingTeamId}, ${session.user.id}, ${status}, ${noteText})
       `;
 
       return res.status(200).json({ ok: true, action: status });

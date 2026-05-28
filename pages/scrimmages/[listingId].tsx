@@ -5,8 +5,10 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import Header from "@/components/Header";
 import OfferDialog from "@/components/scrimmages/OfferDialog";
+import CounterOfferDialog from "@/components/scrimmages/CounterOfferDialog";
+import RespondWithNoteDialog, { type RespondAction } from "@/components/scrimmages/RespondWithNoteDialog";
 import { LocationDisplay } from "@/components/LocationPicker";
-import { ArrowLeft, Calendar, Clock, MapPin, Navigation, Users, MessageSquare } from "lucide-react";
+import { ArrowLeft, Calendar, Clock, MapPin, Navigation, Users, MessageSquare, ArrowRightLeft } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
@@ -18,9 +20,18 @@ const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }
 
 const OFFER_STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   pending: { bg: "#f59e0b18", text: "#f59e0b", border: "#f59e0b40" },
+  countered: { bg: "#3b82f618", text: "#3b82f6", border: "#3b82f640" },
   accepted: { bg: "#00c85318", text: "#00c853", border: "#00c85340" },
   declined: { bg: "#ef444418", text: "#ef4444", border: "#ef444440" },
   withdrawn: { bg: "#5a5a5a18", text: "#888", border: "#5a5a5a40" },
+};
+
+const ACTION_LABELS: Record<string, string> = {
+  offered: "Offered",
+  countered: "Countered",
+  accepted: "Accepted",
+  declined: "Declined",
+  withdrawn: "Withdrew",
 };
 
 const SCOPE_LABELS: Record<string, string> = {
@@ -44,6 +55,20 @@ function formatTime(t: string | null) {
   return `${h12}:${m} ${ampm}`;
 }
 
+type OfferMessage = {
+  id: number;
+  offer_id: number;
+  sender_team_id: number;
+  sender_team_name: string;
+  action: "offered" | "countered" | "accepted" | "declined" | "withdrawn";
+  proposed_location_id: number | null;
+  proposed_location: string | null;
+  proposed_location_field: string | null;
+  proposed_time: string | null;
+  note: string | null;
+  created_at: string;
+};
+
 type Offer = {
   id: number;
   listing_id: number;
@@ -59,6 +84,8 @@ type Offer = {
   proposed_time: string | null;
   message: string | null;
   created_at: string;
+  last_action_team_id: number | null;
+  messages?: OfferMessage[];
 };
 
 type Listing = {
@@ -102,7 +129,10 @@ export default function ListingDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [offerOpen, setOfferOpen] = useState(false);
-  const [actionLoading, setActionLoading] = useState<number | null>(null);
+  const [managedTeamIds, setManagedTeamIds] = useState<number[]>([]);
+
+  const [counterOfferId, setCounterOfferId] = useState<number | null>(null);
+  const [respondState, setRespondState] = useState<{ offerId: number; action: RespondAction } | null>(null);
 
   const load = async () => {
     if (!listingId) return;
@@ -114,6 +144,7 @@ export default function ListingDetailPage() {
       setListing(data.listing);
       setOffers(data.offers ?? null);
       setCanManage(data.canManage ?? false);
+      setManagedTeamIds(data.managedTeamIds ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -122,26 +153,6 @@ export default function ListingDetailPage() {
   };
 
   useEffect(() => { load(); }, [listingId]);
-
-  const handleOfferAction = async (offerId: number, action: "accepted" | "declined") => {
-    setActionLoading(offerId);
-    try {
-      const res = await fetch(`/api/scrimmage-marketplace/${listingId}/offers/${offerId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: action }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `HTTP ${res.status}`);
-      }
-      await load();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "Action failed");
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
   const handleCancel = async () => {
     if (!confirm("Cancel this listing? All pending offers will be withdrawn.")) return;
@@ -154,16 +165,20 @@ export default function ListingDetailPage() {
     }
   };
 
-  // Check if the current user manages a different team (can offer)
-  const managedTeamIds = roles
+  // Check if the current user manages a different team (can offer).
+  // Use the role list directly since the API-provided managedTeamIds
+  // may be empty until the request resolves.
+  const roleTeamIds = roles
     .filter((r) => r.role === "team_manager" && r.scope_type === "team")
     .map((r) => r.scope_id);
   const canOffer =
     listing &&
     listing.status === "open" &&
     !canManage &&
-    managedTeamIds.length > 0 &&
-    !managedTeamIds.includes(listing.team_id);
+    roleTeamIds.length > 0 &&
+    !roleTeamIds.includes(listing.team_id) &&
+    // Don't show "Offer to Play" if this team already has an offer thread visible.
+    !(offers && offers.some((o) => roleTeamIds.includes(o.team_id)));
 
   if (loading) {
     return (
@@ -386,10 +401,25 @@ export default function ListingDetailPage() {
               Offers ({listing.pending_offers} pending)
             </h2>
 
-            {canManage && offers && offers.length > 0 ? (
+            {offers && offers.length > 0 ? (
               <div className="space-y-3">
                 {offers.map((offer) => {
                   const offerColor = OFFER_STATUS_COLORS[offer.status] ?? OFFER_STATUS_COLORS.withdrawn;
+                  const isOpen = offer.status === "pending" || offer.status === "countered";
+
+                  // Whose turn is it? The side that did NOT act last.
+                  // If listing manager is viewing: they can act when offering team was the last actor.
+                  // If offering manager is viewing: they can act when listing team was the last actor.
+                  const viewerIsOffering = managedTeamIds.includes(offer.team_id);
+                  const viewerIsListing = canManage;
+
+                  const canAct =
+                    isOpen &&
+                    (
+                      (viewerIsListing && offer.last_action_team_id !== listing.team_id) ||
+                      (viewerIsOffering && offer.last_action_team_id !== offer.team_id)
+                    );
+
                   return (
                     <div
                       key={offer.id}
@@ -433,7 +463,8 @@ export default function ListingDetailPage() {
                         </span>
                       </div>
 
-                      {(offer.proposed_location || offer.proposed_location_field || offer.proposed_time || offer.message) && (
+                      {/* Current proposed terms (latest counter wins) */}
+                      {(offer.proposed_location || offer.proposed_location_field || offer.proposed_time) && (
                         <div className="mt-3 space-y-1 text-sm text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                           {(offer.proposed_location || offer.proposed_location_field) && (
                             <div className="flex items-center gap-1">
@@ -450,34 +481,93 @@ export default function ListingDetailPage() {
                               <Clock className="h-3 w-3" /> Proposed time: {formatTime(offer.proposed_time)}
                             </div>
                           )}
-                          {offer.message && (
-                            <div className="flex items-start gap-1">
-                              <MessageSquare className="h-3 w-3 mt-0.5" /> {offer.message}
-                            </div>
-                          )}
                         </div>
                       )}
 
-                      {offer.status === "pending" && (
-                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
+                      {/* Thread */}
+                      {offer.messages && offer.messages.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border space-y-2">
+                          {offer.messages.map((m) => {
+                            const isListingSide = m.sender_team_id === listing.team_id;
+                            return (
+                              <div
+                                key={m.id}
+                                className="text-xs"
+                                style={{ fontFamily: "var(--font-body)" }}
+                              >
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <span className="font-semibold text-foreground">
+                                    {isListingSide ? listing.team_name : offer.team_name}
+                                  </span>
+                                  <span>{ACTION_LABELS[m.action] || m.action}</span>
+                                  {m.action === "countered" && (m.proposed_time || m.proposed_location || m.proposed_location_field) && (
+                                    <span className="text-muted-foreground">
+                                      {m.proposed_time && `→ ${formatTime(m.proposed_time)}`}
+                                      {(m.proposed_location || m.proposed_location_field) && (
+                                        <>
+                                          {" @ "}
+                                          {m.proposed_location || m.proposed_location_field}
+                                        </>
+                                      )}
+                                    </span>
+                                  )}
+                                </div>
+                                {m.note && (
+                                  <div className="flex items-start gap-1 mt-0.5 pl-1 text-muted-foreground">
+                                    <MessageSquare className="h-3 w-3 mt-0.5 shrink-0" />
+                                    <span>{m.note}</span>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Waiting on indicator */}
+                      {isOpen && !canAct && (
+                        <div className="mt-3 pt-3 border-t border-border text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                          Waiting on {offer.last_action_team_id === listing.team_id ? offer.team_name : listing.team_name}
+                        </div>
+                      )}
+
+                      {/* Action buttons */}
+                      {canAct && (
+                        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border flex-wrap">
                           <button
                             type="button"
-                            disabled={actionLoading === offer.id}
-                            onClick={() => handleOfferAction(offer.id, "accepted")}
-                            className="bg-primary text-primary-foreground px-3 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity disabled:opacity-40"
+                            onClick={() => setRespondState({ offerId: offer.id, action: "accepted" })}
+                            className="bg-primary text-primary-foreground px-3 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity"
                             style={{ fontFamily: "var(--font-body)" }}
                           >
-                            {actionLoading === offer.id ? "…" : "Accept"}
+                            Accept
                           </button>
                           <button
                             type="button"
-                            disabled={actionLoading === offer.id}
-                            onClick={() => handleOfferAction(offer.id, "declined")}
-                            className="border border-border text-muted-foreground px-3 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase hover:text-foreground hover:border-foreground transition-colors disabled:opacity-40"
+                            onClick={() => setCounterOfferId(offer.id)}
+                            className="border border-border text-foreground px-3 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase hover:bg-elevated transition-colors inline-flex items-center gap-1"
+                            style={{ fontFamily: "var(--font-body)" }}
+                          >
+                            <ArrowRightLeft className="h-3 w-3" /> Counter
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRespondState({ offerId: offer.id, action: "declined" })}
+                            className="border border-border text-muted-foreground px-3 py-1.5 text-[10px] font-semibold tracking-[0.08em] uppercase hover:text-foreground hover:border-foreground transition-colors"
                             style={{ fontFamily: "var(--font-body)" }}
                           >
                             Decline
                           </button>
+                          {viewerIsOffering && (
+                            <button
+                              type="button"
+                              onClick={() => setRespondState({ offerId: offer.id, action: "withdrawn" })}
+                              className="text-muted-foreground hover:text-destructive transition-colors text-[10px] uppercase tracking-[0.08em] font-semibold ml-auto"
+                              style={{ fontFamily: "var(--font-body)" }}
+                            >
+                              Withdraw
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -511,6 +601,36 @@ export default function ListingDetailPage() {
           listingTeamId={listing.team_id}
           listingWillTravel={listing.will_travel}
           onOffered={() => load()}
+        />
+      )}
+
+      {listing && counterOfferId != null && (() => {
+        const counterOffer = offers?.find((o) => o.id === counterOfferId);
+        if (!counterOffer) return null;
+        return (
+          <CounterOfferDialog
+            open={true}
+            onOpenChange={(o) => { if (!o) setCounterOfferId(null); }}
+            listingId={listing.id}
+            offerId={counterOffer.id}
+            listingWillTravel={listing.will_travel}
+            currentProposedTime={counterOffer.proposed_time}
+            currentLocationId={counterOffer.proposed_location_id}
+            currentLocation={counterOffer.proposed_location}
+            currentField={counterOffer.proposed_location_field}
+            onSubmitted={() => load()}
+          />
+        );
+      })()}
+
+      {listing && respondState && (
+        <RespondWithNoteDialog
+          open={true}
+          onOpenChange={(o) => { if (!o) setRespondState(null); }}
+          listingId={listing.id}
+          offerId={respondState.offerId}
+          action={respondState.action}
+          onSubmitted={() => load()}
         />
       )}
     </>

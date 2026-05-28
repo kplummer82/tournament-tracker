@@ -51,8 +51,15 @@ export default async function handler(
       const roles = isAdmin ? [] : await getUserRoles(session.user.id);
       const canManage = isAdmin || hasTeamAccess(roles, listing.team_id, listing.league_id, listing.league_division_id);
 
-      // Include offers if the viewer can manage the listing team
-      let offers = undefined;
+      // Determine which teams the viewer manages (so an offering manager can
+      // see their own offer + the thread to act on counters).
+      const managedTeamIds = isAdmin
+        ? null // admin sees all
+        : roles
+            .filter((r) => r.role === "team_manager" && r.scope_type === "team")
+            .map((r) => r.scope_id as number);
+
+      let offers: Array<Record<string, unknown>> | undefined = undefined;
       if (canManage) {
         offers = await sql`
           SELECT
@@ -67,18 +74,51 @@ export default async function handler(
           WHERE so.listing_id = ${listingId}
           ORDER BY so.created_at DESC
         `;
+      } else if (managedTeamIds && managedTeamIds.length > 0) {
+        // Offering manager: return only their own team's offers on this listing.
+        offers = await sql`
+          SELECT
+            so.*,
+            t.name AS team_name, t.league_id, t.league_division_id,
+            l.name AS league_name,
+            ld.name AS division_name, ld.age_range AS division_age_range
+          FROM scrimmage_offers so
+          JOIN teams t ON t.teamid = so.team_id
+          LEFT JOIN leagues l ON l.id = t.league_id
+          LEFT JOIN league_divisions ld ON ld.id = t.league_division_id
+          WHERE so.listing_id = ${listingId} AND so.team_id = ANY(${managedTeamIds}::int[])
+          ORDER BY so.created_at DESC
+        `;
       }
 
-      // Get pending offer count for non-managers too
+      // Attach message threads.
+      if (offers && offers.length > 0) {
+        const offerIds = offers.map((o) => o.id as number);
+        const messages = await sql`
+          SELECT som.*, t.name AS sender_team_name
+          FROM scrimmage_offer_messages som
+          JOIN teams t ON t.teamid = som.sender_team_id
+          WHERE som.offer_id = ANY(${offerIds}::int[])
+          ORDER BY som.created_at ASC
+        `;
+        const byOffer: Record<number, typeof messages> = {};
+        for (const m of messages) {
+          (byOffer[m.offer_id as number] ??= [] as typeof messages).push(m);
+        }
+        offers = offers.map((o) => ({ ...o, messages: byOffer[o.id as number] ?? [] }));
+      }
+
+      // Get pending+countered offer count for non-managers too
       const countRows = await sql`
         SELECT COUNT(*) AS cnt FROM scrimmage_offers
-        WHERE listing_id = ${listingId} AND status = 'pending'
+        WHERE listing_id = ${listingId} AND status IN ('pending','countered')
       `;
 
       return res.status(200).json({
         listing: { ...listing, pending_offers: parseInt(countRows[0].cnt, 10) },
         offers,
         canManage,
+        managedTeamIds: managedTeamIds ?? undefined,
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Server error";
@@ -198,10 +238,10 @@ export default async function handler(
         WHERE id = ${listingId}
       `;
 
-      // Withdraw all pending offers
+      // Withdraw all open (pending or countered) offers
       await sql`
         UPDATE scrimmage_offers SET status = 'withdrawn', responded_at = NOW()
-        WHERE listing_id = ${listingId} AND status = 'pending'
+        WHERE listing_id = ${listingId} AND status IN ('pending','countered')
       `;
 
       return res.status(200).json({ ok: true });

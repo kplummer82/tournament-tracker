@@ -37,7 +37,22 @@ export default async function handler(
         ORDER BY so.created_at DESC
       `;
 
-      return res.status(200).json({ offers });
+      const offerIds = offers.map((o) => o.id);
+      const messages = offerIds.length === 0 ? [] : await sql`
+        SELECT som.*, t.name AS sender_team_name
+        FROM scrimmage_offer_messages som
+        JOIN teams t ON t.teamid = som.sender_team_id
+        WHERE som.offer_id = ANY(${offerIds})
+        ORDER BY som.created_at ASC
+      `;
+
+      const byOffer: Record<number, typeof messages> = {};
+      for (const m of messages) {
+        (byOffer[m.offer_id] ??= [] as typeof messages).push(m);
+      }
+      const offersWithThread = offers.map((o) => ({ ...o, messages: byOffer[o.id] ?? [] }));
+
+      return res.status(200).json({ offers: offersWithThread });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Server error";
       console.error("[marketplace offers] GET error", err);
@@ -137,23 +152,42 @@ export default async function handler(
         ? (typeof proposed_location_field === "string" ? proposed_location_field.trim() : "") || null
         : null;
 
+      const noteText = typeof message === "string" ? (message.trim() || null) : null;
+      const propTime = proposed_time || null;
+
       const rows = await sql`
         INSERT INTO scrimmage_offers (
           listing_id, team_id, offered_by,
           proposed_location_id, proposed_location, proposed_location_field,
-          proposed_time, message
+          proposed_time, message, last_action_team_id
         ) VALUES (
           ${listingId}, ${offerTeamId}, ${session.user.id},
           ${locId},
           ${locName},
           ${locField},
-          ${proposed_time || null},
-          ${message?.trim() || null}
+          ${propTime},
+          ${noteText},
+          ${offerTeamId}
         )
         RETURNING id
       `;
 
-      return res.status(201).json({ id: rows[0].id });
+      const newOfferId = rows[0].id;
+
+      // Log the initial offer as the first thread message.
+      await sql`
+        INSERT INTO scrimmage_offer_messages (
+          offer_id, sender_team_id, sender_user_id, action,
+          proposed_location_id, proposed_location, proposed_location_field,
+          proposed_time, note
+        ) VALUES (
+          ${newOfferId}, ${offerTeamId}, ${session.user.id}, 'offered',
+          ${locId}, ${locName}, ${locField},
+          ${propTime}, ${noteText}
+        )
+      `;
+
+      return res.status(201).json({ id: newOfferId });
     } catch (err: unknown) {
       if (err instanceof Error && err.message.includes("unique")) {
         return res.status(409).json({ error: "Your team has already offered on this listing" });
