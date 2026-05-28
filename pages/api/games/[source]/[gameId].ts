@@ -65,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           gs.gamestatus                    AS gamestatus_label,
           NULL::int                        AS context_id,
           NULL::text                       AS context_name,
-          sc.location,
+          COALESCE(sc.location, scloc.name) AS location,
           sc.field,
           sc.location_id,
           NULL::text                       AS game_type,
@@ -75,6 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         JOIN teams ht ON ht.teamid = sc.team_id
         LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id
         LEFT JOIN gamestatusoptions gs ON gs.id = sc.gamestatusid
+        LEFT JOIN locations scloc ON scloc.id = sc.location_id
         WHERE sc.id = ${params.gameId}
         LIMIT 1
       `) as GameDetail[];

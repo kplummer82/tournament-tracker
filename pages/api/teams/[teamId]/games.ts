@@ -135,7 +135,9 @@ export default async function handler(
         gs.gamestatus                   AS gamestatus_label,
         sc.opponent_team_id,
         sc.opponent_name                AS opponent_name_raw,
-        sc.location,
+        COALESCE(sc.location, scloc.name) AS location,
+        sc.field,
+        sc.location_id,
         sc.notes,
         sc.cancellation_note,
         sc.canceled_by_team_id,
@@ -146,6 +148,7 @@ export default async function handler(
       LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id
       LEFT JOIN teams cbt ON cbt.teamid = sc.canceled_by_team_id
       LEFT JOIN gamestatusoptions gs  ON gs.id = sc.gamestatusid
+      LEFT JOIN locations scloc ON scloc.id = sc.location_id
       WHERE sc.team_id = ${teamId} OR sc.opponent_team_id = ${teamId}
 
       ORDER BY gamedate NULLS LAST, gametime NULLS LAST, id
