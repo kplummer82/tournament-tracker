@@ -110,22 +110,29 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 </dd>
               </div>
             )}
-            {(game.location || game.field) && (
-              <div>
-                <dt className={labelCls}>Location</dt>
-                <dd className={valueCls}>
-                  <LocationDisplay locationId={game.location_id} location={game.location} field={game.field} />
-                  {(() => {
-                    const parts = [
-                      game.location_address,
-                      game.location_city,
-                      game.location_state,
-                    ].filter(Boolean);
-                    const query = parts.length > 0
-                      ? `${game.location ?? ""}${game.location ? ", " : ""}${parts.join(", ")}`
-                      : game.location;
-                    if (!query) return null;
-                    return (
+            {(game.location || game.field || game.location_id != null) && (() => {
+              // Prefer the official location name when the game points at one,
+              // since freeform `location` may be empty in that case.
+              const displayLocation = game.location ?? game.location_name ?? null;
+              const addressParts = [
+                game.location_address,
+                game.location_city,
+                game.location_state,
+              ].filter(Boolean);
+              const queryBase = displayLocation || "";
+              const query = addressParts.length > 0
+                ? `${queryBase}${queryBase ? ", " : ""}${addressParts.join(", ")}`
+                : displayLocation;
+              return (
+                <div>
+                  <dt className={labelCls}>Location</dt>
+                  <dd className={valueCls}>
+                    <LocationDisplay
+                      locationId={game.location_id}
+                      location={displayLocation}
+                      field={game.field}
+                    />
+                    {query && (
                       <a
                         href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
                         target="_blank"
@@ -135,11 +142,11 @@ function OverviewTab({ game }: { game: GameDetail }) {
                         <Navigation className="h-3 w-3" />
                         Directions
                       </a>
-                    );
-                  })()}
-                </dd>
-              </div>
-            )}
+                    )}
+                  </dd>
+                </div>
+              );
+            })()}
           </dl>
         </CardContent>
       </Card>

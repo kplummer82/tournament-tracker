@@ -19,6 +19,7 @@ export type GameDetail = {
   location: string | null;
   field: string | null;
   location_id: number | null;
+  location_name: string | null;
   location_address: string | null;
   location_city: string | null;
   location_state: string | null;
@@ -148,18 +149,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Maps directions link.
     if (game.location_id != null) {
       const locRows = await sql`
-        SELECT address, city, state FROM locations WHERE id = ${game.location_id}
+        SELECT name, address, city, state FROM locations WHERE id = ${game.location_id}
       `;
       if (locRows[0]) {
+        game.location_name = locRows[0].name ?? null;
         game.location_address = locRows[0].address ?? null;
         game.location_city = locRows[0].city ?? null;
         game.location_state = locRows[0].state ?? null;
       } else {
+        game.location_name = null;
         game.location_address = null;
         game.location_city = null;
         game.location_state = null;
       }
     } else {
+      game.location_name = null;
       game.location_address = null;
       game.location_city = null;
       game.location_state = null;
