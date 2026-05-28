@@ -56,12 +56,65 @@ const valueCls = "text-sm font-medium";
 
 /* ─── OverviewTab ────────────────────────────────────────────── */
 
-function OverviewTab({ game }: { game: GameDetail }) {
+function OverviewTab({
+  game,
+  canEditField = false,
+  onGameChange,
+}: {
+  game: GameDetail;
+  canEditField?: boolean;
+  onGameChange?: (g: GameDetail) => void;
+}) {
   const hasScore = game.homescore != null && game.awayscore != null;
   const isFinal = game.gamestatus_label?.toLowerCase() === "final";
   const contextHref = game.source === "season"
     ? `/seasons/${game.context_id}`
     : `/tournaments/${game.context_id}`;
+
+  const [officialFields, setOfficialFields] = useState<{ id: number; name: string }[]>([]);
+  const [savingField, setSavingField] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!canEditField || game.location_id == null) {
+      setOfficialFields([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/locations/${game.location_id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setOfficialFields(Array.isArray(d.fields) ? d.fields : []);
+      })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [canEditField, game.location_id]);
+
+  const saveField = async (newField: string | null) => {
+    if (game.source !== "scrimmage" || game.home == null) return;
+    setSavingField(true);
+    setFieldError(null);
+    try {
+      const res = await fetch(
+        `/api/teams/${game.home}/scrimmages/${game.id}/field`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ field: newField }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      onGameChange?.({ ...game, field: newField });
+    } catch (e) {
+      setFieldError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSavingField(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -110,7 +163,7 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 </dd>
               </div>
             )}
-            {(game.location || game.field || game.location_id != null) && (() => {
+            {(game.location || game.location_id != null) && (() => {
               // Prefer the official location name when the game points at one,
               // since freeform `location` may be empty in that case.
               const displayLocation = game.location ?? game.location_name ?? null;
@@ -130,7 +183,7 @@ function OverviewTab({ game }: { game: GameDetail }) {
                     <LocationDisplay
                       locationId={game.location_id}
                       location={displayLocation}
-                      field={game.field}
+                      field={null}
                     />
                     {query && (
                       <a
@@ -147,6 +200,54 @@ function OverviewTab({ game }: { game: GameDetail }) {
                 </div>
               );
             })()}
+
+            {/* Field — read-only for non-hosts; editable for the hosting team
+                on scrimmages. Show even when blank so the host can add one. */}
+            {(game.field || canEditField) && (
+              <div>
+                <dt className={labelCls}>Field</dt>
+                <dd className={valueCls}>
+                  {canEditField ? (
+                    officialFields.length > 0 ? (
+                      <select
+                        className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
+                        value={
+                          game.field && officialFields.some((f) => f.name === game.field)
+                            ? game.field
+                            : ""
+                        }
+                        disabled={savingField}
+                        onChange={(e) => saveField(e.target.value || null)}
+                      >
+                        <option value="">Select a field…</option>
+                        {officialFields.map((f) => (
+                          <option key={f.id} value={f.name}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
+                        placeholder="Field / court (optional)"
+                        defaultValue={game.field ?? ""}
+                        disabled={savingField}
+                        onBlur={(e) => {
+                          const v = e.target.value.trim();
+                          if ((v || null) !== (game.field ?? null)) saveField(v || null);
+                        }}
+                      />
+                    )
+                  ) : (
+                    <span>{game.field}</span>
+                  )}
+                  {fieldError && (
+                    <span className="ml-2 text-xs text-destructive">{fieldError}</span>
+                  )}
+                </dd>
+              </div>
+            )}
           </dl>
         </CardContent>
       </Card>
@@ -1298,7 +1399,15 @@ export default function GameDetailPage() {
           </TabsList>
 
           <TabsContent value="overview" className="mt-6">
-            <OverviewTab game={game} />
+            <OverviewTab
+              game={game}
+              canEditField={
+                game.source === "scrimmage" &&
+                Number.isFinite(managingTeamId) &&
+                game.home === managingTeamId
+              }
+              onGameChange={setGame}
+            />
           </TabsContent>
 
           <TabsContent value="confirmations" className="mt-6">
