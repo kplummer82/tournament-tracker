@@ -77,12 +77,21 @@ export default async function handler(
   /* ── DELETE ──────────────────────────────────────────────────── */
   if (req.method === "DELETE") {
     try {
-      const rows = await sql`
+      const existing = await sql`
+        SELECT listing_id FROM scrimmages
+        WHERE id = ${scrimmageId} AND team_id = ${teamId}
+      `;
+      if (!existing.length) return res.status(404).json({ error: "Scrimmage not found" });
+      if (existing[0].listing_id != null) {
+        return res.status(400).json({
+          error: "Marketplace scrimmages can't be deleted. Cancel the game instead.",
+        });
+      }
+
+      await sql`
         DELETE FROM scrimmages
         WHERE id = ${scrimmageId} AND team_id = ${teamId}
-        RETURNING id
       `;
-      if (!rows.length) return res.status(404).json({ error: "Scrimmage not found" });
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Server error";

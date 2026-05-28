@@ -25,6 +25,7 @@ export type CalendarGameRow = {
   cancellation_note: string | null;
   canceled_by_team_id: number | null;
   canceled_by_team_name: string | null;
+  listing_id: number | null;
 };
 
 export type TeamRecord = { w: number; l: number; t: number };
@@ -64,7 +65,8 @@ export default async function handler(
         NULL::text                      AS notes,
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,
-        NULL::text                      AS canceled_by_team_name
+        NULL::text                      AS canceled_by_team_name,
+        NULL::int                       AS listing_id
       FROM season_games sg
       JOIN seasons s  ON s.id = sg.season_id
       JOIN teams ht   ON ht.teamid = sg.home
@@ -96,7 +98,8 @@ export default async function handler(
         NULL::text                      AS notes,
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,
-        NULL::text                      AS canceled_by_team_name
+        NULL::text                      AS canceled_by_team_name,
+        NULL::int                       AS listing_id
       FROM tournamentgames tg
       JOIN tournaments t ON t.tournamentid = tg.tournamentid
       JOIN teams ht      ON ht.teamid = tg.home
@@ -136,7 +139,8 @@ export default async function handler(
         sc.notes,
         sc.cancellation_note,
         sc.canceled_by_team_id,
-        cbt.name                        AS canceled_by_team_name
+        cbt.name                        AS canceled_by_team_name,
+        sc.listing_id
       FROM scrimmages sc
       JOIN teams ot ON ot.teamid = sc.team_id
       LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id

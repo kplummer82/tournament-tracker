@@ -8,7 +8,7 @@ import listPlugin from "@fullcalendar/list";
 import type { EventClickArg } from "@fullcalendar/core";
 import type { DateClickArg } from "@fullcalendar/interaction";
 import interactionPlugin from "@fullcalendar/interaction";
-import { Plus, X, Pencil, Ban, ExternalLink } from "lucide-react";
+import { Plus, X, Pencil, Ban, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import type { CalendarGameRow, TeamRecord } from "@/pages/api/teams/[teamId]/games";
@@ -516,8 +516,10 @@ type EventDetailDialogProps = {
 function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDetailDialogProps) {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [uncanceling, setUncanceling] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isCanceled = row.gamestatus_label === "Canceled";
+  const isMarketplace = row.listing_id != null;
 
   const handleUncancel = async () => {
     setUncanceling(true);
@@ -537,6 +539,27 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
       setError(e instanceof Error ? e.message : "Failed to restore.");
     } finally {
       setUncanceling(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Delete this scrimmage?")) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/teams/${teamId}/scrimmages/${row.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d?.error ?? `HTTP ${res.status}`);
+      }
+      onChanged();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete.");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -695,7 +718,7 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
               >
                 {uncanceling ? "Restoring…" : "Restore Game"}
               </button>
-            ) : (
+            ) : isMarketplace ? (
               <button
                 type="button"
                 onClick={() => setCancelOpen(true)}
@@ -703,6 +726,16 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
               >
                 <Ban className="h-3.5 w-3.5" />
                 Cancel Game
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                {deleting ? "Deleting…" : "Delete"}
               </button>
             )}
             <button

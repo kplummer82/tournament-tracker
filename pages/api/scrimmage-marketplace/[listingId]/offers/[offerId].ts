@@ -118,8 +118,8 @@ export default async function handler(
           const location = offer.proposed_location || offer.location_name || null;
 
           await client.query(
-            `INSERT INTO scrimmages (team_id, gamedate, gametime, opponent_team_id, location, notes, gamestatusid)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            `INSERT INTO scrimmages (team_id, gamedate, gametime, opponent_team_id, location, notes, gamestatusid, listing_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
             [
               offer.listing_team_id,
               gamedate,
@@ -128,6 +128,7 @@ export default async function handler(
               location,
               "Created from scrimmage marketplace",
               1, // Scheduled
+              listingId,
             ]
           );
 
