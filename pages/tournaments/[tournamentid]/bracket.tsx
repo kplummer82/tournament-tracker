@@ -9,204 +9,268 @@ import { Button } from "@/components/ui/button";
 import type { BracketStructure } from "@/components/bracket/types";
 import { validateFirstRoundSeeds } from "@/components/bracket/types";
 import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
-import { GitBranch, AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
+import {
+  GitBranch,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  RefreshCw,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type TeamOpt = { id: number; name: string };
 
+type TournamentBracket = {
+  id: number;
+  tournament_id: number;
+  name: string;
+  sort_order: number;
+  template_id: number | null;
+  template_name: string | null;
+  structure: BracketStructure | null;
+  updated_at: string;
+};
 
-function BracketBody() {
-  const { tid, t, canEdit } = useTournament();
-  const [structure, setStructure] = useState<BracketStructure | null>(null);
-  const [templateId, setTemplateId] = useState<number | null>(null);
-  const [templateName, setTemplateName] = useState<string | null>(null);
-  const [assignments, setAssignments] = useState<Record<number, number>>({});
-  const [teams, setTeams] = useState<TeamOpt[]>([]);
-  const [standingsRows, setStandingsRows] = useState<StandingsRow[]>([]);
-  const [games, setGames] = useState<{ gamestatusid: number | null }[]>([]);
-  const [bracketLoading, setBracketLoading] = useState(true);
-  const [bracketError, setBracketError] = useState<string | null>(null);
+const BTN_BASE =
+  "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
+
+const SUGGESTED_NAMES = ["Championship", "Gold Bracket", "Silver Bracket", "Bronze Bracket", "Consolation"];
+
+// ---------- Create bracket inline form ----------
+function CreateBracketForm({
+  tournamentId,
+  nextSortOrder,
+  onCreated,
+  onCancel,
+}: {
+  tournamentId: number;
+  nextSortOrder: number;
+  onCreated: (b: TournamentBracket) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [bracketSaved, setBracketSaved] = useState(false);
-  const [pickerExpanded, setPickerExpanded] = useState(false);
-  const [includeInProgress, setIncludeInProgress] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadBracket = useCallback(async () => {
-    if (!tid) return;
-    setBracketLoading(true);
-    setBracketError(null);
+  const handleCreate = async () => {
+    if (!name.trim()) { setError("Name is required"); return; }
+    setSaving(true); setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tid}/bracket`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to load bracket");
-      const data = await res.json();
-      setStructure(data.structure ?? null);
-      setTemplateId(data.templateId ?? null);
-      setTemplateName(data.templateName ?? null);
-      const hasSavedBracket = data.structure != null && data.templateId != null;
-      setBracketSaved(hasSavedBracket);
-      setPickerExpanded(!hasSavedBracket);
-      const assign: Record<number, number> = {};
-      for (const a of data.assignments ?? []) {
-        assign[a.seedIndex] = a.teamId;
-      }
-      setAssignments(assign);
-    } catch (e) {
-      setBracketError(e instanceof Error ? e.message : "Failed to load bracket");
-      setStructure(null);
-      setTemplateId(null);
-      setTemplateName(null);
-      setBracketSaved(false);
-      setPickerExpanded(true);
-      setAssignments({});
-    } finally {
-      setBracketLoading(false);
-    }
-  }, [tid]);
-
-  const loadTeams = useCallback(async () => {
-    if (!tid) return;
-    try {
-      const res = await fetch(`/api/tournaments/${tid}/teams`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      setTeams(Array.isArray(data) ? data : data?.rows ?? data?.teams ?? []);
-    } catch { setTeams([]); }
-  }, [tid]);
-
-  const loadStandings = useCallback(async () => {
-    if (!tid) return;
-    try {
-      const res = await fetch(`/api/tournaments/${tid}/standings?includeInProgress=${includeInProgress}`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      setStandingsRows(Array.isArray(data?.standings) ? data.standings : []);
-    } catch { setStandingsRows([]); }
-  }, [tid, includeInProgress]);
-
-  const loadGames = useCallback(async () => {
-    if (!tid) return;
-    try {
-      const res = await fetch(`/api/tournaments/${tid}/poolgames`, { cache: "no-store" });
-      if (!res.ok) return;
-      const data = await res.json();
-      setGames(Array.isArray(data?.games) ? data.games : []);
-    } catch { setGames([]); }
-  }, [tid]);
-
-  useEffect(() => { loadBracket(); }, [loadBracket]);
-  useEffect(() => { loadTeams(); }, [loadTeams]);
-  useEffect(() => { loadStandings(); }, [loadStandings]);
-  useEffect(() => { loadGames(); }, [loadGames]);
-
-  const handleSelectFromLibrary = useCallback(
-    (template: { id: number; name: string; structure: BracketStructure }) => {
-      setTemplateId(template.id);
-      setTemplateName(template.name);
-      setStructure(template.structure);
-      setAssignments({});
-    },
-    []
-  );
-
-  const handleSaveBracket = useCallback(async () => {
-    if (!tid) return;
-    if (!templateId) {
-      setSaveError("Please select a bracket template from the library.");
-      return;
-    }
-    if (!structure) {
-      setSaveError("No bracket structure loaded.");
-      return;
-    }
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const assignmentsArray = Object.entries(assignments)
-        .filter(([, teamId]) => Number.isFinite(teamId))
-        .map(([seedStr, teamId]) => ({ seedIndex: parseInt(seedStr, 10), teamId }));
-      const res = await fetch(`/api/tournaments/${tid}/bracket`, {
-        method: "PUT",
+      const res = await fetch(`/api/tournaments/${tournamentId}/brackets`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId, structure, assignments: assignmentsArray }),
+        body: JSON.stringify({ name: name.trim(), sort_order: nextSortOrder }),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `HTTP ${res.status}`);
-      }
-      loadBracket();
-    } catch (e) {
-      setSaveError(e instanceof Error ? e.message : "Failed to save");
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || "Failed to create");
+      onCreated(j);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Failed to create bracket");
     } finally {
       setSaving(false);
     }
-  }, [tid, structure, templateId, assignments, loadBracket]);
+  };
 
-  // Build standingsOrder — group-aware when groups + advances_per_group are set
-  const advancesPerGroup = t?.advances_per_group ?? null;
-  const hasGroups = standingsRows.some((r) => r.pool_group != null);
+  return (
+    <div className="border border-border bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <span
+          className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          New bracket
+        </span>
+        <button type="button" onClick={onCancel}>
+          <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+        </button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <input
+        className="w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="e.g. Gold Bracket"
+        onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+        autoFocus
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {SUGGESTED_NAMES.map((s) => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setName(s)}
+            className={cn(
+              "px-2 py-0.5 text-[10px] border transition-colors",
+              name === s
+                ? "border-primary text-primary"
+                : "border-border text-muted-foreground hover:border-primary/60"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className={cn(BTN_BASE, "border-border text-muted-foreground hover:bg-muted")}
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={saving}
+          className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          {saving ? "Creating…" : "Create"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
-  const standingsOrder: number[] = (() => {
-    if (!hasGroups || !advancesPerGroup) {
-      // Flat order by rank_final (existing behavior)
-      return standingsRows.map((r) => r.teamid);
-    }
-    // Group-aware interleaved order:
-    // Group A #1 → seed 1, Group B #1 → seed 2, Group A #2 → seed 3, …
-    const groups = Array.from(
-      new Set(standingsRows.map((r) => r.pool_group).filter(Boolean) as string[])
-    ).sort();
+// ---------- Individual bracket panel ----------
+function BracketPanel({
+  bracket,
+  tournamentId,
+  teams,
+  standingsOrder,
+  games,
+  includeInProgress,
+  onIncludeInProgressChange,
+  onDeleted,
+  canEdit,
+}: {
+  bracket: TournamentBracket;
+  tournamentId: number;
+  teams: TeamOpt[];
+  standingsOrder: number[];
+  games: { gamestatusid: number | null }[];
+  includeInProgress: boolean;
+  onIncludeInProgressChange: (v: boolean) => void;
+  onDeleted: (id: number) => void;
+  canEdit: boolean;
+}) {
+  const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
+  const [templateId, setTemplateId] = useState<number | null>(bracket.template_id ?? null);
+  const [templateName, setTemplateName] = useState<string | null>(bracket.template_name ?? null);
+  const [assignments, setAssignments] = useState<Record<number, number>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const autoFillApplied = useRef(false);
 
-    // Per-group sorted rows (within-group rank preserved from global rank_final)
-    const byGroup: Record<string, StandingsRow[]> = {};
-    for (const g of groups) {
-      byGroup[g] = standingsRows.filter((r) => r.pool_group === g);
-    }
-
-    const order: number[] = [];
-    for (let slot = 0; slot < advancesPerGroup; slot++) {
-      // Collect all teams finishing at this rank across every group,
-      // then sort them by global rank_final so cross-group tiebreakers
-      // (W-L%, run differential, etc.) determine seed order rather than
-      // group-letter alphabetical order.
-      const slotTeams: StandingsRow[] = [];
-      for (const g of groups) {
-        const team = byGroup[g]?.[slot];
-        if (team) slotTeams.push(team);
+  // Load assignments on mount
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}/assignments`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const assign: Record<number, number> = {};
+        for (const a of data.assignments ?? []) {
+          assign[a.seedIndex] = a.teamId;
+        }
+        setAssignments(assign);
+      } catch { /* no-op */ } finally {
+        if (!cancelled) setLoading(false);
       }
-      slotTeams.sort((a, b) => a.rank_final - b.rank_final);
-      for (const team of slotTeams) {
-        order.push(team.teamid);
-      }
-    }
-    return order;
-  })();
+    })();
+    return () => { cancelled = true; };
+  }, [tournamentId, bracket.id]);
 
   const atLeastOneFinal = games.some((g) => g.gamestatusid === 4);
   const allFinal = games.length > 0 && games.every((g) => g.gamestatusid === 4);
 
-  const autoFillApplied = useRef(false);
+  // Auto-fill seeds from standings once games are finalized
   useEffect(() => {
     if (autoFillApplied.current) return;
-    if (!atLeastOneFinal || standingsOrder.length === 0 || !structure) return;
+    if (!atLeastOneFinal || standingsOrder.length === 0 || !structure || loading) return;
     const next: Record<number, number> = {};
     for (let seed = 1; seed <= structure.numTeams && seed <= standingsOrder.length; seed++) {
       next[seed] = standingsOrder[seed - 1];
     }
     setAssignments(next);
     autoFillApplied.current = true;
-  }, [atLeastOneFinal, standingsOrder, structure]);
+  }, [atLeastOneFinal, standingsOrder, structure, loading]);
+
+  const handleSelectTemplate = useCallback(
+    (template: { id: number; name: string; structure: BracketStructure }) => {
+      setTemplateId(template.id);
+      setTemplateName(template.name);
+      setStructure(template.structure);
+      setAssignments({});
+      autoFillApplied.current = false;
+      setPickerOpen(false);
+    },
+    []
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!structure || !templateId) {
+      setError("Select a bracket template first.");
+      return;
+    }
+    setSaving(true); setError(null);
+    try {
+      const patchRes = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ template_id: templateId, structure }),
+      });
+      if (!patchRes.ok) {
+        const j = await patchRes.json().catch(() => ({}));
+        throw new Error(j.error || "Failed to save bracket");
+      }
+      const assignmentsArray = Object.entries(assignments)
+        .filter(([, teamId]) => Number.isFinite(teamId))
+        .map(([seedStr, teamId]) => ({ seedIndex: parseInt(seedStr, 10), teamId }));
+      const asgRes = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}/assignments`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assignments: assignmentsArray }),
+      });
+      if (!asgRes.ok) {
+        const j = await asgRes.json().catch(() => ({}));
+        throw new Error(j.error || "Failed to save assignments");
+      }
+    } catch (e: unknown) {
+      setError((e as Error).message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }, [tournamentId, bracket.id, structure, templateId, assignments]);
+
+  const handleDelete = useCallback(async () => {
+    if (!confirm(`Delete "${bracket.name}"? This will remove the bracket and all seed assignments.`)) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Delete failed");
+      }
+      onDeleted(bracket.id);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Delete failed");
+      setDeleting(false);
+    }
+  }, [tournamentId, bracket.id, bracket.name, onDeleted]);
 
   const seedLabels = seedLabelsFromAssignments(assignments, teams);
-
-  if (bracketLoading && !structure && !bracketError) {
-    return (
-      <div className="space-y-3">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="h-32 rounded-xl bg-muted/30 animate-pulse border border-border/40" />
-        ))}
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -217,23 +281,36 @@ function BracketBody() {
             Select a bracket template and assign teams to seeds.
           </p>
         </div>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={includeInProgress}
-            onChange={(e) => setIncludeInProgress(e.target.checked)}
-            className="w-3.5 h-3.5 accent-primary cursor-pointer"
-          />
-          <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-            Include In Progress
-          </span>
-        </label>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeInProgress}
+              onChange={(e) => onIncludeInProgressChange(e.target.checked)}
+              className="w-3.5 h-3.5 accent-primary cursor-pointer"
+            />
+            <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Include In Progress
+            </span>
+          </label>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+              title="Delete bracket"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
-      {bracketError && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+      {error && (
+        <div className="flex items-start gap-2 text-sm text-destructive border border-destructive/40 bg-destructive/10 p-3">
           <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-          <span>Could not load existing bracket. You can still apply a new one below.</span>
+          <span>{error}</span>
         </div>
       )}
 
@@ -242,7 +319,7 @@ function BracketBody() {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-foreground">Bracket template</h3>
-            {bracketSaved && !pickerExpanded && templateName ? (
+            {templateName && !pickerOpen ? (
               <p className="text-xs text-muted-foreground mt-0.5">
                 Using <span className="text-foreground font-medium">{templateName}</span>
                 {structure?.numTeams ? ` · ${structure.numTeams} seeds` : ""}
@@ -251,22 +328,22 @@ function BracketBody() {
               <p className="text-xs text-muted-foreground mt-0.5">Choose a bracket structure from the library.</p>
             )}
           </div>
-          {canEdit && bracketSaved && (
+          {canEdit && (
             <button
               type="button"
-              onClick={() => setPickerExpanded((v) => !v)}
+              onClick={() => setPickerOpen((v) => !v)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
               <RefreshCw className="h-3.5 w-3.5" />
-              {pickerExpanded ? "Hide browser" : "Change bracket"}
-              {pickerExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              {pickerOpen ? "Hide browser" : templateName ? "Change bracket" : "Select template"}
+              {pickerOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
             </button>
           )}
         </div>
 
-        {canEdit && pickerExpanded && (
+        {canEdit && pickerOpen && (
           <div className="mt-4 space-y-4">
-            <LibraryPicker onSelect={handleSelectFromLibrary} selectedId={templateId} />
+            <LibraryPicker onSelect={handleSelectTemplate} selectedId={templateId} />
           </div>
         )}
 
@@ -302,12 +379,11 @@ function BracketBody() {
         </div>
       </div>
 
-
       {/* Save */}
       {canEdit && (
         <div className="flex items-center gap-4">
           <Button
-            onClick={handleSaveBracket}
+            onClick={handleSave}
             disabled={
               !templateId ||
               !structure ||
@@ -318,8 +394,226 @@ function BracketBody() {
           >
             {saving ? "Saving…" : "Save bracket"}
           </Button>
-          {saveError && <span className="text-sm text-destructive">{saveError}</span>}
+          {error && <span className="text-sm text-destructive">{error}</span>}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Main body ----------
+function BracketBody() {
+  const { tid, t, canEdit } = useTournament();
+  const [brackets, setBrackets] = useState<TournamentBracket[]>([]);
+  const [activeBracketId, setActiveBracketId] = useState<number | null>(null);
+  const [teams, setTeams] = useState<TeamOpt[]>([]);
+  const [standingsRows, setStandingsRows] = useState<StandingsRow[]>([]);
+  const [games, setGames] = useState<{ gamestatusid: number | null }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [includeInProgress, setIncludeInProgress] = useState(false);
+
+  const loadBrackets = useCallback(async () => {
+    if (!tid) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/tournaments/${tid}/brackets`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      const list: TournamentBracket[] = Array.isArray(data?.brackets) ? data.brackets : [];
+      setBrackets(list);
+      if (list.length > 0) {
+        setActiveBracketId((prev) => (prev != null && list.some((b) => b.id === prev) ? prev : list[0].id));
+      }
+    } catch { /* no-op */ } finally {
+      setLoading(false);
+    }
+  }, [tid]);
+
+  const loadTeams = useCallback(async () => {
+    if (!tid) return;
+    try {
+      const res = await fetch(`/api/tournaments/${tid}/teams`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setTeams(Array.isArray(data) ? data : data?.rows ?? data?.teams ?? []);
+    } catch { setTeams([]); }
+  }, [tid]);
+
+  const loadStandings = useCallback(async () => {
+    if (!tid) return;
+    try {
+      const res = await fetch(`/api/tournaments/${tid}/standings?includeInProgress=${includeInProgress}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setStandingsRows(Array.isArray(data?.standings) ? data.standings : []);
+    } catch { setStandingsRows([]); }
+  }, [tid, includeInProgress]);
+
+  const loadGames = useCallback(async () => {
+    if (!tid) return;
+    try {
+      const res = await fetch(`/api/tournaments/${tid}/poolgames`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setGames(Array.isArray(data?.games) ? data.games : []);
+    } catch { setGames([]); }
+  }, [tid]);
+
+  useEffect(() => { loadBrackets(); }, [loadBrackets]);
+  useEffect(() => { loadTeams(); }, [loadTeams]);
+  useEffect(() => { loadStandings(); }, [loadStandings]);
+  useEffect(() => { loadGames(); }, [loadGames]);
+
+  // Build standingsOrder — group-aware when groups + advances_per_group are set
+  const advancesPerGroup = t?.advances_per_group ?? null;
+  const hasGroups = standingsRows.some((r) => r.pool_group != null);
+
+  const standingsOrder: number[] = (() => {
+    if (!hasGroups || !advancesPerGroup) {
+      return standingsRows.map((r) => r.teamid);
+    }
+    const groups = Array.from(
+      new Set(standingsRows.map((r) => r.pool_group).filter(Boolean) as string[])
+    ).sort();
+    const byGroup: Record<string, StandingsRow[]> = {};
+    for (const g of groups) {
+      byGroup[g] = standingsRows.filter((r) => r.pool_group === g);
+    }
+    const order: number[] = [];
+    for (let slot = 0; slot < advancesPerGroup; slot++) {
+      const slotTeams: StandingsRow[] = [];
+      for (const g of groups) {
+        const team = byGroup[g]?.[slot];
+        if (team) slotTeams.push(team);
+      }
+      slotTeams.sort((a, b) => a.rank_final - b.rank_final);
+      for (const team of slotTeams) {
+        order.push(team.teamid);
+      }
+    }
+    return order;
+  })();
+
+  const handleBracketCreated = (b: TournamentBracket) => {
+    setBrackets((prev) => [...prev, b].sort((a, x) => a.sort_order - x.sort_order));
+    setActiveBracketId(b.id);
+    setShowCreate(false);
+  };
+
+  const handleBracketDeleted = (id: number) => {
+    setBrackets((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      if (activeBracketId === id) {
+        setActiveBracketId(next.length > 0 ? next[0].id : null);
+      }
+      return next;
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} className="h-32 rounded-xl bg-muted/30 animate-pulse border border-border/40" />
+        ))}
+      </div>
+    );
+  }
+
+  const activeBracket = brackets.find((b) => b.id === activeBracketId) ?? null;
+
+  return (
+    <div className="space-y-0">
+      {/* Tab bar */}
+      <div className="flex items-end gap-0 border-b border-border/60 mb-6">
+        {brackets.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            onClick={() => { setActiveBracketId(b.id); setShowCreate(false); }}
+            className={cn(
+              "px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap",
+              b.id === activeBracketId
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {b.name}
+          </button>
+        ))}
+        {canEdit && brackets.length < 20 && (
+          <button
+            type="button"
+            onClick={() => { setShowCreate((s) => !s); setActiveBracketId(null); }}
+            className={cn(
+              "px-3 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1",
+              showCreate
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            <Plus className="h-3 w-3" />
+            Add
+          </button>
+        )}
+      </div>
+
+      {/* Create form */}
+      {showCreate && tid && (
+        <div className="mb-6">
+          <CreateBracketForm
+            tournamentId={tid}
+            nextSortOrder={brackets.length}
+            onCreated={handleBracketCreated}
+            onCancel={() => setShowCreate(false)}
+          />
+        </div>
+      )}
+
+      {/* Empty state */}
+      {brackets.length === 0 && !showCreate && (
+        <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border/60 rounded-xl">
+          <GitBranch className="h-8 w-8 text-muted-foreground/30 mb-3" />
+          <p
+            className="text-sm font-medium text-foreground mb-1"
+            style={{ fontFamily: "var(--font-display)", textTransform: "uppercase" }}
+          >
+            No Brackets Yet
+          </p>
+          <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+            Add brackets like &ldquo;Gold&rdquo; and &ldquo;Silver&rdquo; for your tournament.
+          </p>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className={cn(BTN_BASE, "mt-4 bg-primary text-primary-foreground border-primary hover:opacity-90")}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Bracket
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Active bracket panel */}
+      {activeBracket && (
+        <BracketPanel
+          key={activeBracket.id}
+          bracket={activeBracket}
+          tournamentId={tid!}
+          teams={teams}
+          standingsOrder={standingsOrder}
+          games={games}
+          includeInProgress={includeInProgress}
+          onIncludeInProgressChange={setIncludeInProgress}
+          onDeleted={handleBracketDeleted}
+          canEdit={canEdit}
+        />
       )}
     </div>
   );
