@@ -164,9 +164,7 @@ function OverviewTab({
                 </dd>
               </div>
             )}
-            {(game.location || game.location_id != null) && (() => {
-              // Prefer the official location name when the game points at one,
-              // since freeform `location` may be empty in that case.
+            {(game.location || game.location_id != null || game.field || canEditField) && (() => {
               const displayLocation = game.location ?? game.location_name ?? null;
               const addressParts = [
                 game.location_address,
@@ -177,78 +175,81 @@ function OverviewTab({
               const query = addressParts.length > 0
                 ? `${queryBase}${queryBase ? ", " : ""}${addressParts.join(", ")}`
                 : displayLocation;
+              const showLocation = game.location || game.location_id != null;
+              const showField = game.field || canEditField;
               return (
-                <div>
-                  <dt className={labelCls}>Location</dt>
-                  <dd className={valueCls}>
-                    <LocationDisplay
-                      locationId={game.location_id}
-                      location={displayLocation}
-                      field={null}
-                    />
-                    {query && (
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 ml-2 text-primary hover:underline text-xs uppercase tracking-[0.08em] font-semibold"
-                      >
-                        <Navigation className="h-3 w-3" />
-                        Directions
-                      </a>
-                    )}
-                  </dd>
+                <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {showLocation && (
+                    <div>
+                      <dt className={labelCls}>Location</dt>
+                      <dd className={valueCls}>
+                        <LocationDisplay
+                          locationId={game.location_id}
+                          location={displayLocation}
+                          field={null}
+                        />
+                        {query && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 ml-2 text-primary hover:underline text-xs uppercase tracking-[0.08em] font-semibold"
+                          >
+                            <Navigation className="h-3 w-3" />
+                            Directions
+                          </a>
+                        )}
+                      </dd>
+                    </div>
+                  )}
+                  {showField && (
+                    <div>
+                      <dt className={labelCls}>Field</dt>
+                      <dd className={valueCls}>
+                        {canEditField ? (
+                          officialFields.length > 0 ? (
+                            <select
+                              className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
+                              value={
+                                game.field && officialFields.some((f) => f.name === game.field)
+                                  ? game.field
+                                  : ""
+                              }
+                              disabled={savingField}
+                              onChange={(e) => saveField(e.target.value || null)}
+                            >
+                              <option value="">Select a field…</option>
+                              {officialFields.map((f) => (
+                                <option key={f.id} value={f.name}>
+                                  {f.name}
+                                </option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="text"
+                              className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
+                              placeholder="Field / court (optional)"
+                              defaultValue={game.field ?? ""}
+                              disabled={savingField}
+                              onBlur={(e) => {
+                                const v = e.target.value.trim();
+                                if ((v || null) !== (game.field ?? null)) saveField(v || null);
+                              }}
+                            />
+                          )
+                        ) : (
+                          <span>{game.field}</span>
+                        )}
+                        {fieldError && (
+                          <span className="ml-2 text-xs text-destructive">{fieldError}</span>
+                        )}
+                      </dd>
+                    </div>
+                  )}
                 </div>
               );
             })()}
-
-            {/* Field — read-only for non-hosts; editable for the hosting team
-                on scrimmages. Show even when blank so the host can add one. */}
-            {(game.field || canEditField) && (
-              <div>
-                <dt className={labelCls}>Field</dt>
-                <dd className={valueCls}>
-                  {canEditField ? (
-                    officialFields.length > 0 ? (
-                      <select
-                        className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
-                        value={
-                          game.field && officialFields.some((f) => f.name === game.field)
-                            ? game.field
-                            : ""
-                        }
-                        disabled={savingField}
-                        onChange={(e) => saveField(e.target.value || null)}
-                      >
-                        <option value="">Select a field…</option>
-                        {officialFields.map((f) => (
-                          <option key={f.id} value={f.name}>
-                            {f.name}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type="text"
-                        className="border border-border bg-input px-2 py-1 text-sm text-foreground focus:outline-none focus:border-primary disabled:opacity-60"
-                        placeholder="Field / court (optional)"
-                        defaultValue={game.field ?? ""}
-                        disabled={savingField}
-                        onBlur={(e) => {
-                          const v = e.target.value.trim();
-                          if ((v || null) !== (game.field ?? null)) saveField(v || null);
-                        }}
-                      />
-                    )
-                  ) : (
-                    <span>{game.field}</span>
-                  )}
-                  {fieldError && (
-                    <span className="ml-2 text-xs text-destructive">{fieldError}</span>
-                  )}
-                </dd>
-              </div>
-            )}
           </dl>
         </CardContent>
       </Card>
