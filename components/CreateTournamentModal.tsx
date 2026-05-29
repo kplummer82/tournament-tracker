@@ -117,6 +117,7 @@ export default function CreateTournamentModal({
   const setOpen = isControlled ? (controlledOnOpenChange!) : setInternalOpen;
 
   const [form, setForm] = useState<FormState>({ year: new Date().getFullYear() });
+  const [validationError, setValidationError] = useState<string | null>(null);
   const { sports, statuses, visibilities, divisions, bats, loading, error } = useLookups();
 
   const filteredBats = form.sportId
@@ -128,7 +129,7 @@ export default function CreateTournamentModal({
     if (open && initialValues && Object.keys(initialValues).length > 0) {
       setForm((prev) => ({ ...prev, ...initialValues }));
     }
-    if (!open) setForm((prev) => ({ ...prev, year: new Date().getFullYear() }));
+    if (!open) { setForm((prev) => ({ ...prev, year: new Date().getFullYear() })); setValidationError(null); }
   }, [open, initialValues]);
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -141,8 +142,17 @@ export default function CreateTournamentModal({
   }
 
   const handleSubmit = async () => {
-    if (!form.name) return;
-    if (!form.sportId || !form.statusId || !form.visibilityId || !form.divisionId) return;
+    setValidationError(null);
+    const missing: string[] = [];
+    if (!form.name?.trim()) missing.push("Tournament name");
+    if (!form.divisionId) missing.push("Division");
+    if (!form.sportId) missing.push("Sport");
+    if (!form.statusId) missing.push("Status");
+    if (!form.visibilityId) missing.push("Visibility");
+    if (missing.length > 0) {
+      setValidationError(`Required: ${missing.join(", ")}`);
+      return;
+    }
 
     const payload = {
       name: form.name?.trim(),
@@ -479,6 +489,10 @@ export default function CreateTournamentModal({
             )}
           </div>
         </div>
+
+        {validationError ? (
+          <p className="text-sm text-destructive">{validationError}</p>
+        ) : null}
 
         <DialogFooter className="gap-2">
           <button
