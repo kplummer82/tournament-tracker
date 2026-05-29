@@ -287,7 +287,7 @@ export default function AddTeamsModal({
                 <SelectValue placeholder="Year" />
               </SelectTrigger>
               <SelectContent>
-                {["2025","2024","2023","2022"].map((y) => (
+                {Array.from({ length: 11 }, (_, i) => String(new Date().getFullYear() - i)).map((y) => (
                   <SelectItem key={y} value={y}>{y}</SelectItem>
                 ))}
               </SelectContent>
