@@ -14,6 +14,7 @@ import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import type { GameDetail } from "@/pages/api/games/[source]/[gameId]";
 import { ReportsTab } from "@/components/games/ReportsTab";
 import { LocationDisplay } from "@/components/LocationPicker";
+import { usePermissions } from "@/lib/hooks/usePermissions";
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
@@ -1199,18 +1200,21 @@ function TeamPickerCard({
 /* ─── Permissions helper ─────────────────────────────────────── */
 
 /**
- * Returns the team IDs the current user can manage for this game.
- * Currently all users are admins → both teams.
- * When role-based access is added, wire this to real permissions.
+ * Returns the team IDs the current user can actually manage for this game,
+ * filtered by their roles. Admins see both teams; non-admins only see teams
+ * they have a team_manager role for (or the league/division covering them).
+ *
+ * For scrimmages both the host and visiting team should be in scope when
+ * the viewer manages either side — the host gets extra capabilities (e.g.
+ * editing the field) gated separately on game.home === managingTeamId.
  */
-function getManageableTeams(game: GameDetail): number[] {
-  // For scrimmages: only the owning team (home/team_id) can manage
-  if (game.source === "scrimmage") {
-    return game.home ? [game.home] : [];
-  }
+function getManageableTeams(
+  game: GameDetail,
+  canEditTeam: (teamId: number) => boolean
+): number[] {
   const teams: number[] = [];
-  if (game.home) teams.push(game.home);
-  if (game.away) teams.push(game.away);
+  if (game.home && canEditTeam(game.home)) teams.push(game.home);
+  if (game.away && canEditTeam(game.away)) teams.push(game.away);
   return teams;
 }
 
@@ -1231,6 +1235,8 @@ export default function GameDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<TabKey>("overview");
   const [managingTeamId, setManagingTeamId] = useState<number>(NaN);
+
+  const { canEditTeam, loading: permsLoading } = usePermissions();
 
   useEffect(() => {
     if (!source || !Number.isFinite(gameId)) return;
@@ -1258,16 +1264,19 @@ export default function GameDetailPage() {
     return () => { cancelled = true; };
   }, [source, gameId]);
 
-  // Auto-select team: use URL param if valid, otherwise auto-pick if only one manageable team
+  // Auto-select team: use URL param if valid, otherwise auto-pick if only one manageable team.
+  // Wait for permissions so we don't briefly auto-select a team the viewer can't manage.
   useEffect(() => {
-    if (!game) return;
-    const manageable = getManageableTeams(game);
+    if (!game || permsLoading) return;
+    const manageable = getManageableTeams(game, canEditTeam);
     if (Number.isFinite(teamIdFromUrl) && manageable.includes(teamIdFromUrl)) {
       setManagingTeamId(teamIdFromUrl);
     } else if (manageable.length === 1) {
       setManagingTeamId(manageable[0]);
+    } else {
+      setManagingTeamId(NaN);
     }
-  }, [game, teamIdFromUrl]);
+  }, [game, teamIdFromUrl, permsLoading, canEditTeam]);
 
   const selectTeam = (id: number) => {
     setManagingTeamId(id);
@@ -1277,7 +1286,7 @@ export default function GameDetailPage() {
     router.replace(url.pathname + url.search, undefined, { shallow: true });
   };
 
-  const manageable = game ? getManageableTeams(game) : [];
+  const manageable = game ? getManageableTeams(game, canEditTeam) : [];
   const needsTeamPicker = !Number.isFinite(managingTeamId) && manageable.length > 1;
 
   const backHref = returnTo ?? (Number.isFinite(managingTeamId) ? `/teams/${managingTeamId}` : source === "tournament" && game ? `/tournaments/${game.context_id}/pool` : game?.source === "season" && game?.context_id ? `/seasons/${game.context_id}/schedule` : "/teams");
