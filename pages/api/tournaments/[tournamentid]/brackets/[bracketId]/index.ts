@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import type { BracketStructure } from "@/components/bracket/types";
+import { syncTournamentBracketGames } from "@/lib/tournament-bracket-games";
 
 function parseTournamentId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.tournamentid)
@@ -76,6 +78,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         RETURNING id, tournament_id, name, sort_order, template_id, structure, updated_at
       `;
       if (rows.length === 0) return res.status(404).json({ error: "Bracket not found" });
+
+      // If the structure changed, sync tournamentgames so new bracket games exist
+      // (and orphaned unscored rows for the old structure are cleaned up).
+      if (structure !== undefined && structure != null) {
+        const assignmentRows = (await sql`
+          SELECT seed_index, team_id
+          FROM public.tournament_bracket_assignments
+          WHERE bracket_id = ${bracketId}
+        `) as { seed_index: number; team_id: number }[];
+        const assignments = assignmentRows.map((r) => ({ seedIndex: r.seed_index, teamId: r.team_id }));
+        await syncTournamentBracketGames(
+          tournamentId,
+          bracketId,
+          rows[0].structure as BracketStructure,
+          assignments,
+        );
+      }
+
       return res.status(200).json(rows[0]);
     }
 

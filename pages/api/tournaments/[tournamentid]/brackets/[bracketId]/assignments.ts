@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import type { BracketStructure } from "@/components/bracket/types";
+import { syncTournamentBracketGames, repropagateTournamentWinners } from "@/lib/tournament-bracket-games";
 
 function parseTournamentId(req: NextApiRequest): number | null {
   const raw = Array.isArray(req.query.tournamentid)
@@ -25,12 +27,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!tournamentId) return res.status(400).json({ error: "Invalid tournamentid" });
   if (!bracketId) return res.status(400).json({ error: "Invalid bracketId" });
 
-  // Verify bracket belongs to this tournament
-  const bracketCheck = await sql`
-    SELECT id FROM public.tournament_brackets
+  // Verify bracket belongs to this tournament and load its structure for downstream sync
+  const bracketCheck = (await sql`
+    SELECT id, structure FROM public.tournament_brackets
     WHERE id = ${bracketId} AND tournament_id = ${tournamentId}
-  `;
+  `) as { id: number; structure: BracketStructure | null }[];
   if (bracketCheck.length === 0) return res.status(404).json({ error: "Bracket not found" });
+  const bracketStructure = bracketCheck[0].structure;
 
   try {
     if (req.method === "GET") {
@@ -72,6 +75,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           INSERT INTO public.tournament_bracket_assignments (bracket_id, seed_index, team_id)
           VALUES (${bracketId}, ${a.seedIndex}, ${a.teamId})
         `;
+      }
+
+      // Sync tournamentgames rows from the bracket structure, then re-propagate
+      // any already-scored winners in case earlier-round seedings changed.
+      if (bracketStructure) {
+        await syncTournamentBracketGames(tournamentId, bracketId, bracketStructure, assignments);
+        await repropagateTournamentWinners(tournamentId, bracketId);
       }
 
       const rows = await sql`

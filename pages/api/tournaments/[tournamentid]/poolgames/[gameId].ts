@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
 import { requireTournamentAccess } from "@/lib/auth/requireSession";
+import { advanceTournamentWinner } from "@/lib/tournament-bracket-games";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tournamentid = Number(req.query.tournamentid);
@@ -67,10 +68,28 @@ async function patchGame(req: NextApiRequest, res: NextApiResponse, tournamentid
         `UPDATE tournamentgames
             SET ${sets.join(", ")}
           WHERE id = $${i++} AND tournamentid = $${i++}
-          RETURNING id`,
+          RETURNING id, bracket_id, bracket_game_id`,
         params,
       );
       if (!r.rowCount) return res.status(404).json({ error: "Game not found" });
+
+      // If this was a bracket game and scores/status touched, propagate the winner
+      const updated = r.rows[0];
+      const scoreOrStatusChanged =
+        "homescore" in body || "awayscore" in body || "gamestatusid" in body;
+      if (updated.bracket_id != null && updated.bracket_game_id != null && scoreOrStatusChanged) {
+        try {
+          await advanceTournamentWinner(
+            tournamentid,
+            Number(updated.id),
+            Number(updated.bracket_id),
+            String(updated.bracket_game_id),
+          );
+        } catch (err) {
+          console.error("[advanceTournamentWinner]", err);
+        }
+      }
+
       return res.status(200).json({ ok: true });
     } finally {
       client.release();

@@ -3,7 +3,10 @@ import Link from "next/link";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
 import BracketPreview from "@/components/bracket/BracketPreview";
+import type { BracketGameDetails } from "@/components/bracket/BracketPreview";
 import LibraryPicker from "@/components/bracket/LibraryPicker";
+import BracketGameScheduleModal from "@/components/bracket/BracketGameScheduleModal";
+import type { BracketGameRecord } from "@/components/bracket/BracketGameScheduleModal";
 import { seedLabelsFromAssignments } from "@/components/bracket/SeedAssignment";
 import { Button } from "@/components/ui/button";
 import type { BracketStructure } from "@/components/bracket/types";
@@ -177,9 +180,20 @@ function BracketPanel({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(bracket.name);
+  const [bracketGames, setBracketGames] = useState<BracketGameRecord[]>([]);
+  const [scheduleGame, setScheduleGame] = useState<BracketGameRecord | null>(null);
   const autoFillApplied = useRef(false);
 
-  // Load assignments on mount
+  const fetchBracketGames = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}/games`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      setBracketGames(Array.isArray(data?.games) ? data.games : []);
+    } catch { /* no-op */ }
+  }, [tournamentId, bracket.id]);
+
+  // Load assignments + bracket games on mount
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -197,9 +211,17 @@ function BracketPanel({
       } catch { /* no-op */ } finally {
         if (!cancelled) setLoading(false);
       }
+      if (!cancelled) fetchBracketGames();
     })();
     return () => { cancelled = true; };
-  }, [tournamentId, bracket.id]);
+  }, [tournamentId, bracket.id, fetchBracketGames]);
+
+  // Refresh on window focus so scores entered elsewhere stay in sync
+  useEffect(() => {
+    const onFocus = () => fetchBracketGames();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [fetchBracketGames]);
 
   const atLeastOneFinal = games.some((g) => g.gamestatusid === 4);
   const allFinal = games.length > 0 && games.every((g) => g.gamestatusid === 4);
@@ -259,12 +281,14 @@ function BracketPanel({
       }
       // Propagate the new structure/template up so re-mounting (e.g. tab switch) keeps the saved state
       onUpdated({ id: bracket.id, structure, template_id: templateId, template_name: templateName });
+      // Refresh bracket games — sync may have generated new rows
+      await fetchBracketGames();
     } catch (e: unknown) {
       setError((e as Error).message || "Save failed");
     } finally {
       setSaving(false);
     }
-  }, [tournamentId, bracket.id, structure, templateId, templateName, assignments, onUpdated]);
+  }, [tournamentId, bracket.id, structure, templateId, templateName, assignments, onUpdated, fetchBracketGames]);
 
   const handleRename = useCallback(async () => {
     const trimmed = nameDraft.trim();
@@ -310,8 +334,41 @@ function BracketPanel({
 
   const seedLabels = seedLabelsFromAssignments(assignments, teams);
 
+  // Build gameDetails map for BracketPreview
+  const gameDetailsMap: Record<string, BracketGameDetails> = {};
+  for (const g of bracketGames) {
+    if (g.bracket_game_id) {
+      gameDetailsMap[g.bracket_game_id] = {
+        gamedate: g.gamedate,
+        gametime: g.gametime,
+        location: g.location,
+        homescore: g.homescore,
+        awayscore: g.awayscore,
+        home_team: g.home_team,
+        away_team: g.away_team,
+      };
+    }
+  }
+
+  const handleGameClick = (bracketGameId: string) => {
+    const game = bracketGames.find((g) => g.bracket_game_id === bracketGameId);
+    if (game) setScheduleGame(game);
+  };
+
   return (
     <div className="space-y-5">
+      {scheduleGame && (
+        <BracketGameScheduleModal
+          open={!!scheduleGame}
+          onOpenChange={(open) => { if (!open) setScheduleGame(null); }}
+          game={scheduleGame}
+          tournamentId={tournamentId}
+          onSaved={() => {
+            setScheduleGame(null);
+            fetchBracketGames();
+          }}
+        />
+      )}
       <div className="flex items-center justify-between">
         <div>
           {renaming ? (
@@ -430,6 +487,8 @@ function BracketPanel({
                 seedLabels={seedLabels}
                 seedOffset={seedOffset}
                 editable={false}
+                onGameClick={bracketGames.length > 0 ? handleGameClick : undefined}
+                gameDetails={bracketGames.length > 0 ? gameDetailsMap : undefined}
               />
               {atLeastOneFinal && !allFinal && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400">
