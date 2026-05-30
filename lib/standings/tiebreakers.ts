@@ -54,6 +54,8 @@ export function evaluateTiebreaker(
   switch (code) {
     case "head_to_head":
       return headToHead(teamId, memberIds, h2hGames, false);
+    case "head_to_head_strict_pair":
+      return headToHeadStrictPair(teamId, memberIds, h2hGames);
     case "head_to_group":
       return headToHead(teamId, memberIds, h2hGames, true);
     case "head_to_head_rundiff":
@@ -74,6 +76,8 @@ export function evaluateTiebreaker(
       return strengthOfSchedule(teamId, allGames, allStats);
     case "fewest_forfeits":
       return fewestForfeits(teamId, allGames);
+    case "last_game_actual_rundiff":
+      return lastGameActualRunDiff(teamId, allGames, config);
     case "coin_toss":
       return coinToss(teamId);
   }
@@ -410,6 +414,90 @@ function fewestForfeits(teamId: number, allGames: GameRecord[]): number {
     if (g.away === teamId && g.winnerSide === "home") count++; // away forfeited
   }
   return count;
+}
+
+/**
+ * Strict 2-team Head-to-Head: only applies when the tied group is exactly 2 teams
+ * AND those two teams have actually played each other. Otherwise returns null
+ * (tiebreaker is skipped). Higher H2H win% wins (DESC).
+ */
+function headToHeadStrictPair(
+  teamId: number,
+  memberIds: number[],
+  h2hGames: GameRecord[]
+): number | null {
+  if (memberIds.length !== 2) return null;
+
+  const [a, b] = memberIds;
+  const opp = teamId === a ? b : a;
+
+  let totalWinPts = 0;
+  let gameCount = 0;
+  for (const g of h2hGames) {
+    if (g.home === teamId && g.away === opp) {
+      totalWinPts += winPts(g, "home");
+      gameCount++;
+    } else if (g.away === teamId && g.home === opp) {
+      totalWinPts += winPts(g, "away");
+      gameCount++;
+    }
+  }
+
+  if (gameCount === 0) return null;
+  return totalWinPts / gameCount;
+}
+
+/**
+ * Last Game — Actual Run Differential.
+ *
+ * Picks the chronologically latest pool/regular-season game this team played
+ * (order by gamedate DESC, gametime DESC, gameid DESC) and returns the team's
+ * uncapped run differential for that game. "ACTUAL" = NOT capped by maxrundiff.
+ *
+ * Forfeits ARE included: forfeit_run_diff is used as the signed differential
+ * (±forfeit_run_diff depending on who won the forfeit). For tournaments where
+ * forfeit_run_diff = 0 this contributes 0.
+ *
+ * Returns null if the team has played zero qualifying games. Higher is better (DESC).
+ */
+function lastGameActualRunDiff(
+  teamId: number,
+  allGames: GameRecord[],
+  config: SeasonConfig
+): number | null {
+  let best: GameRecord | null = null;
+  for (const g of allGames) {
+    if (g.home !== teamId && g.away !== teamId) continue;
+    if (best === null || compareGameRecency(g, best) > 0) {
+      best = g;
+    }
+  }
+  if (best === null) return null;
+
+  if (best.winnerSide === "home") {
+    return best.home === teamId ? config.forfeit_run_diff : -config.forfeit_run_diff;
+  }
+  if (best.winnerSide === "away") {
+    return best.away === teamId ? config.forfeit_run_diff : -config.forfeit_run_diff;
+  }
+
+  const hs = best.homescore ?? 0;
+  const as_ = best.awayscore ?? 0;
+  return best.home === teamId ? hs - as_ : as_ - hs;
+}
+
+/**
+ * Compare two games by recency. Returns >0 if `a` is more recent than `b`.
+ * Order: gamedate DESC, gametime DESC, gameid DESC. Missing fields sort earliest.
+ */
+function compareGameRecency(a: GameRecord, b: GameRecord): number {
+  const ad = a.gamedate ?? "";
+  const bd = b.gamedate ?? "";
+  if (ad !== bd) return ad > bd ? 1 : -1;
+  const at = a.gametime ?? "";
+  const bt = b.gametime ?? "";
+  if (at !== bt) return at > bt ? 1 : -1;
+  return a.gameid - b.gameid;
 }
 
 /**

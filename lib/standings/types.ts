@@ -5,6 +5,11 @@ export type GameRecord = {
   homescore: number | null;
   awayscore: number | null;
   winnerSide: "home" | "away" | null; // null = scored game; 'home'/'away' = forfeit winner
+  // Optional timestamp fields for tiebreakers that need chronological ordering
+  // (e.g. last_game_actual_rundiff). Tournaments use gamedate + gametime; seasons
+  // may only populate gamedate. May be omitted when not needed.
+  gamedate?: string | null;
+  gametime?: string | null;
 };
 
 export type TeamRecord = { teamid: number; team: string };

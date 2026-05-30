@@ -47,7 +47,7 @@ export async function fetchSeasonStandingsData(
   let gameRows;
   if (asOfDate) {
     gameRows = await sql`
-      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
       FROM season_games
       WHERE season_id = ${seasonId}
         AND game_type = 'regular'
@@ -56,7 +56,7 @@ export async function fetchSeasonStandingsData(
     `;
   } else if (includeInProgress) {
     gameRows = await sql`
-      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
       FROM season_games
       WHERE season_id = ${seasonId}
         AND game_type = 'regular'
@@ -64,7 +64,7 @@ export async function fetchSeasonStandingsData(
     `;
   } else {
     gameRows = await sql`
-      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
       FROM season_games
       WHERE season_id = ${seasonId}
         AND game_type = 'regular'
@@ -81,6 +81,8 @@ export async function fetchSeasonStandingsData(
     homescore: number | null;
     awayscore: number | null;
     gamestatusid: number;
+    gamedate: string | Date | null;
+    gametime: string | null;
   }[]).map((g) => ({
     gameid: Number(g.gameid),
     home: Number(g.home),
@@ -91,6 +93,8 @@ export async function fetchSeasonStandingsData(
       g.gamestatusid === 6 ? "away"  // Home team forfeited → away wins
       : g.gamestatusid === 7 ? "home" // Away team forfeited → home wins
       : null,
+    gamedate: g.gamedate instanceof Date ? g.gamedate.toISOString().slice(0, 10) : g.gamedate,
+    gametime: g.gametime ?? null,
   }));
 
   const tiebreakers: TiebreakerConfig[] = (tbRows as {
@@ -130,7 +134,7 @@ export async function fetchTournamentStandingsData(tournamentId: number): Promis
       WHERE tt.tournamentid = ${tournamentId}
     `,
     sql`
-      SELECT id AS gameid, home, away, homescore, awayscore
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
       FROM tournamentgames
       WHERE tournamentid = ${tournamentId}
         AND poolorbracket = 'Pool'
@@ -156,13 +160,17 @@ export async function fetchTournamentStandingsData(tournamentId: number): Promis
 
   const teams = teamRows as TeamRecord[];
 
-  // Tournament pool games have no forfeits — winnerSide always null
+  // Tournament pool games filter out NULL scores above, so forfeits (status 6/7
+  // with NULL scores) never make it into this set. winnerSide stays null.
   const games: GameRecord[] = (gameRows as {
     gameid: number;
     home: number;
     away: number;
     homescore: number;
     awayscore: number;
+    gamestatusid: number | null;
+    gamedate: string | Date | null;
+    gametime: string | null;
   }[]).map((g) => ({
     gameid: Number(g.gameid),
     home: Number(g.home),
@@ -170,6 +178,8 @@ export async function fetchTournamentStandingsData(tournamentId: number): Promis
     homescore: Number(g.homescore),
     awayscore: Number(g.awayscore),
     winnerSide: null,
+    gamedate: g.gamedate instanceof Date ? g.gamedate.toISOString().slice(0, 10) : g.gamedate,
+    gametime: g.gametime ?? null,
   }));
 
   const tiebreakers: TiebreakerConfig[] = (tbRows as {
