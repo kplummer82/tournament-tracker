@@ -7,6 +7,7 @@ import type { TabKey } from "./types";
 import { Copy, Trash2, Save, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import FollowButton from "@/components/FollowButton";
+import TournamentSetupProgress from "./TournamentSetupProgress";
 
 const STATUS_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   Active:    { bg: "#00c85318", text: "#00c853", border: "#00c85340" },
@@ -47,6 +48,9 @@ export default function TournamentShell({
 
           {/* Actions */}
           <div className="flex items-center gap-1.5">
+            <div className="hidden md:block">
+              <TournamentSetupProgress />
+            </div>
             {tid && <FollowButton entityType="tournament" entityId={tid} />}
             {canEdit && (<>
 

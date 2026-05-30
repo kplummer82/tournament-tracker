@@ -21,6 +21,10 @@ type PoolGameRow = {
   awayscore: number | null;
   gamestatus: string | null;
   gamestatusid?: number | null;
+  tournament_venue_id?: number | null;
+  location_id?: number | null;
+  location?: string | null;
+  field?: string | null;
 };
 
 type TournamentTeamRow = { id: number; name: string; pool_group: string | null };
@@ -44,7 +48,7 @@ function ScoreCell({ score, isWinner }: { score: number | null; isWinner?: boole
 }
 
 function PoolBody() {
-  const { tid, canEdit } = useTournament();
+  const { tid, canEdit, refreshSetup } = useTournament();
   const [rows, setRows] = useState<PoolGameRow[]>([]);
   const [teamRows, setTeamRows] = useState<TournamentTeamRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -303,13 +307,13 @@ function PoolBody() {
 
       {tid && (
         <>
-          <AddGameModal open={addOpen} onOpenChange={setAddOpen} tournamentId={tid} onAdded={() => setVersion((v) => v + 1)} />
+          <AddGameModal open={addOpen} onOpenChange={setAddOpen} tournamentId={tid} onAdded={() => { setVersion((v) => v + 1); refreshSetup(); }} />
           <AddGameModal
             open={editOpen}
             onOpenChange={(o) => { setEditOpen(o); if (!o) setEditInit(undefined); }}
             tournamentId={tid}
             initial={editInit}
-            onAdded={() => setVersion((v) => v + 1)}
+            onAdded={() => { setVersion((v) => v + 1); refreshSetup(); }}
           />
         </>
       )}

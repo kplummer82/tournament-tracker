@@ -8,7 +8,7 @@ import AddCustomVenueModal from "@/components/tournaments/venues/AddCustomVenueM
 import { Plus } from "lucide-react";
 
 function VenuesInner() {
-  const { tid, canEdit } = useTournament();
+  const { tid, canEdit, refreshSetup } = useTournament();
   const [venues, setVenues] = useState<VenueDTO[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openPredefined, setOpenPredefined] = useState(false);
@@ -22,10 +22,11 @@ function VenuesInner() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load");
       setVenues(json.venues ?? []);
+      refreshSetup();
     } catch (e: any) {
       setError(e.message);
     }
-  }, [tid]);
+  }, [tid, refreshSetup]);
 
   useEffect(() => {
     refresh();

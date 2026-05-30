@@ -10,6 +10,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
+import TournamentVenuePicker, {
+  type TournamentVenuePickerValue,
+} from "@/components/tournaments/TournamentVenuePicker";
 
 type AddGameModalProps = {
   open: boolean;
@@ -25,6 +28,10 @@ type AddGameModalProps = {
     homescore?: number | null;
     awayscore?: number | null;
     gamestatusid?: number | null;
+    tournament_venue_id?: number | null;
+    location_id?: number | null;
+    location?: string | null;
+    field?: string | null;
   };
 };
 
@@ -53,6 +60,13 @@ export default function AddGameModal({
   const [awayScore, setAwayScore] = useState(initial?.awayscore != null ? String(initial.awayscore) : "");
   const [statusId, setStatusId] = useState(initial?.gamestatusid != null ? String(initial.gamestatusid) : "");
 
+  const [venue, setVenue] = useState<TournamentVenuePickerValue>({
+    tournamentVenueId: initial?.tournament_venue_id ?? null,
+    locationId: initial?.location_id ?? null,
+    location: initial?.location ?? "",
+    field: initial?.field ?? "",
+  });
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -66,12 +80,19 @@ useEffect(() => {
     setHomeScore(initial.homescore != null ? String(initial.homescore) : "");
     setAwayScore(initial.awayscore != null ? String(initial.awayscore) : "");
     if (initial.gamestatusid != null) setStatusId(String(initial.gamestatusid));
+    setVenue({
+      tournamentVenueId: initial.tournament_venue_id ?? null,
+      locationId: initial.location_id ?? null,
+      location: initial.location ?? "",
+      field: initial.field ?? "",
+    });
   } else {
     setDate("");
     setTime("");
     setHomeScore("");
     setAwayScore("");
     setStatusId("");
+    setVenue({ tournamentVenueId: null, locationId: null, location: "", field: "" });
   }
 }, [open, isEdit, initial]);
 
@@ -237,6 +258,10 @@ useEffect(() => {
         homescore: homeScore === "" ? null : Number(homeScore),
         awayscore: awayScore === "" ? null : Number(awayScore),
         gamestatusid: Number(statusId),
+        tournament_venue_id: venue.tournamentVenueId,
+        location_id: venue.locationId,
+        location: venue.location,
+        field: venue.field,
       };
 
       if (isEdit && initial?.id) {
@@ -320,6 +345,12 @@ useEffect(() => {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Venue & field */}
+          <div>
+            <p className="label-section mb-3">Venue &amp; Field</p>
+            <TournamentVenuePicker tournamentId={tournamentId} value={venue} onChange={setVenue} />
           </div>
 
           {/* Teams */}

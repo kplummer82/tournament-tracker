@@ -27,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         hometeam, awayteam, gamedate, gametime,
         homescore = null, awayscore = null, gamestatusid,
+        tournament_venue_id = null, location_id = null, location = null, field = null,
       } = req.body ?? {};
 
       if (!hometeam || !awayteam || !gamedate || !gametime || !gamestatusid) {
@@ -50,12 +51,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             Number(gamestatusid),
           ]
         );
-        return res.status(201).json({ ok: true });
+
+        let newId: number | null = null;
+        if (tournament_venue_id != null || location_id != null || location || field) {
+          // The view insert can't return the new id directly (INSTEAD OF triggers don't support RETURNING here),
+          // so find the just-inserted row by tournament + teams + date + time and apply the venue/field columns.
+          const lookup = await client.query(
+            `
+            select tg.id
+              from tournamentgames tg
+              join teams th on th.teamid = tg.home
+              join teams ta on ta.teamid = tg.away
+             where tg.tournamentid = $1
+               and tg.poolorbracket = 'Pool'
+               and tg.gamedate = $2::date
+               and tg.gametime = $3::time
+               and th.name = $4
+               and ta.name = $5
+             order by tg.id desc
+             limit 1
+            `,
+            [tournamentid, gamedate, time, hometeam, awayteam]
+          );
+          newId = lookup.rows[0]?.id ?? null;
+          if (newId != null) {
+            await client.query(
+              `
+              update tournamentgames
+                 set tournament_venue_id = $1,
+                     location_id         = $2,
+                     location            = $3,
+                     field               = $4
+               where id = $5 and tournamentid = $6
+              `,
+              [
+                tournament_venue_id != null ? Number(tournament_venue_id) : null,
+                location_id != null ? Number(location_id) : null,
+                location || null,
+                field || null,
+                Number(newId),
+                tournamentid,
+              ]
+            );
+          }
+        }
+        return res.status(201).json({ ok: true, id: newId });
       } catch (e) {
         console.error(e);
         return res.status(500).json({ error: "Failed to create game" });
+      } finally {
+        client.release();
       }
-      finally { /* eslint-disable no-unsafe-finally */ /* handled above */ }
     }
 
     if (req.method === "PUT") {
@@ -67,6 +113,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         id,
         home, away, gamedate, gametime,
         homescore = null, awayscore = null, gamestatusid,
+        tournament_venue_id = null, location_id = null, location = null, field = null,
       } = body;
 
       if (!id) return res.status(400).json({ error: "Missing game id" });
@@ -82,20 +129,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const r = await client.query(
           `
           UPDATE tournamentgames
-             SET gamedate     = $1::date,
-                 gametime     = $2::time,
-                 home         = $3,
-                 away         = $4,
-                 homescore    = $5,
-                 awayscore    = $6,
-                 gamestatusid = $7
-           WHERE id = $8 AND tournamentid = $9 AND poolorbracket = 'Pool'
+             SET gamedate            = $1::date,
+                 gametime            = $2::time,
+                 home                = $3,
+                 away                = $4,
+                 homescore           = $5,
+                 awayscore           = $6,
+                 gamestatusid        = $7,
+                 tournament_venue_id = $8,
+                 location_id         = $9,
+                 location            = $10,
+                 field               = $11
+           WHERE id = $12 AND tournamentid = $13 AND poolorbracket = 'Pool'
           `,
           [
             dateStr, time, Number(home), Number(away),
             homescore === null ? null : Number(homescore),
             awayscore === null ? null : Number(awayscore),
             gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null,
+            tournament_venue_id != null ? Number(tournament_venue_id) : null,
+            location_id != null ? Number(location_id) : null,
+            location || null,
+            field || null,
             Number(id),
             tournamentid,
           ]

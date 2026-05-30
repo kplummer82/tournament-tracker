@@ -21,6 +21,8 @@ export type CalendarGameRow = {
   opponent_team_id: number | null;
   opponent_name_raw: string | null;
   location: string | null;
+  field: string | null;
+  location_id: number | null;
   notes: string | null;
   cancellation_note: string | null;
   canceled_by_team_id: number | null;
@@ -62,6 +64,8 @@ export default async function handler(
         NULL::int                       AS opponent_team_id,
         NULL::text                      AS opponent_name_raw,
         NULL::text                      AS location,
+        NULL::text                      AS field,
+        NULL::int                       AS location_id,
         NULL::text                      AS notes,
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,
@@ -95,6 +99,8 @@ export default async function handler(
         NULL::int                       AS opponent_team_id,
         NULL::text                      AS opponent_name_raw,
         NULL::text                      AS location,
+        NULL::text                      AS field,
+        NULL::int                       AS location_id,
         NULL::text                      AS notes,
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,

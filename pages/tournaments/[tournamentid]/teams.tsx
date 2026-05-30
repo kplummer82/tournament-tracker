@@ -103,7 +103,7 @@ function GroupSectionHeader({ label, count, colSpan = 3 }: { label: string; coun
 }
 
 function TeamsBody() {
-  const { tid, t, canEdit } = useTournament();
+  const { tid, t, canEdit, refreshSetup } = useTournament();
   const numGroups = (t?.num_pool_groups ?? 0) >= 2 ? (t!.num_pool_groups as number) : null;
   const [rows, setRows] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -201,12 +201,13 @@ function TeamsBody() {
       }
       setRemoveDialogOpen(false);
       setVersion((v) => v + 1);
+      refreshSetup();
     } catch (e) {
       setRemoveError(e instanceof Error ? e.message : "Failed to remove team");
     } finally {
       setRemoving(false);
     }
-  }, [tid, teamToRemove]);
+  }, [tid, teamToRemove, refreshSetup]);
 
   const handleSwapClick = useCallback(
     (team: TeamRow) => {
@@ -263,7 +264,7 @@ function TeamsBody() {
             </p>
           )}
         </div>
-        {canEdit && tid && <AddTeamsModal tournamentid={tid} onAdded={() => setVersion((v) => v + 1)} />}
+        {canEdit && tid && <AddTeamsModal tournamentid={tid} onAdded={() => { setVersion((v) => v + 1); refreshSetup(); }} />}
       </div>
 
       {numGroups != null && (

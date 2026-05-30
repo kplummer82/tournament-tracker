@@ -18,6 +18,8 @@ import {
   Plus,
   Trash2,
   X,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -147,6 +149,7 @@ function BracketPanel({
   includeInProgress,
   onIncludeInProgressChange,
   onDeleted,
+  onUpdated,
   canEdit,
 }: {
   bracket: TournamentBracket;
@@ -157,6 +160,7 @@ function BracketPanel({
   includeInProgress: boolean;
   onIncludeInProgressChange: (v: boolean) => void;
   onDeleted: (id: number) => void;
+  onUpdated: (b: Partial<TournamentBracket> & { id: number }) => void;
   canEdit: boolean;
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
@@ -168,6 +172,8 @@ function BracketPanel({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [nameDraft, setNameDraft] = useState(bracket.name);
   const autoFillApplied = useRef(false);
 
   // Load assignments on mount
@@ -247,12 +253,40 @@ function BracketPanel({
         const j = await asgRes.json().catch(() => ({}));
         throw new Error(j.error || "Failed to save assignments");
       }
+      // Propagate the new structure/template up so re-mounting (e.g. tab switch) keeps the saved state
+      onUpdated({ id: bracket.id, structure, template_id: templateId, template_name: templateName });
     } catch (e: unknown) {
       setError((e as Error).message || "Save failed");
     } finally {
       setSaving(false);
     }
-  }, [tournamentId, bracket.id, structure, templateId, assignments]);
+  }, [tournamentId, bracket.id, structure, templateId, templateName, assignments, onUpdated]);
+
+  const handleRename = useCallback(async () => {
+    const trimmed = nameDraft.trim();
+    if (!trimmed || trimmed === bracket.name) {
+      setRenaming(false);
+      setNameDraft(bracket.name);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Rename failed");
+      }
+      onUpdated({ id: bracket.id, name: trimmed });
+      setRenaming(false);
+    } catch (e: unknown) {
+      setError((e as Error).message || "Rename failed");
+      setNameDraft(bracket.name);
+      setRenaming(false);
+    }
+  }, [tournamentId, bracket.id, bracket.name, nameDraft, onUpdated]);
 
   const handleDelete = useCallback(async () => {
     if (!confirm(`Delete "${bracket.name}"? This will remove the bracket and all seed assignments.`)) return;
@@ -276,7 +310,43 @@ function BracketPanel({
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold">Tournament Bracket</h2>
+          {renaming ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRename();
+                  else if (e.key === "Escape") { setNameDraft(bracket.name); setRenaming(false); }
+                }}
+                onBlur={handleRename}
+                className="border border-border bg-input px-2 py-1 text-lg font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+              />
+              <button
+                type="button"
+                onClick={handleRename}
+                className="h-7 w-7 flex items-center justify-center text-muted-foreground hover:text-primary transition-colors"
+                title="Save name"
+              >
+                <Check className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold">{bracket.name}</h2>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => { setNameDraft(bracket.name); setRenaming(true); }}
+                  className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+                  title="Rename bracket"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-sm text-muted-foreground mt-0.5">
             Select a bracket template and assign teams to seeds.
           </p>
@@ -511,6 +581,10 @@ function BracketBody() {
     });
   };
 
+  const handleBracketUpdated = (update: Partial<TournamentBracket> & { id: number }) => {
+    setBrackets((prev) => prev.map((b) => (b.id === update.id ? { ...b, ...update } : b)));
+  };
+
   if (loading) {
     return (
       <div className="space-y-3">
@@ -612,6 +686,7 @@ function BracketBody() {
           includeInProgress={includeInProgress}
           onIncludeInProgressChange={setIncludeInProgress}
           onDeleted={handleBracketDeleted}
+          onUpdated={handleBracketUpdated}
           canEdit={canEdit}
         />
       )}
