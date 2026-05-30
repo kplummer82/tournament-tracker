@@ -145,6 +145,7 @@ function BracketPanel({
   tournamentId,
   teams,
   standingsOrder,
+  seedOffset,
   games,
   includeInProgress,
   onIncludeInProgressChange,
@@ -156,6 +157,8 @@ function BracketPanel({
   tournamentId: number;
   teams: TeamOpt[];
   standingsOrder: number[];
+  /** Cumulative number of seeds in all brackets ordered before this one. */
+  seedOffset: number;
   games: { gamestatusid: number | null }[];
   includeInProgress: boolean;
   onIncludeInProgressChange: (v: boolean) => void;
@@ -201,17 +204,18 @@ function BracketPanel({
   const atLeastOneFinal = games.some((g) => g.gamestatusid === 4);
   const allFinal = games.length > 0 && games.every((g) => g.gamestatusid === 4);
 
-  // Auto-fill seeds from standings once games are finalized
+  // Auto-fill seeds from standings once games are finalized, offset by upstream brackets
   useEffect(() => {
     if (autoFillApplied.current) return;
     if (!atLeastOneFinal || standingsOrder.length === 0 || !structure || loading) return;
     const next: Record<number, number> = {};
-    for (let seed = 1; seed <= structure.numTeams && seed <= standingsOrder.length; seed++) {
-      next[seed] = standingsOrder[seed - 1];
+    for (let seed = 1; seed <= structure.numTeams; seed++) {
+      const teamId = standingsOrder[seedOffset + seed - 1];
+      if (teamId != null) next[seed] = teamId;
     }
     setAssignments(next);
     autoFillApplied.current = true;
-  }, [atLeastOneFinal, standingsOrder, structure, loading]);
+  }, [atLeastOneFinal, standingsOrder, structure, loading, seedOffset]);
 
   const handleSelectTemplate = useCallback(
     (template: { id: number; name: string; structure: BracketStructure }) => {
@@ -424,6 +428,7 @@ function BracketPanel({
               <BracketPreview
                 structure={structure}
                 seedLabels={seedLabels}
+                seedOffset={seedOffset}
                 editable={false}
               />
               {atLeastOneFinal && !allFinal && (
@@ -597,6 +602,19 @@ function BracketBody() {
 
   const activeBracket = brackets.find((b) => b.id === activeBracketId) ?? null;
 
+  // Cumulative seed offset for each bracket, in sort_order. Each bracket consumes
+  // structure.numTeams seeds from the shared standings ordering.
+  const seedOffsets = (() => {
+    const sorted = [...brackets].sort((a, b) => a.sort_order - b.sort_order);
+    const map = new Map<number, number>();
+    let cumulative = 0;
+    for (const b of sorted) {
+      map.set(b.id, cumulative);
+      cumulative += b.structure?.numTeams ?? 0;
+    }
+    return map;
+  })();
+
   return (
     <div className="space-y-0">
       {/* Tab bar */}
@@ -682,6 +700,7 @@ function BracketBody() {
           tournamentId={tid!}
           teams={teams}
           standingsOrder={standingsOrder}
+          seedOffset={seedOffsets.get(activeBracket.id) ?? 0}
           games={games}
           includeInProgress={includeInProgress}
           onIncludeInProgressChange={setIncludeInProgress}
