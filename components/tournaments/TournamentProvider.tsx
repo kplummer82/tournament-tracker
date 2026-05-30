@@ -8,6 +8,7 @@ export type SetupChecklistItem = {
   key: "venues" | "teams" | "game-venues" | "schedule";
   label: string;
   done: boolean;
+  progress: number;
   href: string | null;
   detail?: string;
 };
@@ -184,23 +185,25 @@ export default function TournamentProvider({ children }: { children: React.React
     const minTeams = Math.max(2, (t?.num_pool_groups ?? 1) * 2);
 
     const hasVenueWithField = (venuesWithFields ?? 0) >= 1;
-    const enoughTeams = (teamsCount ?? 0) >= minTeams;
     const games = poolGames ?? [];
-    const allGamesHaveVenue =
-      games.length > 0 &&
-      games.every(
-        (g) =>
-          g.tournament_venue_id != null &&
-          ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== ""),
-      );
-    const allGamesScheduled =
-      games.length > 0 && games.every((g) => g.gamedate != null && g.gametime != null);
+    const gamesWithVenue = games.filter(
+      (g) =>
+        g.tournament_venue_id != null &&
+        ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== ""),
+    ).length;
+    const gamesScheduled = games.filter((g) => g.gamedate != null && g.gametime != null).length;
+
+    const teamsProgress = ready ? Math.min(1, (teamsCount ?? 0) / minTeams) : 0;
+    const venuesProgress = ready ? (hasVenueWithField ? 1 : 0) : 0;
+    const gameVenuesProgress = ready && games.length > 0 ? gamesWithVenue / games.length : 0;
+    const scheduleProgress = ready && games.length > 0 ? gamesScheduled / games.length : 0;
 
     return [
       {
         key: "venues",
         label: "Add a venue with at least one field",
-        done: ready ? hasVenueWithField : false,
+        done: venuesProgress === 1,
+        progress: venuesProgress,
         href: tid ? `/tournaments/${tid}/venues` : null,
         detail: ready
           ? hasVenueWithField
@@ -211,10 +214,11 @@ export default function TournamentProvider({ children }: { children: React.React
       {
         key: "teams",
         label: "Add teams to fill pool groups",
-        done: ready ? enoughTeams : false,
+        done: teamsProgress === 1,
+        progress: teamsProgress,
         href: tid ? `/tournaments/${tid}/teams` : null,
         detail: ready
-          ? enoughTeams
+          ? teamsProgress === 1
             ? undefined
             : `${teamsCount ?? 0} of ${minTeams} teams`
           : "Loading…",
@@ -222,27 +226,29 @@ export default function TournamentProvider({ children }: { children: React.React
       {
         key: "game-venues",
         label: "Assign venue & field to every game",
-        done: ready ? allGamesHaveVenue : false,
+        done: gameVenuesProgress === 1,
+        progress: gameVenuesProgress,
         href: tid ? `/tournaments/${tid}/pool` : null,
         detail: ready
           ? games.length === 0
             ? "No games yet"
-            : allGamesHaveVenue
+            : gameVenuesProgress === 1
               ? undefined
-              : `${games.filter((g) => g.tournament_venue_id != null).length} of ${games.length} assigned`
+              : `${gamesWithVenue} of ${games.length} assigned`
           : "Loading…",
       },
       {
         key: "schedule",
         label: "Schedule every game (date & time)",
-        done: ready ? allGamesScheduled : false,
+        done: scheduleProgress === 1,
+        progress: scheduleProgress,
         href: tid ? `/tournaments/${tid}/pool` : null,
         detail: ready
           ? games.length === 0
             ? "No games yet"
-            : allGamesScheduled
+            : scheduleProgress === 1
               ? undefined
-              : `${games.filter((g) => g.gamedate && g.gametime).length} of ${games.length} scheduled`
+              : `${gamesScheduled} of ${games.length} scheduled`
           : "Loading…",
       },
     ];
@@ -251,8 +257,8 @@ export default function TournamentProvider({ children }: { children: React.React
   const setupReady = venuesWithFields != null && teamsCount != null && poolGames != null;
   const setupPercent = useMemo(() => {
     if (!setupReady) return 0;
-    const done = setupChecklist.filter((i) => i.done).length;
-    return Math.round((done / setupChecklist.length) * 100);
+    const total = setupChecklist.reduce((sum, i) => sum + i.progress, 0);
+    return Math.round((total / setupChecklist.length) * 100);
   }, [setupChecklist, setupReady]);
 
   const remove = async () => {
