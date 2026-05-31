@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
@@ -182,7 +182,6 @@ function BracketPanel({
   const [nameDraft, setNameDraft] = useState(bracket.name);
   const [bracketGames, setBracketGames] = useState<BracketGameRecord[]>([]);
   const [scheduleGame, setScheduleGame] = useState<BracketGameRecord | null>(null);
-  const autoFillApplied = useRef(false);
 
   const fetchBracketGames = useCallback(async () => {
     try {
@@ -226,18 +225,34 @@ function BracketPanel({
   const atLeastOneFinal = games.some((g) => g.gamestatusid === 4);
   const allFinal = games.length > 0 && games.every((g) => g.gamestatusid === 4);
 
-  // Auto-fill seeds from standings once games are finalized, offset by upstream brackets
+  // Auto-fill seeds from standings once at least one pool game is final, offset by
+  // upstream brackets. Mirrors the season playoffs page: also auto-persists the
+  // assignments (which syncs tournamentgames rows) so bracket games become clickable
+  // without a manual save. Frozen once any bracket game has a score, so re-seeding can
+  // never corrupt bracket_game_id ↔ scored-row alignment.
   useEffect(() => {
-    if (autoFillApplied.current) return;
     if (!atLeastOneFinal || standingsOrder.length === 0 || !structure || loading) return;
+    // Freeze if any bracket game already has a score — bracket is in progress
+    if (bracketGames.some((g) => g.homescore != null || g.awayscore != null)) return;
     const next: Record<number, number> = {};
     for (let seed = 1; seed <= structure.numTeams; seed++) {
       const teamId = standingsOrder[seedOffset + seed - 1];
       if (teamId != null) next[seed] = teamId;
     }
+    // Only update + persist if different from current
+    if (JSON.stringify(next) === JSON.stringify(assignments)) return;
     setAssignments(next);
-    autoFillApplied.current = true;
-  }, [atLeastOneFinal, standingsOrder, structure, loading, seedOffset]);
+    // Auto-save to DB so tournamentgames stay in sync and games become clickable
+    const arr = Object.entries(next)
+      .filter(([, teamId]) => Number.isFinite(teamId))
+      .map(([s, teamId]) => ({ seedIndex: parseInt(s, 10), teamId }));
+    fetch(`/api/tournaments/${tournamentId}/brackets/${bracket.id}/assignments`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assignments: arr }),
+    }).then(() => fetchBracketGames()).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- assignments intentionally excluded to avoid loop
+  }, [atLeastOneFinal, standingsOrder, structure, loading, seedOffset, bracket.id, tournamentId, fetchBracketGames, bracketGames]);
 
   const handleSelectTemplate = useCallback(
     (template: { id: number; name: string; structure: BracketStructure }) => {
@@ -245,7 +260,6 @@ function BracketPanel({
       setTemplateName(template.name);
       setStructure(template.structure);
       setAssignments({});
-      autoFillApplied.current = false;
       setPickerOpen(false);
     },
     []

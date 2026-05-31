@@ -108,7 +108,7 @@ export async function syncTournamentBracketGames(
             ${tournamentId}, 'Bracket', ${bracketId}, ${game.id},
             ${homeTeamId}, ${awayTeamId}
           )
-          ON CONFLICT (bracket_id, bracket_game_id) DO NOTHING
+          ON CONFLICT (bracket_id, bracket_game_id) WHERE bracket_id IS NOT NULL DO NOTHING
         `;
         generated++;
       }
