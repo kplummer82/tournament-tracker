@@ -356,6 +356,7 @@ function BracketPanel({
         gamedate: g.gamedate,
         gametime: g.gametime,
         location: g.location,
+        field: g.field,
         homescore: g.homescore,
         awayscore: g.awayscore,
         home_team: g.home_team,

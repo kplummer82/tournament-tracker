@@ -21,12 +21,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { formatHHMMAMPM } from "@/lib/datetime";
 import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from "@dnd-kit/core";
 import { GripVertical, Plus, Trash2, ArrowLeftRight, Maximize2, X, ZoomIn, ZoomOut, Maximize } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const BOX_WIDTH = 224;
-const BOX_HEIGHT = 112;
+const BOX_HEIGHT = 132;
 const SLOT_GAP = 8;
 /** Vertical space per first-round slot: box height + gap so games never overlap. */
 const SLOT_HEIGHT = BOX_HEIGHT + SLOT_GAP;
@@ -59,6 +60,7 @@ export type BracketGameDetails = {
   gamedate?: string | null;
   gametime?: string | null;
   location?: string | null;
+  field?: string | null;
   homescore?: number | null;
   awayscore?: number | null;
   home_team?: string | null;
@@ -396,8 +398,15 @@ function GameSlot({
                 gameDetails.gamedate
                   ? (() => { const d = new Date(gameDetails.gamedate); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}/${String(d.getUTCFullYear()).slice(-2)}`; })()
                   : null,
-                gameDetails.gametime,
+                gameDetails.gametime
+                  ? formatHHMMAMPM(gameDetails.gamedate ?? "2000-01-01", gameDetails.gametime)
+                  : null,
               ].filter(Boolean).join(" ")}
+            </div>
+          )}
+          {gameDetails && (gameDetails.location || gameDetails.field) && (
+            <div className="text-[9px] text-muted-foreground/60 truncate">
+              {[gameDetails.location, gameDetails.field].filter(Boolean).join(" · ")}
             </div>
           )}
         </>
