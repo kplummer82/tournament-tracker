@@ -19,6 +19,7 @@ export type Tournament = {
   forfeit_run_diff: number | null;
   advances_per_group: number | null;
   num_pool_groups: number | null;
+  pool_play_games_per_team: number | null;
   divisionid: number | null;
   sportid: number | null;
   statusid: number | null;

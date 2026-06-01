@@ -162,6 +162,21 @@ function OverviewForm() {
               placeholder="e.g. 1"
             />
           </Field>
+          <Field label="Pool play games / team">
+            <input
+              className={INPUT}
+              disabled={!canEdit}
+              type="number"
+              min={1}
+              value={t.pool_play_games_per_team ?? ""}
+              onChange={(e) =>
+                setT((p) =>
+                  p ? { ...p, pool_play_games_per_team: e.target.value === "" ? null : Number(e.target.value) } : p,
+                )
+              }
+              placeholder="e.g. 2"
+            />
+          </Field>
           <Field label="Status">
             <select
               className={INPUT}

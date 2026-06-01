@@ -5,7 +5,7 @@ import { usePermissions } from "@/lib/hooks/usePermissions";
 import type { Tournament, LookupRow, BatRow } from "./types";
 
 export type SetupChecklistItem = {
-  key: "venues" | "teams" | "game-venues" | "schedule";
+  key: "venues" | "teams" | "pool-coverage" | "game-venues" | "schedule";
   label: string;
   done: boolean;
   progress: number;
@@ -105,6 +105,7 @@ export default function TournamentProvider({ children }: { children: React.React
           forfeit_run_diff: t.forfeit_run_diff ?? null,
           advances_per_group: t.advances_per_group ?? null,
           num_pool_groups: t.num_pool_groups ?? null,
+          pool_play_games_per_team: t.pool_play_games_per_team ?? null,
           divisionid: t.divisionid,
           statusid: t.statusid,
           visibilityid: t.visibilityid,
@@ -122,9 +123,12 @@ export default function TournamentProvider({ children }: { children: React.React
   // ── Setup completion checklist ──────────────────────────────────────────────
   const [venuesWithFields, setVenuesWithFields] = useState<number | null>(null);
   const [teamsCount, setTeamsCount] = useState<number | null>(null);
+  const [teamIds, setTeamIds] = useState<number[] | null>(null);
   const [poolGames, setPoolGames] = useState<
     | Array<{
         id: number;
+        home: number | null;
+        away: number | null;
         tournament_venue_id: number | null;
         field: string | null;
         location_id: number | null;
@@ -156,13 +160,16 @@ export default function TournamentProvider({ children }: { children: React.React
           : [];
         setVenuesWithFields(venues.filter((v) => Array.isArray(v.fields) && v.fields.length > 0).length);
 
-        const teams: unknown[] = Array.isArray(teamsRes?.teams) ? teamsRes.teams : Array.isArray(teamsRes) ? teamsRes : [];
+        const teams: any[] = Array.isArray(teamsRes?.teams) ? teamsRes.teams : Array.isArray(teamsRes) ? teamsRes : [];
         setTeamsCount(teams.length);
+        setTeamIds(teams.map((t) => Number(t.id)).filter((n) => Number.isFinite(n)));
 
         const games: any[] = Array.isArray(poolRes?.games) ? poolRes.games : [];
         setPoolGames(
           games.map((g) => ({
             id: Number(g.id),
+            home: g.home != null ? Number(g.home) : null,
+            away: g.away != null ? Number(g.away) : null,
             tournament_venue_id: g.tournament_venue_id ?? null,
             field: g.field ?? null,
             location_id: g.location_id ?? null,
@@ -181,7 +188,8 @@ export default function TournamentProvider({ children }: { children: React.React
   }, [tid, setupBump]);
 
   const setupChecklist: SetupChecklistItem[] = useMemo(() => {
-    const ready = venuesWithFields != null && teamsCount != null && poolGames != null;
+    const ready =
+      venuesWithFields != null && teamsCount != null && teamIds != null && poolGames != null;
     const minTeams = Math.max(2, (t?.num_pool_groups ?? 1) * 2);
 
     const hasVenueWithField = (venuesWithFields ?? 0) >= 1;
@@ -193,10 +201,42 @@ export default function TournamentProvider({ children }: { children: React.React
     ).length;
     const gamesScheduled = games.filter((g) => g.gamedate != null && g.gametime != null).length;
 
+    // Per-team pool-play coverage: every team must have exactly N pool games.
+    const perTeamTarget = t?.pool_play_games_per_team ?? null;
+    const ids = teamIds ?? [];
+    const gameCountByTeam = new Map<number, number>();
+    for (const g of games) {
+      if (g.home != null) gameCountByTeam.set(g.home, (gameCountByTeam.get(g.home) ?? 0) + 1);
+      if (g.away != null) gameCountByTeam.set(g.away, (gameCountByTeam.get(g.away) ?? 0) + 1);
+    }
+    const teamsAtTarget =
+      perTeamTarget != null
+        ? ids.filter((id) => (gameCountByTeam.get(id) ?? 0) === perTeamTarget).length
+        : 0;
+    const teamsOverTarget =
+      perTeamTarget != null
+        ? ids.filter((id) => (gameCountByTeam.get(id) ?? 0) > perTeamTarget).length
+        : 0;
+
     const teamsProgress = ready ? Math.min(1, (teamsCount ?? 0) / minTeams) : 0;
     const venuesProgress = ready ? (hasVenueWithField ? 1 : 0) : 0;
+    // Coverage is gated on the setting being present (blank = required, never complete).
+    const coverageProgress =
+      ready && perTeamTarget != null && ids.length > 0 ? teamsAtTarget / ids.length : 0;
     const gameVenuesProgress = ready && games.length > 0 ? gamesWithVenue / games.length : 0;
     const scheduleProgress = ready && games.length > 0 ? gamesScheduled / games.length : 0;
+
+    const coverageDetail = !ready
+      ? "Loading…"
+      : perTeamTarget == null
+        ? "Set “Pool play games / team” in Overview"
+        : ids.length === 0
+          ? "Add teams first"
+          : coverageProgress === 1
+            ? undefined
+            : teamsOverTarget > 0
+              ? `${teamsAtTarget} of ${ids.length} teams at ${perTeamTarget} (${teamsOverTarget} over)`
+              : `${teamsAtTarget} of ${ids.length} teams have ${perTeamTarget} games`;
 
     return [
       {
@@ -222,6 +262,14 @@ export default function TournamentProvider({ children }: { children: React.React
             ? undefined
             : `${teamsCount ?? 0} of ${minTeams} teams`
           : "Loading…",
+      },
+      {
+        key: "pool-coverage",
+        label: "Build the full pool schedule (games per team)",
+        done: coverageProgress === 1,
+        progress: coverageProgress,
+        href: tid ? `/tournaments/${tid}/pool` : null,
+        detail: coverageDetail,
       },
       {
         key: "game-venues",
@@ -252,9 +300,18 @@ export default function TournamentProvider({ children }: { children: React.React
           : "Loading…",
       },
     ];
-  }, [tid, t?.num_pool_groups, venuesWithFields, teamsCount, poolGames]);
+  }, [
+    tid,
+    t?.num_pool_groups,
+    t?.pool_play_games_per_team,
+    venuesWithFields,
+    teamsCount,
+    teamIds,
+    poolGames,
+  ]);
 
-  const setupReady = venuesWithFields != null && teamsCount != null && poolGames != null;
+  const setupReady =
+    venuesWithFields != null && teamsCount != null && teamIds != null && poolGames != null;
   const setupPercent = useMemo(() => {
     if (!setupReady) return 0;
     const total = setupChecklist.reduce((sum, i) => sum + i.progress, 0);
