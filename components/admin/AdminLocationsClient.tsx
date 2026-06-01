@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown, ChevronRight, Download, MapPin, Pencil, Plus, Trash2, Upload, X, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Download, MapPin, Pencil, Plus, Trash2, Upload, X, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AddressFields } from "./AddressAutofillInput";
+import type { PlaceSearchResult } from "./MapboxPlaceSearch";
 import BulkImportLocationsModal from "./BulkImportLocationsModal";
 
 const AddressAutofillInput = dynamic(
@@ -40,10 +41,31 @@ type Location = {
 
 const INPUT =
   "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
+const FIELD_LABEL =
+  "block text-[11px] font-semibold uppercase tracking-widest text-muted-foreground mb-1";
 const BTN_BASE =
   "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
 
 const EMPTY_FORM = { name: "", address: "", city: "", state: "", zip: "" };
+
+/**
+ * True when a Mapbox result is really just a street address (no named place).
+ * Mapbox sets `properties.name` to the street address for address-type features,
+ * so the "name" ends up identical to (or a prefix of) the address.
+ */
+function isAddressOnly(r: PlaceSearchResult): boolean {
+  const n = r.name.trim().toLowerCase();
+  const a = r.address.trim().toLowerCase();
+  return !!a && (n === a || n.startsWith(a));
+}
+
+/** Heuristic for showing the "set a custom name" hint on a form's current values. */
+function nameLooksLikeAddress(name: string, address: string): boolean {
+  const a = address.trim();
+  if (!a) return false;
+  const n = name.trim();
+  return !n || n.toLowerCase() === a.toLowerCase();
+}
 
 export default function AdminLocationsClient() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -52,6 +74,8 @@ export default function AdminLocationsClient() {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [streetInput, setStreetInput] = useState("");
   const [createLatLng, setCreateLatLng] = useState<{ latitude: number | null; longitude: number | null }>({ latitude: null, longitude: null });
+  // True when the Name field was auto-filled from an address-only Mapbox pick.
+  const [nameFromAddress, setNameFromAddress] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,6 +91,7 @@ export default function AdminLocationsClient() {
   const [editForm, setEditForm] = useState({ ...EMPTY_FORM });
   const [editStreetInput, setEditStreetInput] = useState("");
   const [editLatLng, setEditLatLng] = useState<{ latitude: number | null; longitude: number | null }>({ latitude: null, longitude: null });
+  const [editNameFromAddress, setEditNameFromAddress] = useState(false);
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -86,11 +111,18 @@ export default function AdminLocationsClient() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
 
+  // A just-created location, kept pinned to the top of the list (across refetches
+  // on the default page-1/no-search view) so the admin can add fields immediately.
+  const [pinnedLocation, setPinnedLocation] = useState<Location | null>(null);
+
   // Debounce search input -> q
   useEffect(() => {
     const t = setTimeout(() => {
-      setQ(searchInput.trim());
+      const next = searchInput.trim();
+      setQ(next);
       setPage(1);
+      // Searching leaves the default view, so stop pinning the new location.
+      if (next) setPinnedLocation(null);
     }, 250);
     return () => clearTimeout(t);
   }, [searchInput]);
@@ -105,7 +137,16 @@ export default function AdminLocationsClient() {
       if (nextQ) params.set("q", nextQ);
       const res = await fetch(`/api/locations?${params}`);
       const data = await res.json();
-      setLocations(data.rows ?? []);
+      const rows: Location[] = data.rows ?? [];
+      // Keep a freshly-created location pinned to the top on the default view.
+      if (pinnedLocation && !nextQ && nextPage === 1) {
+        setLocations([
+          pinnedLocation,
+          ...rows.filter((r) => r.id !== pinnedLocation.id),
+        ]);
+      } else {
+        setLocations(rows);
+      }
       setTotal(typeof data.total === "number" ? data.total : 0);
     } catch {
       setLocations([]);
@@ -120,6 +161,7 @@ export default function AdminLocationsClient() {
 
   // Reset to page 1 with no search, used after bulk import.
   const refreshAfterBulkImport = () => {
+    setPinnedLocation(null);
     setSearchInput("");
     setQ("");
     setPage(1);
@@ -183,12 +225,28 @@ export default function AdminLocationsClient() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
+      const newLoc: Location = { ...json, fields: [] };
       setForm({ ...EMPTY_FORM });
       setStreetInput("");
       setCreateLatLng({ latitude: null, longitude: null });
-      // New row might land on any page alphabetically; jump to page 1 + clear search
-      // so the user has a reasonable chance of seeing it without hunting.
-      refreshAfterBulkImport();
+      setNameFromAddress(false);
+      // Pin the new location to the top of a clean page-1/no-search view and
+      // open its fields panel so the admin can add fields without hunting for it.
+      setPinnedLocation(newLoc);
+      setSearchInput("");
+      setQ("");
+      setPage(1);
+      setLocations((prev) => [
+        newLoc,
+        ...prev.filter((l) => l.id !== newLoc.id),
+      ]);
+      setTotal((t) => t + 1);
+      // Expand the new row with an empty fields list ready for input.
+      setExpandedId(newLoc.id);
+      setFields([]);
+      setFieldsLoading(false);
+      setNewFieldName("");
+      setConfirmDeleteField(null);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -208,12 +266,14 @@ export default function AdminLocationsClient() {
     });
     setEditStreetInput(loc.address ?? "");
     setEditLatLng({ latitude: loc.latitude, longitude: loc.longitude });
+    setEditNameFromAddress(false);
     setEditError(null);
     setConfirmDelete(null);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
+    setEditNameFromAddress(false);
     setEditError(null);
   };
 
@@ -254,6 +314,9 @@ export default function AdminLocationsClient() {
           )
           .sort((a, b) => a.name.localeCompare(b.name))
       );
+      // Editing re-sorts the list alphabetically; drop the top-pin so the row
+      // settles into its sorted position rather than snapping back to the top.
+      if (pinnedLocation?.id === id) setPinnedLocation(null);
       setEditingId(null);
     } catch (e: any) {
       setEditError(e.message);
@@ -274,6 +337,7 @@ export default function AdminLocationsClient() {
       setLocations((prev) => prev.filter((l) => l.id !== id));
       setConfirmDelete(null);
       if (expandedId === id) setExpandedId(null);
+      if (pinnedLocation?.id === id) setPinnedLocation(null);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -300,6 +364,11 @@ export default function AdminLocationsClient() {
         prev.map((l) =>
           l.id === locationId ? { ...l, field_count: l.field_count + 1 } : l
         )
+      );
+      setPinnedLocation((p) =>
+        p && p.id === locationId
+          ? { ...p, field_count: p.field_count + 1 }
+          : p
       );
       setNewFieldName("");
     } catch (e: any) {
@@ -328,6 +397,11 @@ export default function AdminLocationsClient() {
             ? { ...l, field_count: Math.max(0, l.field_count - 1) }
             : l
         )
+      );
+      setPinnedLocation((p) =>
+        p && p.id === locationId
+          ? { ...p, field_count: Math.max(0, p.field_count - 1) }
+          : p
       );
       setConfirmDeleteField(null);
     } catch (e: any) {
@@ -397,37 +471,66 @@ export default function AdminLocationsClient() {
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
         {mapboxEnabled && (
-          <MapboxPlaceSearch
-            onSelect={(result) => {
-              setForm((p) => ({
-                ...p,
-                name: result.name || p.name,
-                address: result.address,
-                city: result.city,
-                state: result.state,
-                zip: result.zip,
-              }));
-              setStreetInput(result.address);
-              setCreateLatLng({ latitude: result.latitude, longitude: result.longitude });
-            }}
-          />
+          <div>
+            <label className={FIELD_LABEL}>Search</label>
+            <MapboxPlaceSearch
+              onSelect={(result) => {
+                setForm((p) => ({
+                  ...p,
+                  name: result.name || p.name,
+                  address: result.address,
+                  city: result.city,
+                  state: result.state,
+                  zip: result.zip,
+                }));
+                setStreetInput(result.address);
+                setCreateLatLng({ latitude: result.latitude, longitude: result.longitude });
+                setNameFromAddress(isAddressOnly(result));
+              }}
+            />
+          </div>
         )}
-        <input
-          className={INPUT}
-          placeholder="Location Name *"
-          value={form.name}
-          onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
-          required
-        />
-        <AddressAutofillInput
-          value={form}
-          onAddressChange={(fields: AddressFields) =>
-            setForm((p) => ({ ...p, ...fields }))
-          }
-          streetInputValue={streetInput}
-          onStreetInputChange={setStreetInput}
-          enabled={mapboxEnabled}
-        />
+        {(() => {
+          const flagged =
+            nameFromAddress || nameLooksLikeAddress(form.name, form.address);
+          return (
+            <div>
+              <label htmlFor="new-location-name" className={FIELD_LABEL}>
+                Location Name *
+              </label>
+              {flagged && (
+                <p className="flex items-center gap-1.5 text-xs text-amber-600 mb-1">
+                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                  This looks like just an address. Type a custom name for this
+                  location in the box below (e.g. the park or facility name).
+                </p>
+              )}
+              <input
+                id="new-location-name"
+                className={cn(INPUT, flagged && "border-amber-500 focus:border-amber-500 focus:ring-amber-500/20")}
+                placeholder="e.g. North Valley Park"
+                value={form.name}
+                onChange={(e) => {
+                  setForm((p) => ({ ...p, name: e.target.value }));
+                  setNameFromAddress(false);
+                }}
+                required
+              />
+            </div>
+          );
+        })()}
+        <div>
+          <label className={FIELD_LABEL}>Address</label>
+          <AddressAutofillInput
+            value={form}
+            onAddressChange={(fields: AddressFields) =>
+              setForm((p) => ({ ...p, ...fields }))
+            }
+            streetInputValue={streetInput}
+            onStreetInputChange={setStreetInput}
+            enabled={mapboxEnabled}
+          />
+        </div>
         <div className="flex justify-end">
           <button
             type="submit"
@@ -479,39 +582,65 @@ export default function AdminLocationsClient() {
                 <div className="px-4 py-3 space-y-3">
                   {editError && <p className="text-xs text-destructive">{editError}</p>}
                   {mapboxEnabled && (
-                    <MapboxPlaceSearch
-                      onSelect={(result) => {
-                        setEditForm((p) => ({
-                          ...p,
-                          name: result.name || p.name,
-                          address: result.address,
-                          city: result.city,
-                          state: result.state,
-                          zip: result.zip,
-                        }));
-                        setEditStreetInput(result.address);
-                        setEditLatLng({ latitude: result.latitude, longitude: result.longitude });
-                      }}
-                    />
+                    <div>
+                      <label className={FIELD_LABEL}>Search</label>
+                      <MapboxPlaceSearch
+                        onSelect={(result) => {
+                          setEditForm((p) => ({
+                            ...p,
+                            name: result.name || p.name,
+                            address: result.address,
+                            city: result.city,
+                            state: result.state,
+                            zip: result.zip,
+                          }));
+                          setEditStreetInput(result.address);
+                          setEditLatLng({ latitude: result.latitude, longitude: result.longitude });
+                          setEditNameFromAddress(isAddressOnly(result));
+                        }}
+                      />
+                    </div>
                   )}
-                  <input
-                    className={INPUT}
-                    placeholder="Location Name *"
-                    value={editForm.name}
-                    onChange={(e) =>
-                      setEditForm((p) => ({ ...p, name: e.target.value }))
-                    }
-                    autoFocus
-                  />
-                  <AddressAutofillInput
-                    value={editForm}
-                    onAddressChange={(fields: AddressFields) =>
-                      setEditForm((p) => ({ ...p, ...fields }))
-                    }
-                    streetInputValue={editStreetInput}
-                    onStreetInputChange={setEditStreetInput}
-                    enabled={mapboxEnabled}
-                  />
+                  {(() => {
+                    const flagged =
+                      editNameFromAddress ||
+                      nameLooksLikeAddress(editForm.name, editForm.address);
+                    return (
+                      <div>
+                        <label className={FIELD_LABEL}>Location Name *</label>
+                        {flagged && (
+                          <p className="flex items-center gap-1.5 text-xs text-amber-600 mb-1">
+                            <AlertTriangle className="h-3 w-3 shrink-0" />
+                            This looks like just an address. Type a custom name for
+                            this location in the box below (e.g. the park or facility
+                            name).
+                          </p>
+                        )}
+                        <input
+                          className={cn(INPUT, flagged && "border-amber-500 focus:border-amber-500 focus:ring-amber-500/20")}
+                          placeholder="e.g. North Valley Park"
+                          value={editForm.name}
+                          onChange={(e) => {
+                            setEditForm((p) => ({ ...p, name: e.target.value }));
+                            setEditNameFromAddress(false);
+                          }}
+                          autoFocus
+                        />
+                      </div>
+                    );
+                  })()}
+                  <div>
+                    <label className={FIELD_LABEL}>Address</label>
+                    <AddressAutofillInput
+                      value={editForm}
+                      onAddressChange={(fields: AddressFields) =>
+                        setEditForm((p) => ({ ...p, ...fields }))
+                      }
+                      streetInputValue={editStreetInput}
+                      onStreetInputChange={setEditStreetInput}
+                      enabled={mapboxEnabled}
+                    />
+                  </div>
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"
@@ -753,7 +882,10 @@ export default function AdminLocationsClient() {
         <div className="flex items-center justify-between pt-2">
           <button
             type="button"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            onClick={() => {
+              setPinnedLocation(null);
+              setPage((p) => Math.max(1, p - 1));
+            }}
             disabled={page <= 1 || loading}
             className={cn(
               BTN_BASE,
@@ -771,7 +903,10 @@ export default function AdminLocationsClient() {
           </span>
           <button
             type="button"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            onClick={() => {
+              setPinnedLocation(null);
+              setPage((p) => Math.min(totalPages, p + 1));
+            }}
             disabled={page >= totalPages || loading}
             className={cn(
               BTN_BASE,

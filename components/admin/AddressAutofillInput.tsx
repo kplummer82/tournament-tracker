@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 import { AddressAutofill } from "@mapbox/search-js-react";
 import type { AddressAutofillRetrieveResponse } from "@mapbox/search-js-core";
-import { AlertTriangle, MapPin } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
 const INPUT =
   "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
@@ -59,7 +59,6 @@ export default function AddressAutofillInput({
   onStreetInputChange,
   enabled,
 }: AddressAutofillInputProps) {
-  const [resolved, setResolved] = useState(false);
   const [limitReached, setLimitReached] = useState(
     () => MAPBOX_TOKEN !== "" && getSessionCount() >= DAILY_SESSION_LIMIT
   );
@@ -80,7 +79,6 @@ export default function AddressAutofillInput({
       };
       onAddressChange(fields);
       onStreetInputChange?.(fields.address);
-      setResolved(true);
       const newCount = incrementSessionCount();
       if (newCount >= DAILY_SESSION_LIMIT) setLimitReached(true);
     },
@@ -90,10 +88,8 @@ export default function AddressAutofillInput({
   const handleStreetChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       onStreetInputChange?.(e.target.value);
-      // If user edits after resolving, clear the resolved state
-      if (resolved) setResolved(false);
     },
-    [onStreetInputChange, resolved]
+    [onStreetInputChange]
   );
 
   // Read resolved address from hidden inputs after Mapbox autofills them
@@ -162,12 +158,6 @@ export default function AddressAutofillInput({
     );
   }
 
-  const summary = [value.address, value.city, value.state]
-    .filter(Boolean)
-    .join(", ");
-  const summaryWithZip =
-    summary + (value.zip ? ` ${value.zip}` : "");
-
   return (
     <div className="space-y-2">
       <form
@@ -207,11 +197,30 @@ export default function AddressAutofillInput({
           tabIndex={-1}
         />
       </form>
-      {/* Resolved address summary */}
-      {resolved && summaryWithZip.trim() && (
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-1">
-          <MapPin className="h-3 w-3 shrink-0" />
-          <span>{summaryWithZip}</span>
+      {/* City / State / ZIP — shown whenever resolved (from this input or the
+          place search above) so the full address is visible at a glance. */}
+      {(value.city || value.state || value.zip) && (
+        <div className="grid grid-cols-3 gap-2">
+          <input
+            className={INPUT}
+            placeholder="City"
+            value={value.city}
+            onChange={(e) => onAddressChange({ ...value, city: e.target.value })}
+          />
+          <input
+            className={INPUT}
+            placeholder="State"
+            value={value.state}
+            maxLength={2}
+            onChange={(e) => onAddressChange({ ...value, state: e.target.value })}
+          />
+          <input
+            className={INPUT}
+            placeholder="ZIP"
+            value={value.zip}
+            maxLength={10}
+            onChange={(e) => onAddressChange({ ...value, zip: e.target.value })}
+          />
         </div>
       )}
     </div>
