@@ -1,4 +1,5 @@
 export { computeStandings } from "./ranker";
+export { detectCoinTossGroups, groupSignature } from "./coinToss";
 export type { GameRecord, SeasonConfig, StandingsRow, TeamRecord, TiebreakerConfig } from "./types";
 
 import { sql } from "@/lib/db";
@@ -199,4 +200,40 @@ export async function fetchTournamentStandingsData(tournamentId: number): Promis
   };
 
   return { games, teams, tiebreakers, config };
+}
+
+// ---------------------------------------------------------------------------
+// Manual coin-toss results
+// ---------------------------------------------------------------------------
+
+export type CoinTossScope = "season" | "tournament";
+
+/**
+ * Fetch saved manual coin-toss results for a season/tournament.
+ *
+ * Returns a map keyed by group signature; each entry maps teamid → seed_order
+ * (1 = best finish within the group). Callers reconcile these against currently
+ * detected groups (by signature) to auto-invalidate stale results.
+ */
+export async function fetchCoinTossResults(
+  scope: CoinTossScope,
+  scopeId: number
+): Promise<Map<string, Map<number, number>>> {
+  const rows = (await sql`
+    SELECT group_sig, teamid, seed_order
+    FROM coin_toss_results
+    WHERE scope = ${scope} AND scope_id = ${scopeId}
+  `) as { group_sig: string; teamid: number; seed_order: number }[];
+
+  const bySig = new Map<string, Map<number, number>>();
+  for (const r of rows) {
+    const sig = String(r.group_sig);
+    let inner = bySig.get(sig);
+    if (!inner) {
+      inner = new Map<number, number>();
+      bySig.set(sig, inner);
+    }
+    inner.set(Number(r.teamid), Number(r.seed_order));
+  }
+  return bySig;
 }

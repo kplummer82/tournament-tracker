@@ -5,7 +5,7 @@ import { usePermissions } from "@/lib/hooks/usePermissions";
 import type { Tournament, LookupRow, BatRow } from "./types";
 
 export type SetupChecklistItem = {
-  key: "venues" | "teams" | "pool-coverage" | "game-venues" | "schedule";
+  key: "venues" | "teams" | "pool-coverage" | "game-venues" | "schedule" | "tiebreakers" | "brackets";
   label: string;
   done: boolean;
   progress: number;
@@ -138,6 +138,20 @@ export default function TournamentProvider({ children }: { children: React.React
       }>
     | null
   >(null);
+  const [tiebreakerCount, setTiebreakerCount] = useState<number | null>(null);
+  // Bracket setup: total first-round seed slots across all brackets (incl. byes),
+  // plus every bracket game's scheduling state (date/time + venue/field).
+  const [bracketSetup, setBracketSetup] = useState<{
+    firstRoundSlots: number;
+    games: Array<{
+      tournament_venue_id: number | null;
+      field: string | null;
+      location_id: number | null;
+      location: string | null;
+      gamedate: string | null;
+      gametime: string | null;
+    }>;
+  } | null>(null);
   const [setupBump, setSetupBump] = useState(0);
   const refreshSetup = useCallback(() => setSetupBump((n) => n + 1), []);
 
@@ -146,10 +160,12 @@ export default function TournamentProvider({ children }: { children: React.React
     let cancelled = false;
     (async () => {
       try {
-        const [venuesRes, teamsRes, poolRes] = await Promise.all([
+        const [venuesRes, teamsRes, poolRes, tbRes, bracketsRes] = await Promise.all([
           fetch(`/api/tournaments/${tid}/venues`).then((r) => r.json()).catch(() => ({ venues: [] })),
           fetch(`/api/tournaments/${tid}/teams`).then((r) => r.json()).catch(() => ({ teams: [] })),
           fetch(`/api/tournaments/${tid}/poolgames`).then((r) => r.json()).catch(() => ({ games: [] })),
+          fetch(`/api/tournaments/${tid}/tiebreakers`).then((r) => r.json()).catch(() => ({ selected: [] })),
+          fetch(`/api/tournaments/${tid}/brackets`).then((r) => r.json()).catch(() => ({ brackets: [] })),
         ]);
         if (cancelled) return;
 
@@ -178,6 +194,40 @@ export default function TournamentProvider({ children }: { children: React.React
             gametime: g.gametime ?? null,
           })),
         );
+
+        const selectedTb: any[] = Array.isArray(tbRes?.selected) ? tbRes.selected : [];
+        setTiebreakerCount(selectedTb.length);
+
+        // Brackets: sum first-round seed slots (structure.numTeams counts every
+        // round-0 slot, including byes) and gather every bracket game so we can
+        // confirm each is scheduled (date/time + venue/field).
+        const brackets: Array<{ id: number; structure: { numTeams?: number } | null }> = Array.isArray(
+          bracketsRes?.brackets,
+        )
+          ? bracketsRes.brackets
+          : [];
+        const firstRoundSlots = brackets.reduce(
+          (sum, b) => sum + (b.structure?.numTeams ?? 0),
+          0,
+        );
+        const gameLists = await Promise.all(
+          brackets.map((b) =>
+            fetch(`/api/tournaments/${tid}/brackets/${b.id}/games`)
+              .then((r) => r.json())
+              .then((d) => (Array.isArray(d?.games) ? d.games : []))
+              .catch(() => [] as any[]),
+          ),
+        );
+        if (cancelled) return;
+        const bracketGames = gameLists.flat().map((g: any) => ({
+          tournament_venue_id: g.tournament_venue_id ?? null,
+          field: g.field ?? null,
+          location_id: g.location_id ?? null,
+          location: g.location ?? null,
+          gamedate: g.gamedate ?? null,
+          gametime: g.gametime ?? null,
+        }));
+        setBracketSetup({ firstRoundSlots, games: bracketGames });
       } catch {
         // swallow — checklist will simply show pending entries until data arrives
       }
@@ -189,7 +239,12 @@ export default function TournamentProvider({ children }: { children: React.React
 
   const setupChecklist: SetupChecklistItem[] = useMemo(() => {
     const ready =
-      venuesWithFields != null && teamsCount != null && teamIds != null && poolGames != null;
+      venuesWithFields != null &&
+      teamsCount != null &&
+      teamIds != null &&
+      poolGames != null &&
+      tiebreakerCount != null &&
+      bracketSetup != null;
     const minTeams = Math.max(2, (t?.num_pool_groups ?? 1) * 2);
 
     const hasVenueWithField = (venuesWithFields ?? 0) >= 1;
@@ -225,6 +280,41 @@ export default function TournamentProvider({ children }: { children: React.React
       ready && perTeamTarget != null && ids.length > 0 ? teamsAtTarget / ids.length : 0;
     const gameVenuesProgress = ready && games.length > 0 ? gamesWithVenue / games.length : 0;
     const scheduleProgress = ready && games.length > 0 ? gamesScheduled / games.length : 0;
+    const tiebreakersProgress = ready && (tiebreakerCount ?? 0) >= 1 ? 1 : 0;
+
+    // ── Bracket setup ─────────────────────────────────────────────────────────
+    // Required first-round capacity = teams advancing total = advances_per_group × groups.
+    // The brackets must collectively provide exactly that many first-round seed slots
+    // (including byes), and every bracket game must be scheduled (date/time + venue/field).
+    // Seeds need not be assigned yet — only the structure and scheduling.
+    const advancesPerGroup = t?.advances_per_group ?? null;
+    const requiredAdvancing =
+      advancesPerGroup != null ? advancesPerGroup * Math.max(1, t?.num_pool_groups ?? 1) : null;
+    const firstRoundSlots = bracketSetup?.firstRoundSlots ?? 0;
+    const bracketGames = bracketSetup?.games ?? [];
+    const bracketGamesScheduled = bracketGames.filter(
+      (g) =>
+        g.gamedate != null &&
+        g.gametime != null &&
+        g.tournament_venue_id != null &&
+        ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== ""),
+    ).length;
+    const slotsMatch = requiredAdvancing != null && requiredAdvancing > 0 && firstRoundSlots === requiredAdvancing;
+    const allBracketGamesScheduled =
+      bracketGames.length > 0 && bracketGamesScheduled === bracketGames.length;
+    const bracketsProgress = ready && slotsMatch && allBracketGamesScheduled ? 1 : 0;
+
+    const bracketsDetail = !ready
+      ? "Loading…"
+      : requiredAdvancing == null
+        ? "Set “Teams advancing per group” in Overview"
+        : !slotsMatch
+          ? `Bracket seats: ${firstRoundSlots} of ${requiredAdvancing} required`
+          : bracketGames.length === 0
+            ? "Apply a bracket template first"
+            : allBracketGamesScheduled
+              ? undefined
+              : `${bracketGamesScheduled} of ${bracketGames.length} bracket games scheduled`;
 
     const coverageDetail = !ready
       ? "Loading…"
@@ -299,19 +389,47 @@ export default function TournamentProvider({ children }: { children: React.React
               : `${gamesScheduled} of ${games.length} scheduled`
           : "Loading…",
       },
+      {
+        key: "tiebreakers",
+        label: "Establish at least one tiebreaker",
+        done: tiebreakersProgress === 1,
+        progress: tiebreakersProgress,
+        href: tid ? `/tournaments/${tid}/tiebreakers` : null,
+        detail: ready
+          ? tiebreakersProgress === 1
+            ? undefined
+            : "No tiebreakers selected yet"
+          : "Loading…",
+      },
+      {
+        key: "brackets",
+        label: "Build & schedule every bracket game",
+        done: bracketsProgress === 1,
+        progress: bracketsProgress,
+        href: tid ? `/tournaments/${tid}/bracket` : null,
+        detail: bracketsDetail,
+      },
     ];
   }, [
     tid,
     t?.num_pool_groups,
     t?.pool_play_games_per_team,
+    t?.advances_per_group,
     venuesWithFields,
     teamsCount,
     teamIds,
     poolGames,
+    tiebreakerCount,
+    bracketSetup,
   ]);
 
   const setupReady =
-    venuesWithFields != null && teamsCount != null && teamIds != null && poolGames != null;
+    venuesWithFields != null &&
+    teamsCount != null &&
+    teamIds != null &&
+    poolGames != null &&
+    tiebreakerCount != null &&
+    bracketSetup != null;
   const setupPercent = useMemo(() => {
     if (!setupReady) return 0;
     const total = setupChecklist.reduce((sum, i) => sum + i.progress, 0);

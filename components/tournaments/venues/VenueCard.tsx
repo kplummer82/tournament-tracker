@@ -1,7 +1,7 @@
 // components/tournaments/venues/VenueCard.tsx
 "use client";
 import { useState } from "react";
-import { Plus, X, Pencil, Check } from "lucide-react";
+import { Plus, X, Pencil, Check, Navigation } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { VenueDTO, VenueFieldDTO } from "@/lib/tournaments/venues";
 
@@ -26,6 +26,17 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
   const [newField, setNewField] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const directionsQuery = [
+    venue.name,
+    venue.address,
+    [venue.city, venue.state].filter(Boolean).join(", "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const directionsUrl = directionsQuery
+    ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(directionsQuery)}`
+    : null;
 
   const saveCustom = async () => {
     setBusy(true);
@@ -189,6 +200,16 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
                     .filter(Boolean)
                     .join(" · ")}
                 </div>
+              )}
+              {directionsUrl && (
+                <a
+                  href={directionsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 mt-1 text-xs text-primary hover:underline"
+                >
+                  <Navigation className="h-3 w-3" /> Directions
+                </a>
               )}
             </>
           )}

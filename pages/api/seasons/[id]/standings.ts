@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchSeasonStandingsData, computeStandings } from "@/lib/standings";
+import { buildCoinTossContext } from "@/lib/standings/coinTossService";
 import type { StandingsRow } from "@/lib/standings";
 
 export type SeasonStandingsRow = StandingsRow & {
@@ -25,9 +26,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const data = await fetchSeasonStandingsData(seasonId, { includeInProgress, asOfDate });
-    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config);
+    const { manualCoinToss, groups } = await buildCoinTossContext(
+      "season",
+      seasonId,
+      data.games,
+      data.teams,
+      data.tiebreakers,
+      data.config
+    );
+    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config, manualCoinToss);
     const standings = [...rows].sort((a, b) => a.rank_final - b.rank_final);
-    return res.status(200).json({ standings });
+    return res.status(200).json({ standings, coinToss: { groups } });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[season standings API]", err);

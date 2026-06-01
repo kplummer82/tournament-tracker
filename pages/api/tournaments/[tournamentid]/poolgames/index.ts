@@ -11,7 +11,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const client = await pool.connect();
       try {
         const r = await client.query(
-          `select * from poolgames_view where tournamentid = $1 order by gamedate, gametime, id`,
+          `
+          select pv.*,
+                 coalesce(l.address, tv.custom_address) as venue_address,
+                 coalesce(l.city,    tv.custom_city)    as venue_city,
+                 coalesce(l.state,   tv.custom_state)   as venue_state
+            from poolgames_view pv
+            left join tournament_venues tv on tv.id = pv.tournament_venue_id
+            left join locations l on l.id = tv.location_id
+           where pv.tournamentid = $1
+           order by pv.gamedate, pv.gametime, pv.id
+          `,
           [tournamentid]
         );
         return res.status(200).json({ games: r.rows });

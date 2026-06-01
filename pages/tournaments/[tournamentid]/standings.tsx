@@ -5,6 +5,7 @@ import TournamentShell from "@/components/tournaments/TournamentShell";
 import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import CoinTossResolver, { type CoinTossGroup } from "@/components/standings/CoinTossResolver";
 
 const formatWLPct = (wltpct: unknown, games: number): string => {
   const n = Number(wltpct);
@@ -13,12 +14,26 @@ const formatWLPct = (wltpct: unknown, games: number): string => {
   return pct.startsWith("0.") ? pct.slice(1) : pct;
 };
 
+function CoinTossPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 align-middle ml-1.5 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.08em] uppercase border border-amber-400 text-amber-700 dark:border-yellow-500/40 dark:text-yellow-300"
+      style={{ fontFamily: "var(--font-display)" }}
+      title="Provisional rank — tied teams need a coin toss"
+    >
+      Coin Toss
+    </span>
+  );
+}
+
 function StandingsTable({
   rows,
   advancesPerGroup,
+  unresolvedTeamIds,
 }: {
   rows: StandingsRow[];
   advancesPerGroup: number | null;
+  unresolvedTeamIds?: Set<number>;
 }) {
   return (
     <div className="border border-border overflow-hidden">
@@ -83,6 +98,7 @@ function StandingsTable({
                 </td>
                 <td className="p-3 font-semibold text-foreground" style={{ fontFamily: "var(--font-body)" }}>
                   {r.team ?? "—"}
+                  {unresolvedTeamIds?.has(r.teamid) && <CoinTossPill />}
                 </td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{r.wins}</td>
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.games}</td>
@@ -129,9 +145,11 @@ function StandingsTable({
 function TournamentStandingsCardList({
   rows,
   advancesPerGroup,
+  unresolvedTeamIds,
 }: {
   rows: StandingsRow[];
   advancesPerGroup: number | null;
+  unresolvedTeamIds?: Set<number>;
 }) {
   return (
     <div className="border border-border divide-y divide-border/50">
@@ -167,8 +185,9 @@ function TournamentStandingsCardList({
 
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="font-semibold text-sm text-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
+                <span className="flex items-center min-w-0 font-semibold text-sm text-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
                   {r.team ?? "—"}
+                  {unresolvedTeamIds?.has(r.teamid) && <CoinTossPill />}
                 </span>
                 <span className="tabular-nums text-sm font-medium shrink-0" style={{ fontFamily: "var(--font-body)" }}>
                   {formatWLPct(r.wltpct, r.games)}
@@ -206,22 +225,24 @@ function TournamentStandingsCardList({
   );
 }
 
-function ResponsiveStandings({ rows, advancesPerGroup }: { rows: StandingsRow[]; advancesPerGroup: number | null }) {
+function ResponsiveStandings({ rows, advancesPerGroup, unresolvedTeamIds }: { rows: StandingsRow[]; advancesPerGroup: number | null; unresolvedTeamIds?: Set<number> }) {
   return (
     <>
       <div className="hidden md:block">
-        <StandingsTable rows={rows} advancesPerGroup={advancesPerGroup} />
+        <StandingsTable rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
       </div>
       <div className="md:hidden">
-        <TournamentStandingsCardList rows={rows} advancesPerGroup={advancesPerGroup} />
+        <TournamentStandingsCardList rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
       </div>
     </>
   );
 }
 
 function StandingsBody() {
-  const { tid, t } = useTournament();
+  const { tid, t, canEdit } = useTournament();
   const [rows, setRows] = useState<StandingsRow[]>([]);
+  const [coinTossGroups, setCoinTossGroups] = useState<CoinTossGroup[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [includeInProgress, setIncludeInProgress] = useState(false);
@@ -247,15 +268,18 @@ function StandingsBody() {
         }
         if (!ct.includes("application/json")) { await res.text(); throw new Error("Expected JSON response."); }
         const data = await res.json();
-        if (!cancelled) setRows(Array.isArray(data?.standings) ? data.standings : []);
+        if (!cancelled) {
+          setRows(Array.isArray(data?.standings) ? data.standings : []);
+          setCoinTossGroups(Array.isArray(data?.coinToss?.groups) ? data.coinToss.groups : []);
+        }
       } catch (e: unknown) {
-        if (!cancelled) { setErr(e instanceof Error ? e.message : "Failed to load standings"); setRows([]); }
+        if (!cancelled) { setErr(e instanceof Error ? e.message : "Failed to load standings"); setRows([]); setCoinTossGroups([]); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [tid, includeInProgress]);
+  }, [tid, includeInProgress, reloadKey]);
 
   // Determine if pool groups are in use
   const hasGroups = rows.some((r) => r.pool_group != null);
@@ -270,6 +294,11 @@ function StandingsBody() {
     rows
       .filter((r) => r.pool_group === group)
       .map((r, idx) => ({ ...r, rank_final: idx + 1 }));
+
+  // Teams whose rank is provisional pending a manual coin toss
+  const unresolvedTeamIds = new Set<number>(
+    coinTossGroups.filter((g) => !g.resolved).flatMap((g) => g.teams.map((t) => t.teamid))
+  );
 
   return (
     <div>
@@ -298,6 +327,16 @@ function StandingsBody() {
           </span>
         </label>
       </div>
+
+      {!err && (
+        <CoinTossResolver
+          scope="tournament"
+          scopeId={Number(tid)}
+          groups={coinTossGroups}
+          canEdit={canEdit}
+          onSaved={() => setReloadKey((k) => k + 1)}
+        />
+      )}
 
       {loading ? (
         <div className="space-y-1">
@@ -341,7 +380,7 @@ function StandingsBody() {
                     {gRows.length} team{gRows.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <ResponsiveStandings rows={gRows} advancesPerGroup={advancesPerGroup} />
+                <ResponsiveStandings rows={gRows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
               </div>
             );
           })}
@@ -367,13 +406,14 @@ function StandingsBody() {
               <ResponsiveStandings
                 rows={rows.filter((r) => !r.pool_group).map((r, idx) => ({ ...r, rank_final: idx + 1 }))}
                 advancesPerGroup={null}
+                unresolvedTeamIds={unresolvedTeamIds}
               />
             </div>
           )}
         </div>
       ) : (
         // No-groups mode: existing flat table
-        <ResponsiveStandings rows={rows} advancesPerGroup={null} />
+        <ResponsiveStandings rows={rows} advancesPerGroup={null} unresolvedTeamIds={unresolvedTeamIds} />
       )}
     </div>
   );

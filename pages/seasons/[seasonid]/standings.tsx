@@ -8,6 +8,7 @@ import StandingsModeToggle, { type StandingsMode } from "@/components/seasons/St
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import SosView, { type SosGameRow } from "@/components/seasons/SosView";
+import CoinTossResolver, { type CoinTossGroup } from "@/components/standings/CoinTossResolver";
 
 type StandingsRow = {
   teamid: number;
@@ -57,14 +58,28 @@ const formatGB = (gb: number | null): string => {
 
 /* ── Standings table ───────────────────────────────────────────────── */
 
+function CoinTossPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 align-middle ml-1.5 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.08em] uppercase border border-amber-400 text-amber-700 dark:border-yellow-500/40 dark:text-yellow-300"
+      style={{ fontFamily: "var(--font-display)" }}
+      title="Provisional rank — tied teams need a coin toss"
+    >
+      Coin Toss
+    </span>
+  );
+}
+
 function StandingsTable({
   rows,
   advancesToPlayoffs,
   seasonId,
+  unresolvedTeamIds,
 }: {
   rows: StandingsRow[];
   advancesToPlayoffs: number | null;
   seasonId: string;
+  unresolvedTeamIds?: Set<number>;
 }) {
   const gbMap = computeGB(rows);
 
@@ -137,6 +152,7 @@ function StandingsTable({
                   >
                     {r.team ?? "—"}
                   </Link>
+                  {unresolvedTeamIds?.has(r.teamid) && <CoinTossPill />}
                 </td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{w}</td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{l}</td>
@@ -191,10 +207,12 @@ function StandingsCardList({
   rows,
   advancesToPlayoffs,
   seasonId,
+  unresolvedTeamIds,
 }: {
   rows: StandingsRow[];
   advancesToPlayoffs: number | null;
   seasonId: string;
+  unresolvedTeamIds?: Set<number>;
 }) {
   const gbMap = computeGB(rows);
 
@@ -237,13 +255,16 @@ function StandingsCardList({
             <div className="flex-1 min-w-0">
               {/* Row 1: Team + PCT */}
               <div className="flex items-baseline justify-between gap-2">
-                <Link
-                  href={`/teams/${r.teamid}?returnTo=/seasons/${seasonId}/standings`}
-                  className="font-semibold text-sm text-foreground truncate hover:text-primary transition-colors"
-                  style={{ fontFamily: "var(--font-body)" }}
-                >
-                  {r.team ?? "—"}
-                </Link>
+                <span className="flex items-center min-w-0">
+                  <Link
+                    href={`/teams/${r.teamid}?returnTo=/seasons/${seasonId}/standings`}
+                    className="font-semibold text-sm text-foreground truncate hover:text-primary transition-colors"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {r.team ?? "—"}
+                  </Link>
+                  {unresolvedTeamIds?.has(r.teamid) && <CoinTossPill />}
+                </span>
                 <span className="tabular-nums text-sm font-medium shrink-0" style={{ fontFamily: "var(--font-body)" }}>
                   {formatWLPct(r.wltpct, r.games)}
                 </span>
@@ -294,8 +315,10 @@ function StandingsCardList({
 /* ── Main body ─────────────────────────────────────────────────────── */
 
 function StandingsBody() {
-  const { seasonId, season } = useSeason();
+  const { seasonId, season, canEdit } = useSeason();
   const [rows, setRows] = useState<StandingsRow[]>([]);
+  const [coinTossGroups, setCoinTossGroups] = useState<CoinTossGroup[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -348,15 +371,18 @@ function StandingsBody() {
           throw new Error(j.error || `HTTP ${res.status}`);
         }
         const data = await res.json();
-        if (!cancelled) setRows(Array.isArray(data?.standings) ? data.standings : []);
+        if (!cancelled) {
+          setRows(Array.isArray(data?.standings) ? data.standings : []);
+          setCoinTossGroups(Array.isArray(data?.coinToss?.groups) ? data.coinToss.groups : []);
+        }
       } catch (e: unknown) {
-        if (!cancelled) { setErr((e as Error).message || "Failed to load standings"); setRows([]); }
+        if (!cancelled) { setErr((e as Error).message || "Failed to load standings"); setRows([]); setCoinTossGroups([]); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [seasonId, standingsMode, asOfDate]);
+  }, [seasonId, standingsMode, asOfDate, reloadKey]);
 
   // Lazy-fetch games when SoS view is activated
   useEffect(() => {
@@ -396,6 +422,11 @@ function StandingsBody() {
   const handleViewChange = useCallback((v: ViewMode) => {
     setViewMode(v);
   }, []);
+
+  // Teams whose rank is provisional pending a manual coin toss
+  const unresolvedTeamIds = new Set<number>(
+    coinTossGroups.filter((g) => !g.resolved).flatMap((g) => g.teams.map((t) => t.teamid))
+  );
 
   return (
     <div>
@@ -449,6 +480,18 @@ function StandingsBody() {
         </div>
       </div>
 
+      {/* Coin-toss resolver — kept outside the loading gate so it survives refetches
+          (e.g. after saving a result) without closing the open modal. */}
+      {viewMode === "standings" && !err && (
+        <CoinTossResolver
+          scope="season"
+          scopeId={Number(seasonId)}
+          groups={coinTossGroups}
+          canEdit={canEdit}
+          onSaved={() => setReloadKey((k) => k + 1)}
+        />
+      )}
+
       {/* Content */}
       {loading ? (
         <div className="space-y-1">
@@ -471,10 +514,10 @@ function StandingsBody() {
       ) : viewMode === "standings" ? (
         <>
           <div className="hidden md:block">
-            <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} />
+            <StandingsTable rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} unresolvedTeamIds={unresolvedTeamIds} />
           </div>
           <div className="md:hidden">
-            <StandingsCardList rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} />
+            <StandingsCardList rows={rows} advancesToPlayoffs={advancesToPlayoffs} seasonId={String(seasonId)} unresolvedTeamIds={unresolvedTeamIds} />
           </div>
         </>
       ) : gamesLoading ? (

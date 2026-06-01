@@ -4,7 +4,7 @@ import Link from "next/link";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
 import { Button } from "@/components/ui/button";
-import { Plus, Pencil, Swords, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Swords, ExternalLink, Navigation } from "lucide-react";
 import AddGameModal from "@/components/AddGameModal";
 import PoolGameDeleteButton from "@/components/PoolGameDeleteButton";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
@@ -25,7 +25,22 @@ type PoolGameRow = {
   location_id?: number | null;
   location?: string | null;
   field?: string | null;
+  venue_address?: string | null;
+  venue_city?: string | null;
+  venue_state?: string | null;
 };
+
+function venueDirectionsUrl(g: PoolGameRow): string | null {
+  const query = [
+    g.location,
+    g.venue_address,
+    [g.venue_city, g.venue_state].filter(Boolean).join(", "),
+  ]
+    .filter(Boolean)
+    .join(", ");
+  if (!query) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(query)}`;
+}
 
 type TournamentTeamRow = { id: number; name: string; pool_group: string | null };
 
@@ -172,6 +187,30 @@ function PoolBody() {
               </span>
             )}
           </td>
+          <td className="p-3 text-xs" style={{ fontFamily: "var(--font-body)" }}>
+            {g.location ? (
+              (() => {
+                const url = venueDirectionsUrl(g);
+                const label = g.field ? `${g.location} · ${g.field}` : g.location;
+                return url ? (
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-primary hover:underline"
+                    title="Get directions"
+                  >
+                    <Navigation className="h-3 w-3 shrink-0" />
+                    {label}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">{label}</span>
+                );
+              })()
+            ) : (
+              <span className="text-muted-foreground/40">—</span>
+            )}
+          </td>
           <td className="p-3">
             <div className="flex items-center justify-end gap-1">
               <Link
@@ -257,7 +296,7 @@ function PoolBody() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-surface">
-                {["Date", "Time", "Home", "Away", "Score", "Status", ""].map((h) => (
+                {["Date", "Time", "Home", "Away", "Score", "Status", "Location", ""].map((h) => (
                   <th key={h} className={cn("p-3 label-section", h === "" ? "text-right" : "text-left")}>{h}</th>
                 ))}
               </tr>
@@ -292,7 +331,7 @@ function PoolBody() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-surface">
-                      {["Date", "Time", "Home", "Away", "Score", "Status", ""].map((h) => (
+                      {["Date", "Time", "Home", "Away", "Score", "Status", "Location", ""].map((h) => (
                         <th key={h} className={cn("p-3 label-section", h === "" ? "text-right" : "text-left")}>{h}</th>
                       ))}
                     </tr>

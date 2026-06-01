@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { fetchTournamentStandingsData, computeStandings } from "@/lib/standings";
+import { buildCoinTossContext } from "@/lib/standings/coinTossService";
 import type { StandingsRow } from "@/lib/standings";
 
 export type { StandingsRow };
@@ -30,7 +31,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const data = await fetchTournamentStandingsData(tournamentId);
-    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config);
 
     // Fetch pool_group assignments for each team
     const { sql } = await import("@/lib/db");
@@ -42,16 +42,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const groupMap = new Map(teamGroups.map((r) => [r.teamid, r.pool_group ?? null]));
 
+    const { manualCoinToss, groups } = await buildCoinTossContext(
+      "tournament",
+      tournamentId,
+      data.games,
+      data.teams,
+      data.tiebreakers,
+      data.config,
+      groupMap
+    );
+
+    const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config, manualCoinToss);
+
     let standings: TournamentStandingsRow[] = rows
       .sort((a, b) => a.rank_final - b.rank_final)
       .map((r) => ({ ...r, pool_group: groupMap.get(r.teamid) ?? null }));
 
+    let coinTossGroups = groups;
     if (filterGroup !== null) {
       standings = standings.filter((r) => r.pool_group === filterGroup);
       standings = standings.map((r, idx) => ({ ...r, rank_final: idx + 1 }));
+      coinTossGroups = groups.filter((g) => g.pool_group === filterGroup);
     }
 
-    return res.status(200).json({ standings });
+    return res.status(200).json({ standings, coinToss: { groups: coinTossGroups } });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Server error";
     console.error("[standings API]", err);
