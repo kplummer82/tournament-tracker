@@ -31,6 +31,8 @@ type Ctx = {
   setupPercent: number;
   setupReady: boolean;
   refreshSetup: () => void;
+  /** Bracket games still missing date/time or venue/field, by bracket. */
+  unscheduledBracketGames: Array<{ bracketId: number; bracketName: string; gameId: string | null }>;
 };
 
 const C = createContext<Ctx | undefined>(undefined);
@@ -144,6 +146,9 @@ export default function TournamentProvider({ children }: { children: React.React
   const [bracketSetup, setBracketSetup] = useState<{
     firstRoundSlots: number;
     games: Array<{
+      bracketId: number;
+      bracketName: string;
+      gameId: string | null;
       tournament_venue_id: number | null;
       field: string | null;
       location_id: number | null;
@@ -201,7 +206,7 @@ export default function TournamentProvider({ children }: { children: React.React
         // Brackets: sum first-round seed slots (structure.numTeams counts every
         // round-0 slot, including byes) and gather every bracket game so we can
         // confirm each is scheduled (date/time + venue/field).
-        const brackets: Array<{ id: number; structure: { numTeams?: number } | null }> = Array.isArray(
+        const brackets: Array<{ id: number; name?: string; structure: { numTeams?: number } | null }> = Array.isArray(
           bracketsRes?.brackets,
         )
           ? bracketsRes.brackets
@@ -214,12 +219,21 @@ export default function TournamentProvider({ children }: { children: React.React
           brackets.map((b) =>
             fetch(`/api/tournaments/${tid}/brackets/${b.id}/games`)
               .then((r) => r.json())
-              .then((d) => (Array.isArray(d?.games) ? d.games : []))
+              .then((d) =>
+                (Array.isArray(d?.games) ? d.games : []).map((g: any) => ({
+                  ...g,
+                  __bracketId: b.id,
+                  __bracketName: b.name ?? `Bracket ${b.id}`,
+                })),
+              )
               .catch(() => [] as any[]),
           ),
         );
         if (cancelled) return;
         const bracketGames = gameLists.flat().map((g: any) => ({
+          bracketId: g.__bracketId as number,
+          bracketName: g.__bracketName as string,
+          gameId: g.bracket_game_id ?? null,
           tournament_venue_id: g.tournament_venue_id ?? null,
           field: g.field ?? null,
           location_id: g.location_id ?? null,
@@ -292,13 +306,13 @@ export default function TournamentProvider({ children }: { children: React.React
       advancesPerGroup != null ? advancesPerGroup * Math.max(1, t?.num_pool_groups ?? 1) : null;
     const firstRoundSlots = bracketSetup?.firstRoundSlots ?? 0;
     const bracketGames = bracketSetup?.games ?? [];
-    const bracketGamesScheduled = bracketGames.filter(
-      (g) =>
-        g.gamedate != null &&
-        g.gametime != null &&
-        g.tournament_venue_id != null &&
-        ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== ""),
-    ).length;
+    const isBracketGameScheduled = (g: (typeof bracketGames)[number]) =>
+      g.gamedate != null &&
+      g.gametime != null &&
+      g.tournament_venue_id != null &&
+      ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== "");
+    const unscheduledBracketGames = bracketGames.filter((g) => !isBracketGameScheduled(g));
+    const bracketGamesScheduled = bracketGames.length - unscheduledBracketGames.length;
     const slotsMatch = requiredAdvancing != null && requiredAdvancing > 0 && firstRoundSlots === requiredAdvancing;
     const allBracketGamesScheduled =
       bracketGames.length > 0 && bracketGamesScheduled === bracketGames.length;
@@ -314,7 +328,15 @@ export default function TournamentProvider({ children }: { children: React.React
             ? "Apply a bracket template first"
             : allBracketGamesScheduled
               ? undefined
-              : `${bracketGamesScheduled} of ${bracketGames.length} bracket games scheduled`;
+              : (() => {
+                  const base = `${bracketGamesScheduled} of ${bracketGames.length} bracket games scheduled`;
+                  const named = unscheduledBracketGames
+                    .slice(0, 3)
+                    .map((g) => `${g.bracketName}${g.gameId ? ` ${g.gameId}` : ""}`)
+                    .join(", ");
+                  const more = unscheduledBracketGames.length > 3 ? `, +${unscheduledBracketGames.length - 3} more` : "";
+                  return named ? `${base} — needs ${named}${more}` : base;
+                })();
 
     const coverageDetail = !ready
       ? "Loading…"
@@ -423,6 +445,21 @@ export default function TournamentProvider({ children }: { children: React.React
     bracketSetup,
   ]);
 
+  const unscheduledBracketGames = useMemo(() => {
+    const bracketGames = bracketSetup?.games ?? [];
+    return bracketGames
+      .filter(
+        (g) =>
+          !(
+            g.gamedate != null &&
+            g.gametime != null &&
+            g.tournament_venue_id != null &&
+            ((g.field != null && g.field.trim() !== "") || g.location_id != null || (g.location ?? "").trim() !== "")
+          ),
+      )
+      .map((g) => ({ bracketId: g.bracketId, bracketName: g.bracketName, gameId: g.gameId }));
+  }, [bracketSetup]);
+
   const setupReady =
     venuesWithFields != null &&
     teamsCount != null &&
@@ -467,6 +504,7 @@ export default function TournamentProvider({ children }: { children: React.React
         setupPercent,
         setupReady,
         refreshSetup,
+        unscheduledBracketGames,
       }}
     >
       {children}

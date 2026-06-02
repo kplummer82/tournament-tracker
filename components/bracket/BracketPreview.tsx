@@ -23,7 +23,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatHHMMAMPM } from "@/lib/datetime";
 import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEvent, type DragEndEvent } from "@dnd-kit/core";
-import { GripVertical, Plus, Trash2, ArrowLeftRight, Maximize2, X, ZoomIn, ZoomOut, Maximize } from "lucide-react";
+import { GripVertical, Plus, Trash2, ArrowLeftRight, Maximize2, X, ZoomIn, ZoomOut, Maximize, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const BOX_WIDTH = 224;
@@ -65,6 +65,8 @@ export type BracketGameDetails = {
   awayscore?: number | null;
   home_team?: string | null;
   away_team?: string | null;
+  /** When true, this game is missing date/time or venue/field — show a warning marker. */
+  unscheduled?: boolean;
 };
 
 type BracketPreviewProps = {
@@ -226,7 +228,15 @@ function GameSlot({
   const content = (
     <>
       <div className="flex items-center justify-between gap-1.5 shrink-0 min-w-0">
-        <span className="text-[11px] text-muted-foreground leading-snug truncate">{game.id}</span>
+        <span className="flex items-center gap-1 min-w-0">
+          <span className="text-[11px] text-muted-foreground leading-snug truncate">{game.id}</span>
+          {!editable && !isByeGame && gameDetails?.unscheduled && (
+            <AlertTriangle
+              className="h-3 w-3 text-amber-500 shrink-0"
+              aria-label="Missing date/time or venue"
+            />
+          )}
+        </span>
         {isPredicted && (
           <span className="text-[8px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 shrink-0">
             Predicted

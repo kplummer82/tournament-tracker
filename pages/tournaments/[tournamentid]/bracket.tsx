@@ -150,6 +150,7 @@ function BracketPanel({
   standingsOrder,
   seedOffset,
   games,
+  unscheduledGameIds,
   includeInProgress,
   onIncludeInProgressChange,
   onDeleted,
@@ -163,6 +164,8 @@ function BracketPanel({
   /** Cumulative number of seeds in all brackets ordered before this one. */
   seedOffset: number;
   games: { gamestatusid: number | null }[];
+  /** bracket_game_ids in this bracket still missing date/time or venue/field. */
+  unscheduledGameIds: string[];
   includeInProgress: boolean;
   onIncludeInProgressChange: (v: boolean) => void;
   onDeleted: (id: number) => void;
@@ -349,6 +352,7 @@ function BracketPanel({
   const seedLabels = seedLabelsFromAssignments(assignments, teams);
 
   // Build gameDetails map for BracketPreview
+  const unscheduledSet = new Set(unscheduledGameIds);
   const gameDetailsMap: Record<string, BracketGameDetails> = {};
   for (const g of bracketGames) {
     if (g.bracket_game_id) {
@@ -361,6 +365,7 @@ function BracketPanel({
         awayscore: g.awayscore,
         home_team: g.home_team,
         away_team: g.away_team,
+        unscheduled: unscheduledSet.has(g.bracket_game_id),
       };
     }
   }
@@ -552,7 +557,8 @@ function BracketPanel({
 
 // ---------- Main body ----------
 function BracketBody() {
-  const { tid, t, canEdit } = useTournament();
+  const { tid, t, canEdit, unscheduledBracketGames } = useTournament();
+  const unscheduledByBracket = new Set(unscheduledBracketGames.map((g) => g.bracketId));
   const [brackets, setBrackets] = useState<TournamentBracket[]>([]);
   const [activeBracketId, setActiveBracketId] = useState<number | null>(null);
   const [teams, setTeams] = useState<TeamOpt[]>([]);
@@ -693,22 +699,31 @@ function BracketBody() {
     <div className="space-y-0">
       {/* Tab bar */}
       <div className="flex items-end gap-0 border-b border-border/60 mb-6">
-        {brackets.map((b) => (
-          <button
-            key={b.id}
-            type="button"
-            onClick={() => { setActiveBracketId(b.id); setShowCreate(false); }}
-            className={cn(
-              "px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap",
-              b.id === activeBracketId
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            {b.name}
-          </button>
-        ))}
+        {brackets.map((b) => {
+          const hasUnscheduled = unscheduledByBracket.has(b.id);
+          return (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => { setActiveBracketId(b.id); setShowCreate(false); }}
+              className={cn(
+                "px-4 py-2 text-xs font-semibold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap inline-flex items-center gap-1.5",
+                b.id === activeBracketId
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              )}
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {b.name}
+              {hasUnscheduled && (
+                <AlertTriangle
+                  className="h-3 w-3 text-amber-500 shrink-0"
+                  aria-label="Has an unscheduled bracket game"
+                />
+              )}
+            </button>
+          );
+        })}
         {canEdit && brackets.length < 20 && (
           <button
             type="button"
@@ -776,6 +791,10 @@ function BracketBody() {
           standingsOrder={standingsOrder}
           seedOffset={seedOffsets.get(activeBracket.id) ?? 0}
           games={games}
+          unscheduledGameIds={unscheduledBracketGames
+            .filter((g) => g.bracketId === activeBracket.id)
+            .map((g) => g.gameId)
+            .filter((id): id is string => id != null)}
           includeInProgress={includeInProgress}
           onIncludeInProgressChange={setIncludeInProgress}
           onDeleted={handleBracketDeleted}
