@@ -513,8 +513,8 @@ function SchedulingBody() {
 
     let minGames = 0;
     let maxGames = 0;
-    let hasMin = min != null && min >= 1;
-    let hasMax = max != null && max >= 1;
+    const hasMin = min != null && min >= 1;
+    const hasMax = max != null && max >= 1;
 
     for (const n of sizes) {
       if (n < 2) continue;
