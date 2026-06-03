@@ -380,7 +380,7 @@ export default function TournamentProvider({ children }: { children: React.React
         label: "Build the full pool schedule (games per team)",
         done: coverageProgress === 1,
         progress: coverageProgress,
-        href: tid ? `/tournaments/${tid}/pool` : null,
+        href: tid ? `/tournaments/${tid}/scheduling` : null,
         detail: coverageDetail,
       },
       {
@@ -388,7 +388,7 @@ export default function TournamentProvider({ children }: { children: React.React
         label: "Assign venue & field to every game",
         done: gameVenuesProgress === 1,
         progress: gameVenuesProgress,
-        href: tid ? `/tournaments/${tid}/pool` : null,
+        href: tid ? `/tournaments/${tid}/scheduling` : null,
         detail: ready
           ? games.length === 0
             ? "No games yet"
@@ -402,7 +402,7 @@ export default function TournamentProvider({ children }: { children: React.React
         label: "Schedule every game (date & time)",
         done: scheduleProgress === 1,
         progress: scheduleProgress,
-        href: tid ? `/tournaments/${tid}/pool` : null,
+        href: tid ? `/tournaments/${tid}/scheduling` : null,
         detail: ready
           ? games.length === 0
             ? "No games yet"

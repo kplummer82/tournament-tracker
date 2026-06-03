@@ -3,6 +3,7 @@ export type TabKey =
   | "overview"
   | "teams"
   | "venues"
+  | "scheduling"
   | "pool"
   | "standings"
   | "bracket"
@@ -25,6 +26,7 @@ export type Tournament = {
   statusid: number | null;
   visibilityid: number | null;
   bats: { id: number; name: string }[];
+  schedule_config?: import("@/lib/tournament-schedule").TournamentScheduleConfig | null;
   // optional labels if your API returns them
   division?: string | null;
   sport?: string | null;

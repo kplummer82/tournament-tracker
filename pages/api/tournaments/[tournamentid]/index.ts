@@ -30,6 +30,7 @@ type Row = {
   statusid: number | null;
   visibilityid: number | null;
   bats: { id: number; name: string }[];
+  schedule_config: unknown | null;
 
   created_at: string | null;
 };
@@ -49,6 +50,7 @@ async function fetchRow(id: number): Promise<Row | null> {
       t.advances_per_group,
       t.num_pool_groups,
       t.pool_play_games_per_team,
+      t.schedule_config,
       COALESCE((
         SELECT json_agg(json_build_object('id', b.id, 'name', b.name) ORDER BY b.id)
         FROM public.tournament_bats tb
@@ -86,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         advances_per_group,
         num_pool_groups,
         pool_play_games_per_team,
+        schedule_config,
         bat_ids,
       } = (req.body ?? {}) as Partial<Row> & { bat_ids?: unknown };
 
@@ -132,6 +135,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await sql/*sql*/`
           UPDATE public.tournaments
           SET pool_play_games_per_team = ${pool_play_games_per_team ?? null}
+          WHERE tournamentid = ${id};
+        `;
+      }
+      if (schedule_config !== undefined) {
+        await sql/*sql*/`
+          UPDATE public.tournaments
+          SET schedule_config = ${
+            schedule_config === null ? null : JSON.stringify(schedule_config)
+          }::jsonb
           WHERE tournamentid = ${id};
         `;
       }

@@ -10,6 +10,7 @@ const items: { key: TabKey; label: string; path: (id: number) => string }[] = [
   { key: "teams",       label: "Teams",       path: (id) => `/tournaments/${id}/teams` },
   { key: "venues",      label: "Venues",      path: (id) => `/tournaments/${id}/venues` },
   { key: "standings",   label: "Standings",   path: (id) => `/tournaments/${id}/standings` },
+  { key: "scheduling",  label: "Scheduling",  path: (id) => `/tournaments/${id}/scheduling` },
   { key: "pool",        label: "Pool Play",   path: (id) => `/tournaments/${id}/pool` },
   { key: "bracket",     label: "Bracket",     path: (id) => `/tournaments/${id}/bracket` },
   { key: "tiebreakers", label: "Tiebreakers", path: (id) => `/tournaments/${id}/tiebreakers` },
