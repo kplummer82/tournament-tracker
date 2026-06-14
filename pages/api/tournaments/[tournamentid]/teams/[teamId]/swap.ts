@@ -66,9 +66,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const poolGroup = oldTeamData.rows[0].pool_group;
 
       const bracketResult = await client.query(
-        `UPDATE bracket_assignments
+        `UPDATE tournament_bracket_assignments
          SET team_id = $1
-         WHERE tournament_id = $2 AND team_id = $3`,
+         WHERE team_id = $3
+           AND bracket_id IN (
+             SELECT id FROM tournament_brackets WHERE tournament_id = $2
+           )`,
         [newTeamId, tournamentId, teamId]
       );
 

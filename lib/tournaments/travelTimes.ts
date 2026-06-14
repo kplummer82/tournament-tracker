@@ -37,24 +37,18 @@ async function loadVenueLocationMap(
 }
 
 /**
- * Ensure driving times exist for every ordered pair of the tournament's predefined
- * locations (those with coordinates), computing+caching any that are missing.
- * Returns the venue→location map plus the full pair lookup. Safe to call on every
- * page load — it only hits Mapbox when new pairs appear.
+ * Ensure driving times exist for every ordered pair among the given predefined
+ * location ids (those with coordinates), computing+caching any that are missing.
+ * Returns the "origLocId-destLocId" → minutes lookup. Location-only and reusable —
+ * tournaments map their venues to locations first; seasons pass location ids
+ * directly. Safe to call on every page load — only hits Mapbox for new pairs.
  */
-export async function ensureTravelTimes(
+export async function ensureTravelTimesForLocations(
   client: PoolClient,
-  tournamentId: number,
-): Promise<TravelTimesResult> {
-  const venueLocation = await loadVenueLocationMap(client, tournamentId);
-
-  // Distinct predefined location ids used by this tournament that have coords.
-  const locIds = [
-    ...new Set(Object.values(venueLocation).filter((v): v is number => v != null)),
-  ];
-  if (locIds.length < 2) {
-    return { drivingMinutes: {}, venueLocation };
-  }
+  locationIds: number[],
+): Promise<Record<string, number>> {
+  const locIds = [...new Set(locationIds.filter((v): v is number => v != null))];
+  if (locIds.length < 2) return {};
 
   const { rows: locRows } = await client.query(
     `SELECT id, latitude, longitude
@@ -69,9 +63,7 @@ export async function ensureTravelTimes(
     lng: Number(r.longitude),
   }));
   const coordIds = coords.map((c) => c.locationId);
-  if (coords.length < 2) {
-    return { drivingMinutes: {}, venueLocation };
-  }
+  if (coords.length < 2) return {};
 
   // Load already-cached pairs among these locations.
   const { rows: cachedRows } = await client.query(
@@ -131,6 +123,25 @@ export async function ensureTravelTimes(
 
   const drivingMinutes: Record<string, number> = {};
   for (const [k, v] of cached) drivingMinutes[k] = v;
+  return drivingMinutes;
+}
 
+/**
+ * Ensure driving times exist for every ordered pair of the tournament's predefined
+ * locations (those with coordinates), computing+caching any that are missing.
+ * Returns the venue→location map plus the full pair lookup. Safe to call on every
+ * page load — it only hits Mapbox when new pairs appear.
+ */
+export async function ensureTravelTimes(
+  client: PoolClient,
+  tournamentId: number,
+): Promise<TravelTimesResult> {
+  const venueLocation = await loadVenueLocationMap(client, tournamentId);
+
+  // Distinct predefined location ids used by this tournament that have coords.
+  const locIds = [
+    ...new Set(Object.values(venueLocation).filter((v): v is number => v != null)),
+  ];
+  const drivingMinutes = await ensureTravelTimesForLocations(client, locIds);
   return { drivingMinutes, venueLocation };
 }

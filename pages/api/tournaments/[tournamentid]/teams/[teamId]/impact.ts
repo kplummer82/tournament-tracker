@@ -32,9 +32,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       );
 
       const bracketAssignmentsResult = await client.query(
-        `SELECT COUNT(*) AS count FROM bracket_assignments ba
-         JOIN tournament_bracket tb ON tb.tournament_id = ba.tournament_id
-         WHERE tb.tournament_id = $1 AND ba.team_id = $2`,
+        `SELECT COUNT(*) AS count FROM tournament_bracket_assignments tba
+         JOIN tournament_brackets tb ON tb.id = tba.bracket_id
+         WHERE tb.tournament_id = $1 AND tba.team_id = $2`,
         [tournamentId, teamId]
       );
 

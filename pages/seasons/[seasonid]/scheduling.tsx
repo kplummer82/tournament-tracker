@@ -16,11 +16,12 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, X, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
-  Wand2, CalendarCheck, Download,
+  Wand2, CalendarCheck, Download, Ban,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot, Matchup } from "@/lib/auto-schedule";
-import { buildSlots, normalizeScheduleConfig, buildMatchups, generateBalancedGames, weekMonday } from "@/lib/auto-schedule";
+import { buildSlots, normalizeScheduleConfig, buildMatchups, generateBalancedGames, weekMonday, slotBlockKey } from "@/lib/auto-schedule";
+import { findSeasonSlotOverlaps, findSeasonTravelConflicts } from "@/lib/seasons/scheduleConflicts";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
@@ -32,6 +33,7 @@ import type { LocationPickerValue } from "@/components/LocationPicker";
 
 interface DraftSlot {
   id: string;           // unique: `${date}__${time}__${fieldKey}`
+  blockKey: string;     // regeneration-stable key for per-slot team blocks
   date: string;         // "YYYY-MM-DD"
   time: string;         // "HH:MM"
   fieldName: string;
@@ -54,6 +56,14 @@ function fmt12h(time: string): string {
 function fmtDateTS(date: string): string {
   const [y, m, d] = date.split('-');
   return `${parseInt(m)}/${parseInt(d)}/${y}`;
+}
+
+/** Minutes-since-midnight → "h:MM AM/PM" (caps display at end-of-day). */
+function minutesToClock(mins: number): string {
+  const m = Math.max(0, Math.min(mins, 23 * 60 + 59));
+  const hh = String(Math.floor(m / 60)).padStart(2, '0');
+  const mm = String(m % 60).padStart(2, '0');
+  return fmt12h(`${hh}:${mm}`);
 }
 
 function csvCell(val: string): string {
@@ -103,7 +113,7 @@ function TeamChip({ team }: { team: Team }) {
       {...attributes}
       {...listeners}
       className={cn(
-        "inline-flex items-center px-2 py-0.5 text-[11px] font-medium border cursor-grab active:cursor-grabbing select-none transition-colors bg-background border-border hover:border-primary hover:text-primary",
+        "inline-flex items-center rounded px-2.5 py-1 text-xs font-medium border cursor-grab active:cursor-grabbing select-none transition-colors bg-background border-border hover:border-primary hover:text-primary",
         isDragging && "opacity-0"
       )}
       style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}
@@ -115,7 +125,7 @@ function TeamChip({ team }: { team: Team }) {
 
 function DraggingChip({ team }: { team: Team }) {
   return (
-    <div className="inline-flex items-center px-2 py-0.5 text-[11px] font-medium border border-primary bg-primary text-primary-foreground shadow-lg cursor-grabbing select-none">
+    <div className="inline-flex items-center rounded px-2.5 py-1 text-xs font-medium border border-primary bg-primary text-primary-foreground shadow-lg cursor-grabbing select-none">
       {team.name}
     </div>
   );
@@ -129,12 +139,14 @@ function SlotPosition({
   team,
   onClear,
   conflicted,
+  blockMode,
 }: {
   slotId: string;
   position: 'home' | 'away';
   team: Team | null;
   onClear: () => void;
   conflicted?: boolean;
+  blockMode?: boolean;
 }) {
   const { isOver, setNodeRef: setDropRef } = useDroppable({
     id: `${slotId}__${position}`,
@@ -168,7 +180,7 @@ function SlotPosition({
         {...attributes}
         {...listeners}
         className={cn(
-          "flex items-center justify-between gap-1 px-2 py-0.5 border text-[11px] font-medium min-w-[100px] cursor-grab active:cursor-grabbing",
+          "flex items-center justify-between gap-1 w-full h-8 px-2.5 rounded border text-xs font-medium cursor-grab active:cursor-grabbing",
           conflicted
             ? "border-destructive/60 bg-destructive/5 text-destructive"
             : "border-primary/40 bg-primary/5 text-foreground",
@@ -176,14 +188,14 @@ function SlotPosition({
         )}
         style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}
       >
-        <span className="truncate max-w-[80px]">{team.name}</span>
+        <span className="truncate min-w-0">{team.name}</span>
         <button
           type="button"
           onPointerDown={e => e.stopPropagation()}
           onClick={onClear}
           className="text-muted-foreground hover:text-foreground shrink-0 ml-1"
         >
-          <X className="h-3 w-3" />
+          <X className="h-3.5 w-3.5" />
         </button>
       </div>
     );
@@ -193,11 +205,15 @@ function SlotPosition({
     <div
       ref={setDropRef}
       className={cn(
-        "flex items-center justify-center px-2 py-0.5 border border-dashed text-[10px] text-muted-foreground min-w-[100px] transition-colors",
-        isOver ? "border-primary bg-primary/5 text-primary" : "border-border/60"
+        "flex items-center justify-center w-full h-8 px-2.5 rounded border border-dashed text-[11px] text-muted-foreground transition-colors",
+        isOver
+          ? blockMode
+            ? "border-destructive bg-destructive/5 text-destructive"
+            : "border-primary bg-primary/5 text-primary"
+          : "border-border/60"
       )}
     >
-      {position === 'home' ? 'Home' : 'Away'}
+      {isOver && blockMode ? 'Block here' : position === 'home' ? 'Home' : 'Away'}
     </div>
   );
 }
@@ -318,6 +334,15 @@ function SchedulingRules({
                   placeholder="—"
                   onChange={e => setConfig({ ...config, targetGamesPerTeam: e.target.value ? Number(e.target.value) : undefined })}
                   className={cn(FIELD_INPUT, "w-16")} />
+              </label>
+              <label className="flex items-center gap-3">
+                <span className="text-xs">Game duration (min)</span>
+                <input type="number" min={1} step={5}
+                  value={config.gameDurationMinutes ?? ''}
+                  placeholder="—"
+                  onChange={e => setConfig({ ...config, gameDurationMinutes: e.target.value ? Number(e.target.value) : undefined })}
+                  className={cn(FIELD_INPUT, "w-20")}
+                  title="Max length of a game — used to flag overlapping slots and not-enough-travel-time conflicts" />
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={config.noBackToBackMatchups ?? false}
@@ -515,9 +540,13 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
   setCommitSuccess: (v: boolean) => void;
   setAutoFillFeedback: (v: { restDays: number; backToBack: number; roundCompletion: number; weekdayLimit: number } | null) => void;
   onCommitSuccess: () => void;
+  mode: 'assign' | 'block';
+  onBlock: (blockKey: string, teamId: number) => void;
+  onUnblock: (blockKey: string, teamId: number) => void;
 }>(function SchedulerWorkspace({ slots, setSlots, teams, seasonId, config,
   committing, setCommitting, commitMode, existingCount, setExistingCount,
-  commitError, setCommitError, commitSuccess, setCommitSuccess, setAutoFillFeedback, onCommitSuccess }, ref) {
+  commitError, setCommitError, commitSuccess, setCommitSuccess, setAutoFillFeedback, onCommitSuccess,
+  mode, onBlock, onUnblock }, ref) {
   const [activeDrag, setActiveDrag] = useState<{ team: Team } | null>(null);
 
   const sensors = useSensors(
@@ -546,6 +575,11 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
   const assignedCount = slots.filter(s => s.home && s.away).length;
   const partialCount = slots.filter(s => (s.home || s.away) && !(s.home && s.away)).length;
 
+  const blockedFor = useCallback(
+    (blockKey: string): number[] => config.blockedSlots?.[blockKey] ?? [],
+    [config.blockedSlots]
+  );
+
   function handleDragStart(event: DragStartEvent) {
     const data = event.active.data.current;
     const team = data?.type === 'team' ? data.team : data?.type === 'slot-team' ? data.team : null;
@@ -568,6 +602,13 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
     if (!draggedTeam) return;
 
     const { slotId, position } = overData;
+
+    // Block mode: dropping a team on a slot blocks it from that game (whole slot).
+    if (mode === 'block') {
+      const target = slots.find(s => s.id === slotId);
+      if (target) onBlock(target.blockKey, draggedTeam.id);
+      return;
+    }
 
     const isSrcMove = activeData?.type === 'slot-team';
     const srcSlotId: string | null = isSrcMove ? activeData.slotId : null;
@@ -608,6 +649,9 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
     // Generate the game pool before setSlots so it's stable across StrictMode invocations.
     // TARGETED: circle-method exact list (every team plays exactly targetGamesPerTeam times).
     // NON-TARGETED: over-generated pool managed by RC penalty.
+    // A team blocked from a specific slot is never auto-assigned there.
+    const isBlockedAt = (slot: DraftSlot, teamId: number): boolean =>
+      config.blockedSlots?.[slot.blockKey]?.includes(teamId) ?? false;
     const isTargeted = !!(config.targetGamesPerTeam && teams.length >= 2);
     const shuffled = [...teams];
     for (let i = shuffled.length - 1; i > 0; i--) {
@@ -702,6 +746,9 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
       function fillSlot(slot: DraftSlot, relaxRC: boolean): DraftSlot {
         if (slot.home && slot.away) return slot;
 
+        // Teams blocked from this specific slot — never auto-assign them here.
+        const slotBlocks = config.blockedSlots?.[slot.blockKey];
+
         // Sort pending so the most-underserved team pairs come first in the scan.
         pending.sort((a, b) =>
           ((gamesPerTeam.get(a.home.id) ?? 0) + (gamesPerTeam.get(a.away.id) ?? 0)) -
@@ -750,6 +797,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
         }
 
         function passesConstraints(m: { home: Team; away: Team }, relaxBtB: boolean, relaxMaxWkday: boolean): boolean {
+          if (slotBlocks && (slotBlocks.includes(m.home.id) || slotBlocks.includes(m.away.id))) return false;
           if ((dateMap.get(m.home.id) ?? 0) >= maxPerDay) return false;
           if ((dateMap.get(m.away.id) ?? 0) >= maxPerDay) return false;
           if (config.targetGamesPerTeam) {
@@ -911,6 +959,8 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
             if ((slot.home && slot.away) || (!slot.home && !slot.away)) continue;
             const fixedTeam = slot.home ?? slot.away!;
             const pos: 'home' | 'away' = slot.home ? 'home' : 'away';
+            // Fixed team is blocked from this slot — don't auto-complete its game here.
+            if (isBlockedAt(slot, fixedTeam.id)) continue;
 
             let bestRi = -1, bestMi = -1, bestScore = Infinity;
             for (let ri = 0; ri < rounds.length; ri++) {
@@ -918,6 +968,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
                 const m = rounds[ri][mi];
                 if (m.home.id !== fixedTeam.id && m.away.id !== fixedTeam.id) continue;
                 const opponent = m.home.id === fixedTeam.id ? m.away : m.home;
+                if (isBlockedAt(slot, opponent.id)) continue;
                 if (config.targetGamesPerTeam && (gamesPerTeam.get(opponent.id) ?? 0) >= config.targetGamesPerTeam) continue;
                 const s = gamesPerTeam.get(opponent.id) ?? 0;
                 if (s < bestScore) { bestScore = s; bestRi = ri; bestMi = mi; }
@@ -1012,6 +1063,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
               }
               let bestSi = -1, bestScore = Infinity, bestFlipped = false;
               for (const si of emptyOnDate) {
+                if (isBlockedAt(result[si], m.home.id) || isBlockedAt(result[si], m.away.id)) continue;
                 const sA = scoreForSlot(m.home, m.away, result[si]);
                 const sB = (config.evenHomeAway ?? true) ? scoreForSlot(m.away, m.home, result[si]) : sA;
                 const best = Math.min(sA, sB);
@@ -1047,6 +1099,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
             for (const m of remainingMatchups) {
               let bestSi = -1, bestScore = Infinity, bestFlipped = false;
               for (const si of openSlots) {
+                if (isBlockedAt(result[si], m.home.id) || isBlockedAt(result[si], m.away.id)) continue;
                 const sA = scoreForSlot(m.home, m.away, result[si]);
                 const sB = (config.evenHomeAway ?? true)
                   ? scoreForSlot(m.away, m.home, result[si]) : sA;
@@ -1195,7 +1248,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex gap-4 items-start" style={{ fontFamily: 'var(--font-body)' }}>
         {/* Teams Sidebar */}
-        <div className="w-48 shrink-0 border border-border sticky top-4">
+        <div className="w-48 shrink-0 border border-border rounded sticky top-4">
           <div className="px-3 py-2 border-b border-border bg-muted/30">
             <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Teams</span>
           </div>
@@ -1251,7 +1304,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
             )}
           </div>
 
-          <div className="space-y-5">
+          <div className="space-y-4">
             {sortedDates.map(date => {
               const dateSlots = slotsByDate.get(date)!;
               const d = new Date(date + 'T00:00:00Z');
@@ -1261,32 +1314,63 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
               const dayRule = config.dayRules.find(r => r.dayOfWeek === dowForDate);
 
               return (
-                <div key={date}>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                <div key={date} className="border border-border rounded overflow-hidden">
+                  <div className="px-3 py-2 border-b border-border bg-muted/30 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     {dayLabel}, {dateFormatted}
                   </div>
-                  <div className="space-y-1.5">
+                  <div className="divide-y divide-border/60">
                     {dateSlots.map(slot => {
                       const maxPerTeam = dayRule?.maxGamesPerTeamOnDay ?? 1;
-                      const homeConflict = slot.home
+                      const blocked = blockedFor(slot.blockKey);
+                      const homeBlocked = slot.home != null && blocked.includes(slot.home.id);
+                      const awayBlocked = slot.away != null && blocked.includes(slot.away.id);
+                      const homeConflict = homeBlocked || (slot.home
                         ? (teamDateCounts[`${slot.home.id}__${date}`] ?? 0) > maxPerTeam
-                        : false;
-                      const awayConflict = slot.away
+                        : false);
+                      const awayConflict = awayBlocked || (slot.away
                         ? (teamDateCounts[`${slot.away.id}__${date}`] ?? 0) > maxPerTeam
-                        : false;
+                        : false);
 
                       return (
-                        <div key={slot.id} className="flex items-center gap-2">
-                          <SlotPosition slotId={slot.id} position="home" team={slot.home}
-                            onClear={() => clearPosition(slot.id, 'home')} conflicted={homeConflict} />
-                          <span className="text-[10px] text-muted-foreground font-bold">vs</span>
-                          <SlotPosition slotId={slot.id} position="away" team={slot.away}
-                            onClear={() => clearPosition(slot.id, 'away')} conflicted={awayConflict} />
-                          <span className="text-[11px] text-muted-foreground w-20 shrink-0 tabular-nums">
-                            {fmt12h(slot.time)}
-                          </span>
-                          {(slot.fieldName || slot.fieldLocation) && (
-                            <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="text-[11px] text-muted-foreground flex-1 min-w-0 truncate" />
+                        <div key={slot.id} className="px-3 py-1.5">
+                          <div className="grid grid-cols-[1fr_auto_1fr_auto_minmax(0,1.4fr)] items-center gap-x-3">
+                            <SlotPosition slotId={slot.id} position="home" team={slot.home}
+                              onClear={() => clearPosition(slot.id, 'home')} conflicted={homeConflict} blockMode={mode === 'block'} />
+                            <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
+                            <SlotPosition slotId={slot.id} position="away" team={slot.away}
+                              onClear={() => clearPosition(slot.id, 'away')} conflicted={awayConflict} blockMode={mode === 'block'} />
+                            <span className="text-[11px] text-muted-foreground text-right shrink-0 tabular-nums">
+                              {fmt12h(slot.time)}
+                            </span>
+                            {(slot.fieldName || slot.fieldLocation) ? (
+                              <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="text-[11px] text-muted-foreground truncate min-w-0" />
+                            ) : (
+                              <span />
+                            )}
+                          </div>
+                          {blocked.length > 0 && (
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1.5 pl-0.5">
+                              <Ban className="h-3 w-3 text-muted-foreground/60 shrink-0" />
+                              {blocked.map(teamId => {
+                                const blkTeam = teams.find(t => t.id === teamId);
+                                return (
+                                  <span
+                                    key={teamId}
+                                    className="inline-flex items-center gap-1 rounded border border-dashed border-muted-foreground/40 px-1.5 py-0.5 text-[10px] text-muted-foreground line-through"
+                                    title="Blocked from this slot"
+                                  >
+                                    {blkTeam?.name ?? `Team ${teamId}`}
+                                    <button
+                                      type="button"
+                                      onClick={() => onUnblock(slot.blockKey, teamId)}
+                                      className="hover:text-foreground no-underline"
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </button>
+                                  </span>
+                                );
+                              })}
+                            </div>
                           )}
                         </div>
                       );
@@ -1883,6 +1967,8 @@ function SchedulingBody() {
   const [committedSlotSnapshot, setCommittedSlotSnapshot] = useState<string | null>(null);
   const [dirtyAfterCommit, setDirtyAfterCommit] = useState(false);
   const [playedCount, setPlayedCount] = useState(0);
+  const [mode, setMode] = useState<'assign' | 'block'>('assign');
+  const [travel, setTravel] = useState<{ drivingMinutes: Record<string, number>; changeoverMinutes: number } | null>(null);
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
 
@@ -1911,16 +1997,24 @@ function SchedulingBody() {
             const playedCount = allGames.length - scheduledGames.length;
             if (scheduledGames.length > 0) {
               const teamMap = new Map(loaded.map((t: Team) => [t.id, t]));
-              const loadedSlots: DraftSlot[] = scheduledGames.map((g: any) => ({
-                id: `db__${g.id}`,
-                date: typeof g.gamedate === 'string' ? g.gamedate.slice(0, 10) : '',
-                time: g.gametime ?? '00:00',
-                fieldName: g.field ?? '',
-                fieldLocation: g.location ?? '',
-                locationId: g.location_id ?? null,
-                home: teamMap.get(g.home) ?? null,
-                away: teamMap.get(g.away) ?? null,
-              }));
+              const loadedSlots: DraftSlot[] = scheduledGames.map((g: any) => {
+                const date = typeof g.gamedate === 'string' ? g.gamedate.slice(0, 10) : '';
+                const time = g.gametime ?? '00:00';
+                const fieldName = g.field ?? '';
+                const fieldLocation = g.location ?? '';
+                const locationId = g.location_id ?? null;
+                return {
+                  id: `db__${g.id}`,
+                  blockKey: slotBlockKey({ date, time, locationId, fieldLocation, fieldName }),
+                  date,
+                  time,
+                  fieldName,
+                  fieldLocation,
+                  locationId,
+                  home: teamMap.get(g.home) ?? null,
+                  away: teamMap.get(g.away) ?? null,
+                };
+              });
               setSlots(loadedSlots);
               setExistingCount(scheduledGames.length);
               setCommitSuccess(true);
@@ -1935,6 +2029,48 @@ function SchedulingBody() {
       })
       .catch(e => setTeamsErr(e.message));
   }, [seasonId]);
+
+  // Travel-time context (driving minutes between the season's official locations).
+  // Loaded separately so a Mapbox/compute hiccup doesn't block the rest of the page;
+  // lazily computes + caches on the server the first time ≥2 mapped locations appear.
+  useEffect(() => {
+    if (!seasonId) return;
+    let cancelled = false;
+    fetch(`/api/seasons/${seasonId}/travel-times`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        setTravel({
+          drivingMinutes: d?.drivingMinutes ?? {},
+          changeoverMinutes: typeof d?.changeoverMinutes === 'number' ? d.changeoverMinutes : 45,
+        });
+      })
+      .catch(() => { if (!cancelled) setTravel(null); });
+    return () => { cancelled = true; };
+  }, [seasonId]);
+
+  // Blocks live in config.blockedSlots (so they persist via Save Rules and drive
+  // auto-fill), keyed by a regeneration-stable slot key.
+  // Blocks are part of the rules config (persisted via Save Rules), not the slot
+  // assignments — so they don't touch the commit-dirty snapshot.
+  const addBlock = useCallback((blockKey: string, teamId: number) => {
+    setConfig(c => {
+      const existing = c.blockedSlots?.[blockKey] ?? [];
+      if (existing.includes(teamId)) return c;
+      return { ...c, blockedSlots: { ...c.blockedSlots, [blockKey]: [...existing, teamId] } };
+    });
+  }, []);
+
+  const removeBlock = useCallback((blockKey: string, teamId: number) => {
+    setConfig(c => {
+      const existing = c.blockedSlots?.[blockKey] ?? [];
+      const next = existing.filter(id => id !== teamId);
+      const blockedSlots = { ...c.blockedSlots };
+      if (next.length > 0) blockedSlots[blockKey] = next;
+      else delete blockedSlots[blockKey];
+      return { ...c, blockedSlots };
+    });
+  }, []);
 
   async function handleSaveRules() {
     if (!seasonId) return;
@@ -1970,6 +2106,7 @@ function SchedulingBody() {
     const rawSlots = buildSlots(config);
     setSlots(rawSlots.map((s, i) => ({
       id: `${s.date}__${s.time}__${s.field.name || String(i)}`,
+      blockKey: slotBlockKey({ date: s.date, time: s.time, locationId: s.field.locationId ?? null, fieldLocation: s.field.location, fieldName: s.field.name }),
       date: s.date,
       time: s.time,
       fieldName: s.field.name,
@@ -1986,6 +2123,34 @@ function SchedulingBody() {
   }
 
   const assignedCount = slots.filter(s => s.home && s.away).length;
+
+  // ── Conflict warnings (parity with the tournament scheduler) ────────────────
+  const overlaps = useMemo(
+    () => findSeasonSlotOverlaps(slots, config.gameDurationMinutes),
+    [slots, config.gameDurationMinutes]
+  );
+  const travelConflicts = useMemo(() => {
+    if (!travel) return [];
+    const games = slots
+      .filter(s => s.home && s.away)
+      .map(s => ({ date: s.date, time: s.time, home: s.home!.id, away: s.away!.id, locationId: s.locationId }));
+    return findSeasonTravelConflicts(games, config.gameDurationMinutes, travel);
+  }, [slots, config.gameDurationMinutes, travel]);
+  const blockViolations = useMemo(() => {
+    const out: { slot: DraftSlot; teamId: number }[] = [];
+    for (const s of slots) {
+      const blocked = config.blockedSlots?.[s.blockKey] ?? [];
+      if (blocked.length === 0) continue;
+      for (const tm of [s.home, s.away]) {
+        if (tm && blocked.includes(tm.id)) out.push({ slot: s, teamId: tm.id });
+      }
+    }
+    return out;
+  }, [slots, config.blockedSlots]);
+
+  const teamName = (id: number) => teams.find(t => t.id === id)?.name ?? `Team ${id}`;
+  const locName = (id: number | null) =>
+    id == null ? '' : (slots.find(s => s.locationId === id)?.fieldLocation || `Location ${id}`);
 
   return (
     <div style={{ fontFamily: 'var(--font-body)' }}>
@@ -2036,6 +2201,27 @@ function SchedulingBody() {
                 <Wand2 className="h-3 w-3" /> Auto-fill
               </button>
             )}
+            {slots.length > 0 && (
+              <div className="inline-flex border border-border rounded overflow-hidden">
+                {(['assign', 'block'] as const).map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setMode(m)}
+                    className={cn(
+                      "px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] transition-colors",
+                      mode === m
+                        ? m === 'block'
+                          ? "bg-destructive/15 text-destructive"
+                          : "bg-primary/15 text-primary"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {m === 'assign' ? 'Assign' : 'Block'}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           {slots.length > 0 && (
             <div className="flex items-center gap-3 flex-wrap">
@@ -2079,6 +2265,88 @@ function SchedulingBody() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Block-mode hint */}
+      {canEdit && slots.length > 0 && mode === 'block' && (
+        <div className="flex items-start gap-2 my-2 p-3 border border-destructive/30 bg-destructive/5 text-xs text-destructive">
+          <Ban className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span>
+            Block mode: drag a team onto a slot to keep it from being scheduled there. Auto-fill
+            will avoid blocked teams. Switch back to <strong>Assign</strong> to place teams.
+          </span>
+        </div>
+      )}
+
+      {/* Field-overlap warning */}
+      {overlaps.length > 0 && (
+        <div className="border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-3 my-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Overlapping slots ({config.gameDurationMinutes}-min games)
+          </p>
+          <ul className="space-y-0.5">
+            {overlaps.slice(0, 6).map((o, i) => (
+              <li key={i} className="text-xs text-amber-800 dark:text-amber-300">
+                {fmtDateTS(o.date)} — {[o.fieldLocation, o.field].filter(Boolean).join(' / ') || 'field'}:{' '}
+                {fmt12h(o.timeA)} &amp; {fmt12h(o.timeB)} overlap.
+              </li>
+            ))}
+            {overlaps.length > 6 && (
+              <li className="text-xs text-amber-800 dark:text-amber-300">
+                +{overlaps.length - 6} more overlapping pair{overlaps.length - 6 !== 1 ? 's' : ''}.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* Cross-location travel-time warning */}
+      {travelConflicts.length > 0 && (
+        <div className="border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-3 my-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Not enough travel time between locations
+          </p>
+          <ul className="space-y-0.5">
+            {travelConflicts.slice(0, 6).map((c, i) => (
+              <li key={i} className="text-xs text-amber-800 dark:text-amber-300">
+                {teamName(c.teamId)} — {fmtDateTS(c.date)}: {locName(c.fromVenueId)} {fmt12h(c.game1Time)} →{' '}
+                {locName(c.toVenueId)} {fmt12h(c.game2Time)} (can&apos;t arrive until {minutesToClock(c.needMinutes)}).
+              </li>
+            ))}
+            {travelConflicts.length > 6 && (
+              <li className="text-xs text-amber-800 dark:text-amber-300">
+                +{travelConflicts.length - 6} more travel conflict{travelConflicts.length - 6 !== 1 ? 's' : ''}.
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+
+      {/* Block-override violation warning */}
+      {blockViolations.length > 0 && (
+        <div className="border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-3 my-2">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            Blocked teams assigned anyway
+          </p>
+          <ul className="space-y-0.5">
+            {blockViolations.slice(0, 6).map((v, i) => (
+              <li key={i} className="text-xs text-amber-800 dark:text-amber-300">
+                {teamName(v.teamId)} is blocked from {fmtDateTS(v.slot.date)} {fmt12h(v.slot.time)}
+                {' — '}
+                {[v.slot.fieldLocation, v.slot.fieldName].filter(Boolean).join(' / ') || 'this slot'}{' '}
+                but is assigned there.
+              </li>
+            ))}
+            {blockViolations.length > 6 && (
+              <li className="text-xs text-amber-800 dark:text-amber-300">
+                +{blockViolations.length - 6} more.
+              </li>
+            )}
+          </ul>
         </div>
       )}
 
@@ -2128,28 +2396,40 @@ function SchedulingBody() {
         </div>
       )}
 
-      {activeView === 'workspace' || slots.length === 0
-        ? <SchedulerWorkspace
-            ref={workspaceRef}
-            slots={slots}
-            setSlots={setSlots}
-            teams={teams}
-            seasonId={seasonId!}
-            config={config}
-            committing={committing}
-            setCommitting={setCommitting}
-            commitMode={commitMode}
-            existingCount={existingCount}
-            setExistingCount={setExistingCount}
-            commitError={commitError}
-            setCommitError={setCommitError}
-            commitSuccess={commitSuccess}
-            setCommitSuccess={setCommitSuccess}
-            setAutoFillFeedback={setAutoFillFeedback}
-            onCommitSuccess={handleCommitSuccess}
-          />
-        : <ScheduleReport slots={slots} teams={teams} config={config} />
-      }
+      {/* Keep the workspace mounted (just hidden) while viewing the report so the
+          toolbar's Auto-fill / Export / Commit actions stay wired to workspaceRef. */}
+      {(() => {
+        const showReport = activeView === 'report' && slots.length > 0;
+        return (
+          <>
+            <div className={showReport ? 'hidden' : undefined}>
+              <SchedulerWorkspace
+                ref={workspaceRef}
+                slots={slots}
+                setSlots={setSlots}
+                teams={teams}
+                seasonId={seasonId!}
+                config={config}
+                committing={committing}
+                setCommitting={setCommitting}
+                commitMode={commitMode}
+                existingCount={existingCount}
+                setExistingCount={setExistingCount}
+                commitError={commitError}
+                setCommitError={setCommitError}
+                commitSuccess={commitSuccess}
+                setCommitSuccess={setCommitSuccess}
+                setAutoFillFeedback={setAutoFillFeedback}
+                onCommitSuccess={handleCommitSuccess}
+                mode={mode}
+                onBlock={addBlock}
+                onUnblock={removeBlock}
+              />
+            </div>
+            {showReport && <ScheduleReport slots={slots} teams={teams} config={config} />}
+          </>
+        );
+      })()}
 
       {/* Commit confirmation dialog */}
       <AlertDialog open={showCommitConfirm} onOpenChange={setShowCommitConfirm}>

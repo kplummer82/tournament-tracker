@@ -41,6 +41,27 @@ export interface ScheduleConfig {
   enforceRoundCompletion?: boolean; // if true (default), all opponents played X times before any Y times
   roundCompletionX?: number;        // opponents must be met X times first (default 1)
   roundCompletionY?: number;        // before meeting any opponent Y times (default 2)
+  gameDurationMinutes?: number;     // max length of a game — used to flag overlapping slots and travel conflicts
+  // Per-concrete-slot team blocks: blockKey → blocked teamIds. The slot config is
+  // by weekday, but a block is about one specific calendar slot, so blocks live here
+  // keyed by a regeneration-stable slot key (see slotBlockKey).
+  blockedSlots?: Record<string, number[]>;
+}
+
+/**
+ * Regeneration-stable key for a concrete calendar slot, used to look up per-slot
+ * team blocks. Derived from content (not array index or DB id) so the same slot
+ * resolves to the same key whether freshly generated or loaded from the DB.
+ */
+export function slotBlockKey(s: {
+  date: string;
+  time: string;
+  locationId?: number | null;
+  fieldLocation?: string;
+  fieldName?: string;
+}): string {
+  const loc = s.locationId != null ? String(s.locationId) : `c:${s.fieldLocation ?? ''}`;
+  return `${s.date}|${s.time}|${loc}|${s.fieldName ?? ''}`;
 }
 
 /**
@@ -96,7 +117,24 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
     enforceRoundCompletion: (config.enforceRoundCompletion as boolean | undefined) ?? false,
     roundCompletionX: (config.roundCompletionX as number | undefined) ?? 1,
     roundCompletionY: (config.roundCompletionY as number | undefined) ?? 2,
+    gameDurationMinutes:
+      config.gameDurationMinutes != null && Number(config.gameDurationMinutes) > 0
+        ? Number(config.gameDurationMinutes)
+        : undefined,
+    blockedSlots: normalizeBlockedSlots(config.blockedSlots),
   };
+}
+
+/** Clean a blockedSlots map: dedupe + drop non-finite ids, drop empty entries. */
+function normalizeBlockedSlots(raw: unknown): Record<string, number[]> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const out: Record<string, number[]> = {};
+  for (const [key, val] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(val)) continue;
+    const ids = [...new Set(val.map(x => Number(x)).filter(n => Number.isFinite(n)))];
+    if (ids.length > 0) out[key] = ids;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export interface GeneratedGame {

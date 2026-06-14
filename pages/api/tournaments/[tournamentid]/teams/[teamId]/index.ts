@@ -58,9 +58,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!session) return;
 
     try {
-      await sql`
-        DELETE FROM bracket_assignments
-        WHERE tournament_id = ${tournamentId} AND team_id = ${teamId}
+      const bracketResult = await sql`
+        DELETE FROM public.tournament_bracket_assignments
+        WHERE team_id = ${teamId}
+          AND bracket_id IN (
+            SELECT id FROM public.tournament_brackets WHERE tournament_id = ${tournamentId}
+          )
       `;
 
       const gamesResult = await sql`
@@ -83,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({
         removed: true,
         poolGamesDeleted: gamesResult?.length || 0,
-        bracketAssignmentsDeleted: 0,
+        bracketAssignmentsDeleted: bracketResult?.length || 0,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Server error";

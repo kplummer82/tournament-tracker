@@ -169,9 +169,10 @@ async function getBracketSlicesForSeason(seasonId: number): Promise<BracketSlice
 async function getBracketSlicesForTournament(tournamentId: number): Promise<BracketSlice[]> {
   const bracketRows = await sql`
     SELECT COALESCE(bt.seed_count, (tb.structure->>'numTeams')::int) AS size
-    FROM tournament_bracket tb
+    FROM tournament_brackets tb
     LEFT JOIN bracket_templates bt ON bt.id = tb.template_id
     WHERE tb.tournament_id = ${tournamentId}
+    ORDER BY tb.sort_order, tb.id
   `;
 
   if (bracketRows.length === 0) {
