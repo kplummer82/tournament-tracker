@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const PUBLIC_PAGES = new Set(["/login", "/sign-up"]);
-const PUBLIC_API_PREFIXES = ["/api/auth/"];
+// Pages reachable while logged out (prefix match — covers dynamic routes).
+// /invite/<token> is the invite landing page; it must work pre-login.
+const PUBLIC_PAGE_PREFIXES = ["/invite/"];
+// /api/invites/peek is a pre-login token lookup (no secrets beyond the invite
+// the recipient already holds). The other /api/invites/* routes stay gated.
+const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/invites/peek"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -12,6 +17,8 @@ export function middleware(request: NextRequest) {
 
   // Allow public pages
   if (PUBLIC_PAGES.has(pathname)) return NextResponse.next();
+  if (PUBLIC_PAGE_PREFIXES.some((p) => pathname.startsWith(p)))
+    return NextResponse.next();
 
   // Allow auth API routes
   if (PUBLIC_API_PREFIXES.some((p) => pathname.startsWith(p)))

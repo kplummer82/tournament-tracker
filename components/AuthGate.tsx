@@ -27,6 +27,15 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     redirectingRef.current = false;
   }, [router.pathname]);
 
+  // --- Invite landing page ---
+  // Accessible to everyone: logged-out invitees choose "create account / sign in"
+  // and logged-in users accept. The page handles its own session logic, so we
+  // must NOT redirect either way (unlike /login & /sign-up below, which bounce
+  // logged-in users to /).
+  if (router.pathname.startsWith("/invite/")) {
+    return <>{children}</>;
+  }
+
   // --- Public pages ---
   if (PUBLIC_PAGES.has(router.pathname)) {
     // Redirect logged-in users away from login/sign-up — but NOT when a

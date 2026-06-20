@@ -1,7 +1,7 @@
 // components/ManageAccessPanel.tsx
 // Reusable panel for scoped role management — used on league, division, tournament, and team pages.
 import { useCallback, useEffect, useState } from "react";
-import { Plus, Trash2, X, Shield, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Trash2, X, Shield, ChevronDown, ChevronRight, Mail, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type RoleRow = {
@@ -19,6 +19,17 @@ type RoleRow = {
 };
 
 type UserOption = { id: string; email: string; name: string | null };
+
+type InviteRow = {
+  id: number;
+  email: string;
+  role: string;
+  scope_type: string;
+  scope_id: number;
+  invited_by_name: string | null;
+  created_at: string;
+  expires_at: string;
+};
 
 const ROLE_LABELS: Record<string, string> = {
   league_admin: "League Admin",
@@ -87,6 +98,17 @@ export default function ManageAccessPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Invite-by-email form state
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmailInput, setInviteEmailInput] = useState("");
+  const [inviteRoleSel, setInviteRoleSel] = useState("");
+  const [inviteScopeId, setInviteScopeId] = useState<number>(0);
+  const [inviteSaving, setInviteSaving] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteResult, setInviteResult] = useState<{ inviteUrl: string; warning?: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<InviteRow[]>([]);
+
   const assignableRoles = ASSIGNABLE_ROLES[scopeType] ?? [];
 
   const fetchRoles = useCallback(async () => {
@@ -119,9 +141,40 @@ export default function ManageAccessPanel({
     }
   }, [scopeType, scopeId, divisions]);
 
+  const fetchInvites = useCallback(async () => {
+    try {
+      const collect: InviteRow[] = [];
+      const res = await fetch(`/api/invites?scope_type=${scopeType}&scope_id=${scopeId}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        collect.push(...((data.invites ?? []) as InviteRow[]));
+      }
+      // For leagues, also include division-scoped invites under this league
+      if (scopeType === "league" && divisions?.length) {
+        const childResults = await Promise.all(
+          divisions.map(async (d) => {
+            const r = await fetch(`/api/invites?scope_type=division&scope_id=${d.id}`, { credentials: "include" });
+            if (!r.ok) return [] as InviteRow[];
+            const dd = await r.json();
+            return (dd.invites ?? []) as InviteRow[];
+          })
+        );
+        collect.push(...childResults.flat());
+      }
+      setPendingInvites(collect);
+    } catch {
+      // ignore
+    }
+  }, [scopeType, scopeId, divisions]);
+
   useEffect(() => {
-    if (open) fetchRoles();
-  }, [open, fetchRoles]);
+    if (open) {
+      fetchRoles();
+      fetchInvites();
+    }
+  }, [open, fetchRoles, fetchInvites]);
 
   // User search
   useEffect(() => {
@@ -222,6 +275,71 @@ export default function ManageAccessPanel({
     }
   };
 
+  const needsInviteDivisionPicker =
+    scopeType === "league" && inviteRoleSel === "division_admin" && divisions?.length;
+
+  const handleSendInvite = async () => {
+    if (!inviteEmailInput.trim() || !inviteRoleSel) return;
+    const roleScopeType = ROLE_SCOPE_TYPE[inviteRoleSel];
+    const finalScopeId = needsInviteDivisionPicker ? inviteScopeId : scopeId;
+    if (needsInviteDivisionPicker && !inviteScopeId) {
+      setInviteError("Select a division");
+      return;
+    }
+
+    setInviteSaving(true);
+    setInviteError(null);
+    setInviteResult(null);
+    try {
+      const res = await fetch("/api/invites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          email: inviteEmailInput.trim(),
+          role: inviteRoleSel,
+          scopeType: roleScopeType,
+          scopeId: finalScopeId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to send invite");
+      setInviteResult({ inviteUrl: data.inviteUrl, warning: data.warning });
+      setInviteEmailInput("");
+      setInviteRoleSel("");
+      setCopied(false);
+      fetchInvites();
+    } catch (e: any) {
+      setInviteError(e.message);
+    } finally {
+      setInviteSaving(false);
+    }
+  };
+
+  const handleRevokeInvite = async (id: number) => {
+    if (!confirm("Revoke this invitation? The link will stop working.")) return;
+    try {
+      const res = await fetch(`/api/invites/${id}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Failed to revoke");
+      }
+      setPendingInvites((prev) => prev.filter((i) => i.id !== id));
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  const copyInviteLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore — the link is selectable in the input as a fallback
+    }
+  };
+
   return (
     <div className="border-t border-border pt-4 mt-6">
       <button
@@ -296,18 +414,73 @@ export default function ManageAccessPanel({
             </div>
           )}
 
-          {/* Assign form toggle */}
-          {!showAssign ? (
-            <button
-              type="button"
-              onClick={() => setShowAssign(true)}
-              className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
-              style={{ fontFamily: "var(--font-body)" }}
-            >
-              <Plus className="h-3 w-3" />
-              Add Person
-            </button>
-          ) : (
+          {/* Pending invites */}
+          {pendingInvites.length > 0 && (
+            <div className="space-y-2">
+              <span
+                className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                Pending Invites
+              </span>
+              <div className="border border-border overflow-hidden">
+                <table className="w-full text-sm">
+                  <tbody>
+                    {pendingInvites.map((inv) => (
+                      <tr key={inv.id} className="border-b border-border/50 last:border-0">
+                        <td className="p-3 pl-4 text-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                          <Mail className="inline h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                          {inv.email}
+                        </td>
+                        <td className="p-3">
+                          <span className="text-xs px-2 py-0.5 border border-border" style={{ fontFamily: "var(--font-body)" }}>
+                            {ROLE_LABELS[inv.role] ?? inv.role}
+                          </span>
+                        </td>
+                        <td className="p-3 pr-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeInvite(inv.id)}
+                            className="h-7 w-7 inline-flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                            title="Revoke invite"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {!showAssign && !showInvite && (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAssign(true)}
+                className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90")}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Plus className="h-3 w-3" />
+                Add Person
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInvite(true)}
+                className={cn(BTN_BASE, "border-border text-foreground hover:border-primary hover:text-primary")}
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Mail className="h-3 w-3" />
+                Invite by Email
+              </button>
+            </div>
+          )}
+
+          {/* Assign existing user */}
+          {showAssign && (
             <div className="border border-border bg-card p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <span
@@ -432,6 +605,141 @@ export default function ManageAccessPanel({
                   {saving ? "Assigning…" : "Assign"}
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Invite by email */}
+          {showInvite && (
+            <div className="border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span
+                  className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Invite by Email
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { setShowInvite(false); setInviteError(null); setInviteResult(null); }}
+                >
+                  <X className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+                </button>
+              </div>
+
+              {inviteError && (
+                <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>
+                  {inviteError}
+                </p>
+              )}
+
+              {inviteResult ? (
+                <div className="space-y-3">
+                  {inviteResult.warning ? (
+                    <p className="text-xs" style={{ fontFamily: "var(--font-body)", color: "var(--badge-completed-text)" }}>
+                      {inviteResult.warning}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-success" style={{ fontFamily: "var(--font-body)" }}>
+                      Invite sent. You can also copy the link to share it directly:
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={inviteResult.inviteUrl}
+                      className={INPUT}
+                      onFocus={(e) => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => copyInviteLink(inviteResult.inviteUrl)}
+                      className={cn(BTN_BASE, "border-border text-foreground hover:border-primary hover:text-primary shrink-0")}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInviteResult(null)}
+                    className={cn(BTN_BASE, "border-border text-muted-foreground hover:text-foreground")}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    Send another
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                      Email *
+                    </label>
+                    <input
+                      type="email"
+                      className={INPUT}
+                      placeholder="person@example.com"
+                      value={inviteEmailInput}
+                      onChange={(e) => setInviteEmailInput(e.target.value)}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                      Role *
+                    </label>
+                    <select className={INPUT} value={inviteRoleSel} onChange={(e) => setInviteRoleSel(e.target.value)}>
+                      <option value="">Select role…</option>
+                      {assignableRoles.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {needsInviteDivisionPicker && (
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                        Division *
+                      </label>
+                      <select
+                        className={INPUT}
+                        value={inviteScopeId}
+                        onChange={(e) => setInviteScopeId(Number(e.target.value))}
+                      >
+                        <option value="">Select division…</option>
+                        {divisions!.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setShowInvite(false); setInviteError(null); }}
+                      className={cn(BTN_BASE, "border-border text-muted-foreground hover:text-foreground")}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSendInvite}
+                      disabled={inviteSaving || !inviteEmailInput.trim() || !inviteRoleSel}
+                      className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}
+                      style={{ fontFamily: "var(--font-body)" }}
+                    >
+                      {inviteSaving ? "Sending…" : "Send Invite"}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

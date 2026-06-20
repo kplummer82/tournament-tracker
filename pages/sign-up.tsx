@@ -18,6 +18,7 @@ export default function SignUpPage() {
   const router = useRouter();
   const [intent, setIntent] = useState<SignupIntent | null>(null);
   const [invite, setInvite] = useState<InvitePayload | null>(null);
+  const [inviteToken, setInviteToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +47,7 @@ export default function SignUpPage() {
         if (data?.intent) {
           setInvite({ intent: data.intent, email: data.email });
           setIntent(data.intent);
+          setInviteToken(token);
         }
       } catch {
         // ignore — fall through to normal flow
@@ -134,6 +136,29 @@ export default function SignUpPage() {
       }
     } catch {
       /* default to active */
+    }
+
+    // If this signup came from an invite link, accept it now (the new account is
+    // logged in and its email matches the invited email, which was locked on the
+    // form). On success, land on the scoped entity they were just granted.
+    if (inviteToken) {
+      try {
+        const res = await fetch("/api/invites/accept", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ token: inviteToken }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.redirect) {
+            window.location.href = data.redirect;
+            return;
+          }
+        }
+      } catch {
+        // fall through to the normal post-signup redirect
+      }
     }
 
     const target = postSignupRedirect(effectiveIntent, status);
