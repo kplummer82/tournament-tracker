@@ -142,7 +142,7 @@ export default function BracketBuilderPage() {
               <div className="space-y-2">
                 <p className="text-sm font-medium">Choose bracket type</p>
                 <p className="text-xs text-muted-foreground mb-2">
-                  Only Single elimination has a from-scratch builder for now. Other types: start from library.
+                  Single and Double elimination have from-scratch builders. Other types: start from library.
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {BRACKET_TYPE_VALUES.map((t) => (
@@ -161,17 +161,24 @@ export default function BracketBuilderPage() {
               </div>
             )}
             {source === "scratch" && scratchBracketType === "single_elimination" && (
-              <StructureEditor value={structure} onChange={setStructure} />
+              <StructureEditor value={structure} onChange={setStructure} bracketType="single_elimination" />
             )}
-            {source === "scratch" && scratchBracketType != null && scratchBracketType !== "single_elimination" && (
-              <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-center text-sm text-muted-foreground">
-                From-scratch builder is only available for Single elimination. Use &quot;Start from library&quot; to pick a template for {getBracketTypeLabel(scratchBracketType)}.
-              </div>
+            {source === "scratch" && scratchBracketType === "double_elimination" && (
+              <StructureEditor value={structure} onChange={setStructure} bracketType="double_elimination" />
             )}
+            {source === "scratch" &&
+              scratchBracketType != null &&
+              scratchBracketType !== "single_elimination" &&
+              scratchBracketType !== "double_elimination" && (
+                <div className="rounded-lg border border-dashed border-border bg-muted/20 p-4 text-center text-sm text-muted-foreground">
+                  From-scratch builder is available for Single and Double elimination. Use &quot;Start from library&quot; to pick a template for {getBracketTypeLabel(scratchBracketType)}.
+                </div>
+              )}
           </div>
 
-          {/* Right: Bracket Workspace */}
-          <div className="rounded-xl border bg-muted/20 p-4">
+          {/* Right: Bracket Workspace — min-w-0 lets the 1fr track honor its size so the
+              wide bracket canvas scrolls inside instead of blowing out the page width. */}
+          <div className="rounded-xl border bg-muted/20 p-4 min-w-0">
             <h2 className="text-sm font-semibold mb-4">Bracket Workspace</h2>
             <BracketPreview
               structure={structure}

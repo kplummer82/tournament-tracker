@@ -7,8 +7,9 @@ import type { BracketGameDetails } from "@/components/bracket/BracketPreview";
 import LibraryPicker from "@/components/bracket/LibraryPicker";
 import BracketGameScheduleModal from "@/components/bracket/BracketGameScheduleModal";
 import type { BracketGameRecord } from "@/components/bracket/BracketGameScheduleModal";
-import { seedLabelsFromAssignments } from "@/components/bracket/SeedAssignment";
+import SeedAssignment, { seedLabelsFromAssignments } from "@/components/bracket/SeedAssignment";
 import { Button } from "@/components/ui/button";
+import { shuffle } from "@/lib/shuffle";
 import type { BracketStructure } from "@/components/bracket/types";
 import { validateFirstRoundSeeds } from "@/components/bracket/types";
 import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
@@ -156,6 +157,7 @@ function BracketPanel({
   onDeleted,
   onUpdated,
   canEdit,
+  hasPoolPlay,
 }: {
   bracket: TournamentBracket;
   tournamentId: number;
@@ -171,6 +173,8 @@ function BracketPanel({
   onDeleted: (id: number) => void;
   onUpdated: (b: Partial<TournamentBracket> & { id: number }) => void;
   canEdit: boolean;
+  /** When false, the tournament skips pool play — seed manually/randomly instead of from standings. */
+  hasPoolPlay: boolean;
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
   const [templateId, setTemplateId] = useState<number | null>(bracket.template_id ?? null);
@@ -234,6 +238,8 @@ function BracketPanel({
   // without a manual save. Frozen once any bracket game has a score, so re-seeding can
   // never corrupt bracket_game_id ↔ scored-row alignment.
   useEffect(() => {
+    // Direct-to-bracket tournaments seed manually/randomly — never auto-fill from standings.
+    if (!hasPoolPlay) return;
     if (!atLeastOneFinal || standingsOrder.length === 0 || !structure || loading) return;
     // Freeze if any bracket game already has a score — bracket is in progress
     if (bracketGames.some((g) => g.homescore != null || g.awayscore != null)) return;
@@ -255,7 +261,7 @@ function BracketPanel({
       body: JSON.stringify({ assignments: arr }),
     }).then(() => fetchBracketGames()).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps -- assignments intentionally excluded to avoid loop
-  }, [atLeastOneFinal, standingsOrder, structure, loading, seedOffset, bracket.id, tournamentId, fetchBracketGames, bracketGames]);
+  }, [hasPoolPlay, atLeastOneFinal, standingsOrder, structure, loading, seedOffset, bracket.id, tournamentId, fetchBracketGames, bracketGames]);
 
   const handleSelectTemplate = useCallback(
     (template: { id: number; name: string; structure: BracketStructure }) => {
@@ -350,6 +356,18 @@ function BracketPanel({
   }, [tournamentId, bracket.id, bracket.name, onDeleted]);
 
   const seedLabels = seedLabelsFromAssignments(assignments, teams);
+
+  // Direct-to-bracket seeding: freeze once any bracket game has a score.
+  const bracketStarted = bracketGames.some((g) => g.homescore != null || g.awayscore != null);
+  const handleRandomizeSeeds = () => {
+    if (!structure) return;
+    const ids = shuffle(teams.map((tm) => tm.id));
+    const next: Record<number, number> = {};
+    for (let seed = 1; seed <= structure.numTeams; seed++) {
+      if (ids[seed - 1] != null) next[seed] = ids[seed - 1];
+    }
+    setAssignments(next);
+  };
 
   // Build gameDetails map for BracketPreview
   const unscheduledSet = new Set(unscheduledGameIds);
@@ -533,6 +551,40 @@ function BracketPanel({
         </div>
       </div>
 
+      {/* Manual / random seeding (direct-to-bracket tournaments) */}
+      {!hasPoolPlay && structure && (
+        <div className="rounded-xl border border-border/60 bg-card/50 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Seeding</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {bracketStarted
+                  ? "Seeding is locked because bracket games have scores."
+                  : "Assign teams to seeds manually, or randomize."}
+              </p>
+            </div>
+            {canEdit && !bracketStarted && (
+              <Button type="button" variant="outline" size="sm" onClick={handleRandomizeSeeds}>
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                Randomize seeds
+              </Button>
+            )}
+          </div>
+          {canEdit && !bracketStarted ? (
+            <SeedAssignment
+              structure={structure}
+              assignments={assignments}
+              onChange={setAssignments}
+              teams={teams}
+            />
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {Object.keys(assignments).length} of {structure.numTeams} seeds assigned.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Save */}
       {canEdit && (
         <div className="flex items-center gap-4">
@@ -558,6 +610,7 @@ function BracketPanel({
 // ---------- Main body ----------
 function BracketBody() {
   const { tid, t, canEdit, unscheduledBracketGames } = useTournament();
+  const hasPoolPlay = t?.has_pool_play !== false;
   const unscheduledByBracket = new Set(unscheduledBracketGames.map((g) => g.bracketId));
   const [brackets, setBrackets] = useState<TournamentBracket[]>([]);
   const [activeBracketId, setActiveBracketId] = useState<number | null>(null);
@@ -800,6 +853,7 @@ function BracketBody() {
           onDeleted={handleBracketDeleted}
           onUpdated={handleBracketUpdated}
           canEdit={canEdit}
+          hasPoolPlay={hasPoolPlay}
         />
       )}
     </div>

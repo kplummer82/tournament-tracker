@@ -21,6 +21,7 @@ export type Tournament = {
   advances_per_group: number | null;
   num_pool_groups: number | null;
   pool_play_games_per_team: number | null;
+  has_pool_play: boolean | null;
   divisionid: number | null;
   sportid: number | null;
   statusid: number | null;

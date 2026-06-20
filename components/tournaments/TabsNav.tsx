@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { TabKey } from "./types";
+import { useTournament } from "./TournamentProvider";
 
 const items: { key: TabKey; label: string; path: (id: number) => string }[] = [
   { key: "overview",    label: "Overview",    path: (id) => `/tournaments/${id}/overview` },
@@ -17,6 +18,19 @@ const items: { key: TabKey; label: string; path: (id: number) => string }[] = [
   { key: "scenarios",   label: "Scenarios",   path: (id) => `/tournaments/${id}/scenarios` },
 ];
 
+// Pool Play, Standings, Tiebreakers, and Scheduling are pool-play concepts; hide
+// them for tournaments that go directly to bracket play. (The Scheduling
+// auto-scheduler only places pool games — bracket games are scheduled in the
+// Bracket tab via BracketGameScheduleModal.)
+const POOL_ONLY_TABS = new Set<TabKey>(["pool", "standings", "tiebreakers", "scheduling"]);
+function useVisibleItems() {
+  const { t } = useTournament();
+  return useMemo(
+    () => (t?.has_pool_play === false ? items.filter((i) => !POOL_ONLY_TABS.has(i.key)) : items),
+    [t?.has_pool_play],
+  );
+}
+
 const NAV_STYLE: React.CSSProperties = {
   fontFamily: "var(--font-body)",
   fontSize: "11px",
@@ -28,12 +42,13 @@ const NAV_STYLE: React.CSSProperties = {
 /** Sidebar nav — desktop */
 export function SidebarNav({ active, tid }: { active: TabKey; tid: number }) {
   const router = useRouter();
-  const hrefs = useMemo(() => items.map((i) => i.path(tid)), [tid]);
+  const visibleItems = useVisibleItems();
+  const hrefs = useMemo(() => visibleItems.map((i) => i.path(tid)), [visibleItems, tid]);
   useEffect(() => { hrefs.forEach((h) => router.prefetch(h).catch(() => {})); }, [router, hrefs]);
 
   return (
     <nav className="flex flex-col py-4">
-      {items.map((t) => {
+      {visibleItems.map((t) => {
         const href = t.path(tid);
         const isActive = active === t.key;
         return (
@@ -65,12 +80,13 @@ export function SidebarNav({ active, tid }: { active: TabKey; tid: number }) {
 /** Mobile horizontal strip */
 export default function TabsNav({ active, tid }: { active: TabKey; tid: number }) {
   const router = useRouter();
-  const hrefs = useMemo(() => items.map((i) => i.path(tid)), [tid]);
+  const visibleItems = useVisibleItems();
+  const hrefs = useMemo(() => visibleItems.map((i) => i.path(tid)), [visibleItems, tid]);
   useEffect(() => { hrefs.forEach((h) => router.prefetch(h).catch(() => {})); }, [router, hrefs]);
 
   return (
     <div className="flex overflow-x-auto border-b border-border md:hidden">
-      {items.map((t) => {
+      {visibleItems.map((t) => {
         const href = t.path(tid);
         const isActive = active === t.key;
         return (

@@ -1,8 +1,25 @@
-/** One game in a round: either seed pair (first round) or feeds from previous game ids */
+/** Which result of a source game feeds a slot: the winner (default) or the loser (double-elim). */
+export type FeedOutcome = "winner" | "loser";
+
+/** A single feed source for one slot of a game. */
+export type FeedSource = { from: string; outcome: FeedOutcome };
+
+/** One game in a round: either seed pair (first round) or feeds from previous game ids.
+ *
+ * Single elimination uses `feedsFrom` (winners only). Double elimination uses `feeds`,
+ * where each entry's index is the slot (0 = home, 1 = visitor) and `outcome` selects the
+ * winner or loser of the source game. The layout/semantics hints (`group`, `col`, `row`,
+ * `label`, `ifNecessary`) are only populated for double elimination. */
 export type BracketGame = {
   id: string;
   seeds?: number[];
   feedsFrom?: string[];
+  feeds?: FeedSource[];
+  group?: "winners" | "losers" | "final";
+  col?: number;
+  row?: number;
+  label?: string;
+  ifNecessary?: boolean;
 };
 
 export type BracketRound = {
@@ -16,6 +33,23 @@ export type BracketStructure = {
   /** Bracket type (e.g. single_elimination). Derived from structure when saving. */
   bracketType?: string;
 };
+
+/**
+ * Normalize a game's feed sources to the unified {from, outcome} shape so single-elim
+ * (`feedsFrom`) and double-elim (`feeds`) share one code path. Returns [] for first-round
+ * (seed) games. `feeds` takes precedence; otherwise `feedsFrom` is treated as winner-only.
+ */
+export function gameFeeds(game: BracketGame): FeedSource[] {
+  if (game.feeds && game.feeds.length > 0) return game.feeds;
+  if (game.feedsFrom && game.feedsFrom.length > 0)
+    return game.feedsFrom.map((from) => ({ from, outcome: "winner" as const }));
+  return [];
+}
+
+/** True when the structure is a double-elimination bracket. */
+export function isDoubleElim(structure: BracketStructure | null | undefined): boolean {
+  return structure?.bracketType === "double_elimination";
+}
 
 /** Single elimination: standard 1v8, 4v5, 2v7, 3v6 for 8 teams; scale for 4, 16, etc. */
 export function singleEliminationPreset(numTeams: number): BracketStructure {
@@ -117,6 +151,190 @@ export function singleEliminationWithByes(numTeams: number): BracketStructure {
   return { numTeams, rounds, bracketType: "single_elimination" };
 }
 
+export const DOUBLE_ELIM_SIZES = [4, 8, 16] as const;
+export type DoubleElimSize = (typeof DOUBLE_ELIM_SIZES)[number];
+
+/**
+ * Standard double-elimination bracket for 4, 8, or 16 teams.
+ *
+ * Winners bracket from standard seedings; losers bracket uses the canonical
+ * minor/major round pattern with WB losers reversed at each drop so teams don't meet
+ * again immediately. Ends with a grand final (WB finalist is home / slot 0) and an
+ * `ifNecessary` reset game that is only played if the losers-bracket finalist wins the
+ * grand final (the two-loss rule). The 8-team output mirrors the standard bracket sheet.
+ */
+export function doubleEliminationPreset(numTeams: number): BracketStructure {
+  if (numTeams !== 4 && numTeams !== 8 && numTeams !== 16) {
+    throw new Error("Double elimination supports 4, 8, or 16 teams.");
+  }
+  const k = Math.log2(numTeams); // 2, 3, or 4
+  let counter = 0;
+  const genId = () => `g${++counter}`;
+  const games: BracketGame[] = [];
+
+  // ---- Winners bracket ----
+  const seeds = bracketSeedings(numTeams);
+  const wbRounds: string[][] = [];
+  const r1: BracketGame[] = [];
+  for (let i = 0; i < seeds.length; i += 2) {
+    r1.push({
+      id: genId(),
+      seeds: [seeds[i], seeds[i + 1]],
+      group: "winners",
+      col: 0,
+      row: i / 2,
+      label: "WB R1",
+    });
+  }
+  games.push(...r1);
+  wbRounds.push(r1.map((g) => g.id));
+
+  for (let r = 1; r < k; r++) {
+    const prev = wbRounds[r - 1];
+    const cur: BracketGame[] = [];
+    for (let i = 0; i < prev.length; i += 2) {
+      cur.push({
+        id: genId(),
+        feeds: [
+          { from: prev[i], outcome: "winner" },
+          { from: prev[i + 1], outcome: "winner" },
+        ],
+        group: "winners",
+        col: r,
+        label: r === k - 1 ? "WB Final" : `WB R${r + 1}`,
+      });
+    }
+    games.push(...cur);
+    wbRounds.push(cur.map((g) => g.id));
+  }
+  const wbFinalId = wbRounds[k - 1][0];
+
+  // ---- Losers bracket ----
+  let lbCol = 1;
+  let lbPrev: string[] = [];
+
+  // LB R1: pair losers of WB R1.
+  {
+    const wb1 = wbRounds[0];
+    const cur: BracketGame[] = [];
+    for (let i = 0; i < wb1.length; i += 2) {
+      cur.push({
+        id: genId(),
+        feeds: [
+          { from: wb1[i], outcome: "loser" },
+          { from: wb1[i + 1], outcome: "loser" },
+        ],
+        group: "losers",
+        col: lbCol,
+        label: "LB R1",
+      });
+    }
+    games.push(...cur);
+    lbPrev = cur.map((g) => g.id);
+    lbCol++;
+  }
+
+  // For each later WB round: a "major" drop round (WB losers, reversed, vs current LB winners),
+  // then a "minor" consolidation round while more than one game remains.
+  for (let r = 1; r < k; r++) {
+    const dropped = [...wbRounds[r]].reverse();
+    const major: BracketGame[] = [];
+    for (let i = 0; i < lbPrev.length; i++) {
+      major.push({
+        id: genId(),
+        feeds: [
+          { from: dropped[i], outcome: "loser" },
+          { from: lbPrev[i], outcome: "winner" },
+        ],
+        group: "losers",
+        col: lbCol,
+        label: r === k - 1 ? "LB Final" : "LB",
+      });
+    }
+    games.push(...major);
+    lbPrev = major.map((g) => g.id);
+    lbCol++;
+
+    if (lbPrev.length > 1) {
+      const minor: BracketGame[] = [];
+      for (let i = 0; i < lbPrev.length; i += 2) {
+        minor.push({
+          id: genId(),
+          feeds: [
+            { from: lbPrev[i], outcome: "winner" },
+            { from: lbPrev[i + 1], outcome: "winner" },
+          ],
+          group: "losers",
+          col: lbCol,
+          label: "LB",
+        });
+      }
+      games.push(...minor);
+      lbPrev = minor.map((g) => g.id);
+      lbCol++;
+    }
+  }
+  const lbFinalId = lbPrev[0];
+
+  // ---- Grand final + (if necessary) reset ----
+  const grandFinal: BracketGame = {
+    id: genId(),
+    feeds: [
+      { from: wbFinalId, outcome: "winner" }, // WB finalist is home
+      { from: lbFinalId, outcome: "winner" },
+    ],
+    group: "final",
+    col: lbCol,
+    label: "Grand Final",
+  };
+  games.push(grandFinal);
+  games.push({
+    id: genId(),
+    feeds: [
+      { from: grandFinal.id, outcome: "winner" },
+      { from: grandFinal.id, outcome: "loser" },
+    ],
+    group: "final",
+    col: lbCol + 1,
+    ifNecessary: true,
+    label: "Grand Final (if necessary)",
+  });
+
+  // ---- Row layout: center each game on its same-band feeders ----
+  const byId = new Map(games.map((g) => [g.id, g]));
+  let lbRow = numTeams / 2 + 1; // gap below the winners band
+  for (const g of games) {
+    if (g.group === "losers" && g.col === 1) {
+      g.row = lbRow;
+      lbRow += 1.5;
+    }
+  }
+  const computeRow = (g: BracketGame): number => {
+    if (g.row != null) return g.row;
+    const feeds = gameFeeds(g);
+    const sameBand = feeds.filter((f) => byId.get(f.from)?.group === g.group);
+    const use = sameBand.length ? sameBand : feeds;
+    const rows = use.map((f) => computeRow(byId.get(f.from)!));
+    const avg = rows.reduce((a, b) => a + b, 0) / rows.length;
+    g.row = avg;
+    return avg;
+  };
+  for (const g of games) computeRow(g);
+
+  // ---- Group into round buckets by column (round 0 keeps the seed games) ----
+  const roundMap = new Map<number, BracketGame[]>();
+  for (const g of games) {
+    const col = g.col ?? 0;
+    if (!roundMap.has(col)) roundMap.set(col, []);
+    roundMap.get(col)!.push(g);
+  }
+  const rounds: BracketRound[] = Array.from(roundMap.keys())
+    .sort((a, b) => a - b)
+    .map((col) => ({ round: col, games: roundMap.get(col)! }));
+
+  return { numTeams, rounds, bracketType: "double_elimination" };
+}
+
 export type FirstRoundValidation = {
   valid: boolean;
   duplicates: number[];
@@ -161,6 +379,49 @@ export function validateFirstRoundSeeds(
   };
 }
 
+export type BracketValidation = { valid: boolean; errors: string[] };
+
+/** Full structural validation. For single-elim this just wraps {@link validateFirstRoundSeeds};
+ * for double-elim it also checks every non-seed game has resolved feed sources, no dangling
+ * references, exactly one grand final, and at most one reset game. */
+export function validateBracket(structure: BracketStructure | null): BracketValidation {
+  const errors: string[] = [];
+  if (!structure || !structure.rounds?.length) {
+    return { valid: false, errors: ["No bracket structure."] };
+  }
+  const seedCheck = validateFirstRoundSeeds(structure);
+  if (!seedCheck.valid) {
+    if (seedCheck.duplicates.length) errors.push(`Duplicate Round 1 seeds: ${seedCheck.duplicates.join(", ")}.`);
+    if (seedCheck.missing.length) errors.push(`Missing Round 1 seeds: ${seedCheck.missing.join(", ")}.`);
+  }
+  if (isDoubleElim(structure)) {
+    const ids = new Set<string>();
+    for (const r of structure.rounds) for (const g of r.games) ids.add(g.id);
+    let finals = 0;
+    let resets = 0;
+    for (const r of structure.rounds) {
+      for (const g of r.games) {
+        const isSeedGame = (g.seeds?.length ?? 0) > 0;
+        if (!isSeedGame) {
+          const feeds = gameFeeds(g);
+          if (feeds.length < 2) errors.push(`${g.label ?? g.id} is missing a feed source.`);
+          for (const f of feeds) {
+            if (!f.from || !ids.has(f.from))
+              errors.push(`${g.label ?? g.id} feeds from unknown game "${f.from}".`);
+          }
+        }
+        if (g.group === "final") {
+          if (g.ifNecessary) resets++;
+          else finals++;
+        }
+      }
+    }
+    if (finals !== 1) errors.push(`Expected exactly one grand final, found ${finals}.`);
+    if (resets > 1) errors.push(`Expected at most one reset game, found ${resets}.`);
+  }
+  return { valid: errors.length === 0, errors };
+}
+
 export function cloneStructure(s: BracketStructure): BracketStructure {
   return {
     numTeams: s.numTeams,
@@ -171,6 +432,12 @@ export function cloneStructure(s: BracketStructure): BracketStructure {
         id: g.id,
         seeds: g.seeds ? [...g.seeds] : undefined,
         feedsFrom: g.feedsFrom ? [...g.feedsFrom] : undefined,
+        feeds: g.feeds ? g.feeds.map((f) => ({ ...f })) : undefined,
+        group: g.group,
+        col: g.col,
+        row: g.row,
+        label: g.label,
+        ifNecessary: g.ifNecessary,
       })),
     })),
   };
@@ -250,12 +517,13 @@ export function computeWinnerSeeds(structure: BracketStructure): Map<string, Set
     const game = gameMap.get(gameId);
     if (!game) { memo.set(gameId, new Set()); return new Set(); }
     let seeds: Set<number>;
+    const feeds = gameFeeds(game);
     if (game.seeds && game.seeds.length > 0) {
       seeds = new Set(game.seeds.filter((s) => Number.isFinite(s)));
-    } else if (game.feedsFrom && game.feedsFrom.length >= 2) {
+    } else if (feeds.length >= 1) {
       seeds = new Set<number>();
-      for (const id of game.feedsFrom) {
-        for (const s of getSeeds(id)) seeds.add(s);
+      for (const f of feeds) {
+        for (const s of getSeeds(f.from)) seeds.add(s);
       }
     } else {
       seeds = new Set();
@@ -322,7 +590,9 @@ export function toggleByeGame(
   return next;
 }
 
-/** Remove a game and cascade: remove any game in the next round that references it; for round 0, decrement numTeams by the number of seeds removed. */
+/** Remove a game and cascade: remove any game (in any round) that feeds from it — directly
+ * or transitively. For round 0, decrement numTeams by the number of seeds removed. Works for
+ * both single-elim (`feedsFrom`) and double-elim (`feeds`). */
 export function deleteGameFromStructure(
   structure: BracketStructure,
   roundIndex: number,
@@ -330,29 +600,79 @@ export function deleteGameFromStructure(
 ): BracketStructure {
   const round = structure.rounds[roundIndex];
   if (!round?.games[gameIndex]) return structure;
-  let removedIds = new Set<string>([round.games[gameIndex].id]);
   const next = cloneStructure(structure);
-  const nextRound = next.rounds[roundIndex];
-  nextRound.games.splice(gameIndex, 1);
+  next.rounds[roundIndex].games.splice(gameIndex, 1);
   if (roundIndex === 0) {
     const seedsRemoved = structure.rounds[0].games[gameIndex].seeds?.length ?? 2;
     next.numTeams = Math.max(0, next.numTeams - seedsRemoved);
   }
-  let currentRoundIndex = roundIndex + 1;
-  while (currentRoundIndex < next.rounds.length) {
-    const r = next.rounds[currentRoundIndex];
-    const toRemove = r.games
-      .map((g, i) => (g.feedsFrom?.some((id) => removedIds.has(id)) ? i : -1))
-      .filter((i) => i >= 0)
-      .reverse();
-    const newlyRemoved = new Set<string>();
-    for (const i of toRemove) {
-      newlyRemoved.add(r.games[i].id);
-      r.games.splice(i, 1);
+
+  // Cascade to a fixpoint: any game referencing a removed id is itself removed.
+  const removedIds = new Set<string>([round.games[gameIndex].id]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const r of next.rounds) {
+      for (let i = r.games.length - 1; i >= 0; i--) {
+        const deps = gameFeeds(r.games[i]).map((f) => f.from);
+        if (deps.some((id) => removedIds.has(id))) {
+          removedIds.add(r.games[i].id);
+          r.games.splice(i, 1);
+          changed = true;
+        }
+      }
     }
-    removedIds = newlyRemoved;
-    if (toRemove.length === 0) break;
-    currentRoundIndex++;
   }
+  return next;
+}
+
+/** Set one slot's feed source (game + winner/loser) for a double-elim game. Slot index is the
+ * position in the `feeds` array (0 = home, 1 = visitor). Migrates a `feedsFrom` game to `feeds`. */
+export function setGameFeed(
+  structure: BracketStructure,
+  gameId: string,
+  slotIndex: number,
+  source: FeedSource
+): BracketStructure {
+  const next = cloneStructure(structure);
+  for (const r of next.rounds) {
+    const game = r.games.find((g) => g.id === gameId);
+    if (!game) continue;
+    const feeds = gameFeeds(game).map((f) => ({ ...f }));
+    while (feeds.length <= slotIndex) feeds.push({ from: "", outcome: "winner" });
+    feeds[slotIndex] = { from: source.from, outcome: source.outcome };
+    game.feeds = feeds;
+    game.feedsFrom = undefined;
+    return next;
+  }
+  return structure;
+}
+
+/** Add a game that feeds from two existing games with explicit winner/loser outcomes
+ * (double-elim editing). Placed in the round bucket matching `col`. */
+export function addFeedGame(
+  structure: BracketStructure,
+  feedA: FeedSource,
+  feedB: FeedSource,
+  opts?: { group?: BracketGame["group"]; col?: number; row?: number; label?: string }
+): BracketStructure {
+  const next = cloneStructure(structure);
+  const newId = `g${getMaxGameIdNum(next) + 1}`;
+  const game: BracketGame = {
+    id: newId,
+    feeds: [feedA, feedB],
+    group: opts?.group,
+    col: opts?.col,
+    row: opts?.row,
+    label: opts?.label,
+  };
+  const targetRoundNum = opts?.col ?? next.rounds.length;
+  let bucket = next.rounds.find((r) => r.round === targetRoundNum);
+  if (!bucket) {
+    bucket = { round: targetRoundNum, games: [] };
+    next.rounds.push(bucket);
+    next.rounds.sort((a, b) => a.round - b.round);
+  }
+  bucket.games.push(game);
   return next;
 }

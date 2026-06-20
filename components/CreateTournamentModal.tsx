@@ -42,6 +42,8 @@ type FormState = {
   maxrundiff?: number | null;
   advances_per_group?: number | null;
   num_pool_groups?: number | null;
+  // When false, the tournament skips pool play and goes straight to bracket play.
+  has_pool_play?: boolean;
 };
 
 const STATES = [
@@ -116,7 +118,7 @@ export default function CreateTournamentModal({
   const open = isControlled ? (controlledOpen ?? false) : internalOpen;
   const setOpen = isControlled ? (controlledOnOpenChange!) : setInternalOpen;
 
-  const [form, setForm] = useState<FormState>({ year: new Date().getFullYear() });
+  const [form, setForm] = useState<FormState>({ year: new Date().getFullYear(), has_pool_play: true });
   const [validationError, setValidationError] = useState<string | null>(null);
   const { sports, statuses, visibilities, divisions, bats, loading, error } = useLookups();
 
@@ -154,6 +156,7 @@ export default function CreateTournamentModal({
       return;
     }
 
+    const hasPoolPlay = form.has_pool_play !== false;
     const payload = {
       name: form.name?.trim(),
       city: form.city?.trim() || null,
@@ -167,16 +170,19 @@ export default function CreateTournamentModal({
       statusid: toIntOrNull(form.statusId),
       visibilityid: toIntOrNull(form.visibilityId),
       bat_ids: form.batIds ?? [],
+      has_pool_play: hasPoolPlay,
+      // Max run diff only governs pool-play standings; bracket-only skips it.
       maxrundiff:
-        form.maxrundiff === undefined || form.maxrundiff === null
+        !hasPoolPlay || form.maxrundiff === undefined || form.maxrundiff === null
           ? null
           : Number(form.maxrundiff),
+      // Pool-group settings only apply when pool play is enabled.
       advances_per_group:
-        form.advances_per_group === undefined || form.advances_per_group === null
+        !hasPoolPlay || form.advances_per_group === undefined || form.advances_per_group === null
           ? null
           : Number(form.advances_per_group),
       num_pool_groups:
-        form.num_pool_groups === undefined || form.num_pool_groups === null
+        !hasPoolPlay || form.num_pool_groups === undefined || form.num_pool_groups === null
           ? null
           : Number(form.num_pool_groups),
     };
@@ -185,7 +191,7 @@ export default function CreateTournamentModal({
       await onCreate(payload);
       if (!isControlled) {
         setOpen(false);
-        setForm({ year: new Date().getFullYear() });
+        setForm({ year: new Date().getFullYear(), has_pool_play: true });
       }
     } catch (_) {
       // Parent handles 409 and sets duplicateError; modal stays open
@@ -407,48 +413,84 @@ export default function CreateTournamentModal({
             </div>
           </div>
 
-          {/* Optional: Max Run Diff / Pool Groups / Teams Advance Per Group */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="maxrundiff" className="label-section">Max run diff</Label>
-              <Input
-                id="maxrundiff"
-                type="number"
-                placeholder="e.g., 7"
-                value={form.maxrundiff ?? ""}
-                onChange={(e) =>
-                  update("maxrundiff", e.target.value === "" ? null : Number(e.target.value))
-                }
-              />
+          {/* Format: pool play → bracket vs. bracket only (direct seeding) */}
+          <div className="grid gap-2">
+            <Label className="label-section">Format</Label>
+            <div className="flex gap-2">
+              {[
+                { value: true, label: "Pool play → Bracket" },
+                { value: false, label: "Bracket only" },
+              ].map((opt) => {
+                const active = (form.has_pool_play !== false) === opt.value;
+                return (
+                  <button
+                    key={String(opt.value)}
+                    type="button"
+                    onClick={() => update("has_pool_play", opt.value)}
+                    className={`flex-1 px-3 py-1.5 text-xs uppercase tracking-wider border transition-colors duration-100 ${
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                    }`}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="num_pool_groups" className="label-section">Pool groups</Label>
-              <Input
-                id="num_pool_groups"
-                type="number"
-                min={1}
-                max={8}
-                placeholder="e.g., 2"
-                value={form.num_pool_groups ?? ""}
-                onChange={(e) =>
-                  update("num_pool_groups", e.target.value === "" ? null : Number(e.target.value))
-                }
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="advances_per_group" className="label-section">Advance per group</Label>
-              <Input
-                id="advances_per_group"
-                type="number"
-                min={1}
-                placeholder="e.g., 1"
-                value={form.advances_per_group ?? ""}
-                onChange={(e) =>
-                  update("advances_per_group", e.target.value === "" ? null : Number(e.target.value))
-                }
-              />
-            </div>
+            <p className="text-xs text-muted-foreground">
+              {form.has_pool_play !== false
+                ? "Teams play pool games first; bracket seeds come from the standings."
+                : "Skip pool play — seed the bracket manually or randomly."}
+            </p>
           </div>
+
+          {/* Optional: Max Run Diff / Pool Groups / Teams Advance Per Group.
+              These only apply to pool play, so hide them entirely for bracket-only. */}
+          {form.has_pool_play !== false && (
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="maxrundiff" className="label-section">Max run diff</Label>
+                <Input
+                  id="maxrundiff"
+                  type="number"
+                  placeholder="e.g., 7"
+                  value={form.maxrundiff ?? ""}
+                  onChange={(e) =>
+                    update("maxrundiff", e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="num_pool_groups" className="label-section">Pool groups</Label>
+                <Input
+                  id="num_pool_groups"
+                  type="number"
+                  min={1}
+                  max={8}
+                  placeholder="e.g., 2"
+                  value={form.num_pool_groups ?? ""}
+                  onChange={(e) =>
+                    update("num_pool_groups", e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="advances_per_group" className="label-section">Advance per group</Label>
+                <Input
+                  id="advances_per_group"
+                  type="number"
+                  min={1}
+                  placeholder="e.g., 1"
+                  value={form.advances_per_group ?? ""}
+                  onChange={(e) =>
+                    update("advances_per_group", e.target.value === "" ? null : Number(e.target.value))
+                  }
+                />
+              </div>
+            </div>
+          )}
 
           {/* Optional: Bats (filtered by sport, multi-select) */}
           <div className="grid gap-2">

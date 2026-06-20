@@ -1,6 +1,6 @@
 import { sql } from "@/lib/db";
 import type { BracketStructure, BracketGame } from "@/components/bracket/types";
-import { computeWinnerSeeds, getHomeSlotIndex } from "@/components/bracket/types";
+import { computeWinnerSeeds, getHomeSlotIndex, gameFeeds } from "@/components/bracket/types";
 
 type Assignment = { seedIndex: number; teamId: number };
 
@@ -151,10 +151,12 @@ export async function repropagateTournamentWinners(
 }
 
 /**
- * After a bracket game score (or forfeit) is entered, advance the winner to
- * the next round. Finds the game that feedsFrom this game and writes the
- * winning team into the correct home/away slot (only if that next game has
- * no scores yet).
+ * After a bracket game score (or forfeit) is entered, advance the result to the
+ * games it feeds. For single elimination only the winner propagates (legacy
+ * `feedsFrom`). For double elimination both the winner and the loser are routed:
+ * each downstream game's `feeds[]` names the source game and which result it takes,
+ * and the slot (home/away) follows the feed position. Only fills slots whose target
+ * game has no scores yet.
  */
 export async function advanceTournamentWinner(
   tournamentId: number,
@@ -172,13 +174,17 @@ export async function advanceTournamentWinner(
   if (game.home == null || game.away == null) return;
 
   let winnerId: number;
+  let loserId: number;
   if (game.gamestatusid === HOME_TEAM_FORFEIT_ID) {
     winnerId = game.away;
+    loserId = game.home;
   } else if (game.gamestatusid === AWAY_TEAM_FORFEIT_ID) {
     winnerId = game.home;
+    loserId = game.away;
   } else {
     if (game.homescore == null || game.awayscore == null) return;
-    winnerId = game.homescore >= game.awayscore ? game.home : game.away;
+    if (game.homescore >= game.awayscore) { winnerId = game.home; loserId = game.away; }
+    else { winnerId = game.away; loserId = game.home; }
   }
 
   const bracketRows = (await sql`
@@ -187,54 +193,57 @@ export async function advanceTournamentWinner(
   const structure = bracketRows[0]?.structure;
   if (!structure) return;
 
-  let nextGame: BracketGame | null = null;
-  let feedSlotIndex = -1;
-  for (const round of structure.rounds) {
-    for (const g of round.games) {
-      if (g.feedsFrom) {
-        const idx = g.feedsFrom.indexOf(bracketGameId);
-        if (idx !== -1) {
-          nextGame = g;
-          feedSlotIndex = idx;
-          break;
-        }
-      }
-    }
-    if (nextGame) break;
-  }
-  if (!nextGame) return;
-
   const winnerSeedsMap = computeWinnerSeeds(structure);
-  const slotASeeds = nextGame.feedsFrom
-    ? winnerSeedsMap.get(nextGame.feedsFrom[0]) ?? new Set<number>()
-    : new Set<number>();
-  const slotBSeeds = nextGame.feedsFrom
-    ? winnerSeedsMap.get(nextGame.feedsFrom[1]) ?? new Set<number>()
-    : new Set<number>();
-  const homeSlot = getHomeSlotIndex(slotASeeds, slotBSeeds);
 
-  let setHome = false;
-  if (homeSlot === 0) setHome = feedSlotIndex === 0;
-  else if (homeSlot === 1) setHome = feedSlotIndex === 1;
-  else setHome = feedSlotIndex === 0;
+  for (const outcome of ["winner", "loser"] as const) {
+    const teamId = outcome === "winner" ? winnerId : loserId;
 
-  if (setHome) {
-    await sql`
-      UPDATE public.tournamentgames
-      SET home = ${winnerId}
-      WHERE bracket_id = ${bracketId}
-        AND bracket_game_id = ${nextGame.id}
-        AND homescore IS NULL
-        AND awayscore IS NULL
-    `;
-  } else {
-    await sql`
-      UPDATE public.tournamentgames
-      SET away = ${winnerId}
-      WHERE bracket_id = ${bracketId}
-        AND bracket_game_id = ${nextGame.id}
-        AND homescore IS NULL
-        AND awayscore IS NULL
-    `;
+    // Find the game (and slot) that takes this game's `outcome`.
+    let target: BracketGame | null = null;
+    let slotIndex = -1;
+    for (const round of structure.rounds) {
+      for (const g of round.games) {
+        const idx = gameFeeds(g).findIndex((f) => f.from === bracketGameId && f.outcome === outcome);
+        if (idx !== -1) { target = g; slotIndex = idx; break; }
+      }
+      if (target) break;
+    }
+    if (!target) continue;
+
+    // Decide home vs away. Explicit `feeds` (double-elim) is positional: slot 0 = home.
+    // Legacy `feedsFrom` (single-elim) keeps the seed-based ordering (lower seed = home).
+    let setHome: boolean;
+    if (target.feeds && target.feeds.length > 0) {
+      setHome = slotIndex === 0;
+    } else {
+      const ff = target.feedsFrom ?? [];
+      const homeSlot = getHomeSlotIndex(
+        winnerSeedsMap.get(ff[0]) ?? new Set<number>(),
+        winnerSeedsMap.get(ff[1]) ?? new Set<number>()
+      );
+      if (homeSlot === 0) setHome = slotIndex === 0;
+      else if (homeSlot === 1) setHome = slotIndex === 1;
+      else setHome = slotIndex === 0;
+    }
+
+    if (setHome) {
+      await sql`
+        UPDATE public.tournamentgames
+        SET home = ${teamId}
+        WHERE bracket_id = ${bracketId}
+          AND bracket_game_id = ${target.id}
+          AND homescore IS NULL
+          AND awayscore IS NULL
+      `;
+    } else {
+      await sql`
+        UPDATE public.tournamentgames
+        SET away = ${teamId}
+        WHERE bracket_id = ${bracketId}
+          AND bracket_game_id = ${target.id}
+          AND homescore IS NULL
+          AND awayscore IS NULL
+      `;
+    }
   }
 }

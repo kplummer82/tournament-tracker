@@ -220,6 +220,9 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
         ? null
         : toIntOrNull(body.num_pool_groups);
 
+    // Default to pool play unless the client explicitly opts into bracket-only.
+    const hasPoolPlay = body.has_pool_play === false ? false : true;
+
     const rawBatIds: unknown = body.bat_ids;
     let batIds: number[] = [];
     if (Array.isArray(rawBatIds)) {
@@ -246,6 +249,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       "tournamentvisibility",
       "advances_per_group",
       "num_pool_groups",
+      "has_pool_play",
       "created_by",
     ];
 
@@ -263,6 +267,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
       visibilityId,
       advancesPerGroup,
       numPoolGroups,
+      hasPoolPlay,
       session.user.id,
     ];
 

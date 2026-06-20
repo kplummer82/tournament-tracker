@@ -1,17 +1,22 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactDOM from "react-dom";
-import type { BracketStructure, BracketRound, BracketGame } from "./types";
+import type { BracketStructure, BracketRound, BracketGame, FeedSource } from "./types";
 import type { BracketGamePrediction } from "@/lib/bracket-prediction";
 import {
   validateFirstRoundSeeds,
+  validateBracket,
   cloneStructure,
   addFirstRoundGame,
   addGameToRound,
+  addFeedGame,
   deleteGameFromStructure,
   toggleByeGame,
   computeWinnerSeeds,
   getHomeSlotIndex,
+  gameFeeds,
+  isDoubleElim,
+  setGameFeed,
 } from "./types";
 import {
   Select,
@@ -26,7 +31,7 @@ import { DndContext, DragOverlay, useDraggable, useDroppable, type DragStartEven
 import { GripVertical, Plus, Trash2, ArrowLeftRight, Maximize2, X, ZoomIn, ZoomOut, Maximize, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const BOX_WIDTH = 224;
+const BOX_WIDTH = 264;
 const BOX_HEIGHT = 132;
 const SLOT_GAP = 8;
 /** Vertical space per first-round slot: box height + gap so games never overlap. */
@@ -123,7 +128,7 @@ function SeedSelect({
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="z-[200]">
         {Array.from({ length: numTeams }, (_, i) => i + 1).map((seed) => (
           <SelectItem key={seed} value={String(seed)}>
             {seedLabels?.[seed] ?? `Seed ${seed}`}
@@ -141,9 +146,13 @@ function GameSlot({
   seedLabels,
   seedOffset,
   topPx,
+  leftPx,
   editable,
   onSeedChange,
   onFeedsFromChange,
+  onFeedChange,
+  earlierGameOptions,
+  deMode,
   onDelete,
   duplicates,
   numTeams,
@@ -161,9 +170,17 @@ function GameSlot({
   seedLabels?: Record<number, string>;
   seedOffset?: number;
   topPx: number;
+  /** Explicit x position (double-elim layout). Falls back to round-based x when omitted. */
+  leftPx?: number;
   editable?: boolean;
   onSeedChange?: (gameIndex: number, slotIndex: number, newSeed: number) => void;
   onFeedsFromChange?: (slotIndex: number, gameId: string) => void;
+  /** Double-elim: set one slot's feed source (game + winner/loser). */
+  onFeedChange?: (slotIndex: number, source: FeedSource) => void;
+  /** Double-elim: games that can be a feed source (earlier columns). */
+  earlierGameOptions?: { id: string; label: string }[];
+  /** True when rendering inside a double-elimination bracket. */
+  deMode?: boolean;
   onDelete?: () => void;
   onToggleBye?: () => void;
   duplicates?: Set<number>;
@@ -181,6 +198,12 @@ function GameSlot({
   const isFirstRound = roundIndex === 0;
   const isByeGame = isFirstRound && (game.seeds?.length ?? 0) === 1;
   const off = seedOffset ?? 0;
+  const feeds = gameFeeds(game);
+  const feedLabel = (i: number) => {
+    const f = feeds[i];
+    if (!f || !f.from) return "—";
+    return `${f.outcome === "loser" ? "Loser" : "Winner"} ${f.from}`;
+  };
   const isPredicted = prediction != null && !prediction.isActualResult && !prediction.isBye;
   const hasPredictedTeams = prediction != null && !prediction.isBye;
 
@@ -194,9 +217,7 @@ function GameSlot({
           : `Seed ${game.seeds[0] + off}`
         : !isFirstRound && gameDetails?.home_team
           ? gameDetails.home_team
-          : game.feedsFrom?.[0]
-            ? `Winner ${game.feedsFrom[0]}`
-            : "—";
+          : feedLabel(0);
   const slot2 =
     hasPredictedTeams && !isFirstRound && prediction.awayTeamName && prediction.awayTeamName !== "TBD"
       ? prediction.awayTeamName
@@ -206,13 +227,14 @@ function GameSlot({
           : `Seed ${game.seeds[1] + off}`
         : !isFirstRound && gameDetails?.away_team
           ? gameDetails.away_team
-          : game.feedsFrom?.[1]
-            ? `Winner ${game.feedsFrom[1]}`
-            : "—";
+          : feedLabel(1);
 
   const isEditableFirstRound = isFirstRound && editable && onSeedChange != null && numTeams != null && duplicates != null;
   const isEditableLaterRound =
     !isFirstRound && editable && onFeedsFromChange != null && prevRoundGames != null && prevRoundGames.length >= 2;
+  const isEditableDeLaterRound =
+    !isFirstRound && editable === true && deMode === true && onFeedChange != null &&
+    earlierGameOptions != null && earlierGameOptions.length >= 1;
 
   // Prediction win probabilities — only show for first-round games where matchups are fixed.
   // Later-round matchups vary across MC simulations, making per-game % less meaningful.
@@ -230,6 +252,11 @@ function GameSlot({
       <div className="flex items-center justify-between gap-1.5 shrink-0 min-w-0">
         <span className="flex items-center gap-1 min-w-0">
           <span className="text-[11px] text-muted-foreground leading-snug truncate">{game.id}</span>
+          {game.label && (
+            <span className="text-[9px] uppercase tracking-wider text-muted-foreground/70 leading-snug truncate">
+              {game.label}
+            </span>
+          )}
           {!editable && !isByeGame && gameDetails?.unscheduled && (
             <AlertTriangle
               className="h-3 w-3 text-amber-500 shrink-0"
@@ -304,6 +331,41 @@ function GameSlot({
             />
           </div>
         </>
+      ) : isEditableDeLaterRound ? (
+        <div className="mt-0.5 space-y-1">
+          {[0, 1].map((slot) => {
+            const f = feeds[slot];
+            return (
+              <div key={slot} className="flex gap-1">
+                <Select
+                  value={f?.from || ""}
+                  onValueChange={(v) => onFeedChange!(slot, { from: v, outcome: f?.outcome ?? "winner" })}
+                >
+                  <SelectTrigger size="sm" className="h-7 text-xs flex-1 min-w-0">
+                    <SelectValue placeholder="From game" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[200]">
+                    {earlierGameOptions!.map((o) => (
+                      <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={f?.outcome ?? "winner"}
+                  onValueChange={(v) => onFeedChange!(slot, { from: f?.from ?? "", outcome: v as FeedSource["outcome"] })}
+                >
+                  <SelectTrigger size="sm" className="h-7 text-xs w-[104px] shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="z-[200]">
+                    <SelectItem value="winner">Winner</SelectItem>
+                    <SelectItem value="loser">Loser</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            );
+          })}
+        </div>
       ) : isEditableLaterRound && game.feedsFrom && prevRoundGames ? (
         <>
           <div className="mt-0.5">
@@ -314,7 +376,7 @@ function GameSlot({
               <SelectTrigger size="sm" className="h-7 text-xs w-full">
                 <SelectValue placeholder="Feeds from" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[200]">
                 {prevRoundGames.map((g) => (
                   <SelectItem key={g.id} value={g.id}>
                     {g.id}
@@ -332,7 +394,7 @@ function GameSlot({
               <SelectTrigger size="sm" className="h-7 text-xs w-full">
                 <SelectValue placeholder="Feeds from" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="z-[200]">
                 {prevRoundGames.map((g) => (
                   <SelectItem key={g.id} value={g.id}>
                     {g.id}
@@ -432,17 +494,19 @@ function GameSlot({
     <div
       className={cn(
         "absolute rounded-lg p-3 box-border flex flex-col justify-center min-h-0",
-        isByeGame
-          ? "border border-dashed border-border/60 bg-muted/10"
-          : isPredicted
-            ? "border border-dashed border-amber-500/50 bg-amber-500/5 dark:bg-amber-500/10"
-            : "border border-border bg-muted/30",
+        game.ifNecessary
+          ? "border-2 border-dotted border-muted-foreground/40 bg-muted/5"
+          : isByeGame
+            ? "border border-dashed border-border/60 bg-muted/10"
+            : isPredicted
+              ? "border border-dashed border-amber-500/50 bg-amber-500/5 dark:bg-amber-500/10"
+              : "border border-border bg-muted/30",
         isClickable && "cursor-pointer hover:border-primary/60 hover:bg-muted/50 transition-colors"
       )}
       style={{
         width: BOX_WIDTH,
         height: BOX_HEIGHT,
-        left: roundIndex * (BOX_WIDTH + ROUND_GAP),
+        left: leftPx ?? roundIndex * (BOX_WIDTH + ROUND_GAP),
         top: topPx,
       }}
       title={isByeGame ? `${slot1} (BYE)` : isEditableFirstRound ? undefined : `${slot1} vs ${slot2}`}
@@ -538,10 +602,29 @@ export default function BracketPreview({
   // Compute dimensions early so hooks can depend on them (hooks must run unconditionally)
   const rounds = (structure?.rounds ?? []) as BracketRound[];
   const firstRoundCount = rounds[0]?.games?.length ?? 0;
-  const totalHeight = firstRoundCount * SLOT_HEIGHT;
-  const totalWidth = rounds.length > 0
-    ? rounds.length * BOX_WIDTH + (rounds.length - 1) * ROUND_GAP
-    : 0;
+  const de = isDoubleElim(structure);
+
+  // Double-elim uses explicit col/row layout; single-elim uses the binary-tree formula.
+  const deLayout = new Map<string, { x: number; y: number }>();
+  let deWidth = 0;
+  let deHeight = 0;
+  if (de) {
+    for (const r of rounds) {
+      for (const g of r.games) {
+        const x = (g.col ?? r.round) * (BOX_WIDTH + ROUND_GAP);
+        const y = (g.row ?? 0) * SLOT_HEIGHT;
+        deLayout.set(g.id, { x, y });
+        deWidth = Math.max(deWidth, x + BOX_WIDTH);
+        deHeight = Math.max(deHeight, y + BOX_HEIGHT);
+      }
+    }
+  }
+  const totalHeight = de ? deHeight : firstRoundCount * SLOT_HEIGHT;
+  const totalWidth = de
+    ? deWidth
+    : rounds.length > 0
+      ? rounds.length * BOX_WIDTH + (rounds.length - 1) * ROUND_GAP
+      : 0;
 
   // Existing state
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
@@ -684,6 +767,7 @@ export default function BracketPreview({
   const validation = validateFirstRoundSeeds(structure);
   const duplicatesSet = new Set(validation.duplicates);
   const winnerSeedsMap = computeWinnerSeeds(structure);
+  const deValidation = de ? validateBracket(structure) : null;
 
   const handleSeedChange = (gameIndex: number, slotIndex: number, newSeed: number) => {
     if (!onStructureChange || !structure?.rounds?.[0]?.games?.[gameIndex]) return;
@@ -708,6 +792,19 @@ export default function BracketPreview({
     onStructureChange(deleteGameFromStructure(structure, roundIndex, gameIndex));
   };
 
+  const handleDeleteGameById = (gameId: string) => {
+    if (!onStructureChange || !structure) return;
+    for (let ri = 0; ri < structure.rounds.length; ri++) {
+      const gi = structure.rounds[ri].games.findIndex((g) => g.id === gameId);
+      if (gi !== -1) { onStructureChange(deleteGameFromStructure(structure, ri, gi)); return; }
+    }
+  };
+
+  const handleFeedChange = (gameId: string, slotIndex: number, source: FeedSource) => {
+    if (!onStructureChange || !structure) return;
+    onStructureChange(setGameFeed(structure, gameId, slotIndex, source));
+  };
+
   const handleToggleBye = (gameIndex: number) => {
     if (!onStructureChange) return;
     onStructureChange(toggleByeGame(structure, gameIndex));
@@ -721,6 +818,19 @@ export default function BracketPreview({
   const handleAddGameToRound = (roundIndex: number, feedsFromIdA: string, feedsFromIdB: string) => {
     if (!onStructureChange) return;
     onStructureChange(addGameToRound(structure, roundIndex, feedsFromIdA, feedsFromIdB));
+  };
+
+  const handleDeAddGame = (a: FeedSource, b: FeedSource, group: BracketGame["group"]) => {
+    if (!onStructureChange || !structure) return;
+    const find = (id: string) => allGamesFlat.find((g) => g.id === id);
+    const colA = find(a.from)?.col ?? 0;
+    const colB = find(b.from)?.col ?? 0;
+    const rowA = find(a.from)?.row ?? 0;
+    const rowB = find(b.from)?.row ?? 0;
+    const col = Math.max(colA, colB) + 1;
+    const row = (rowA + rowB) / 2;
+    const label = group === "final" ? "Final" : group === "winners" ? "WB" : "LB";
+    onStructureChange(addFeedGame(structure, a, b, { group, col, row, label }));
   };
 
   const handleDragStart = (event: DragStartEvent) => {
@@ -751,36 +861,59 @@ export default function BracketPreview({
   });
 
   const connectorPaths: string[] = [];
-  rounds.forEach((r, roundIndex) => {
-    if (roundIndex === 0) return;
-    r.games.forEach((game, gameIndex) => {
-      const feedsFrom = game.feedsFrom;
-      if (!feedsFrom || feedsFrom.length < 2) return;
-      const posA = gamePosition.get(feedsFrom[0]);
-      const posB = gamePosition.get(feedsFrom[1]);
-      if (!posA || !posB) return;
+  const loserPaths: string[] = [];
+  if (de) {
+    // Generic per-source elbows from each feeder's right edge to the target's left edge.
+    for (const r of rounds) {
+      for (const game of r.games) {
+        const tpos = deLayout.get(game.id);
+        if (!tpos) continue;
+        const tx = tpos.x;
+        const ty = tpos.y + BOX_HEIGHT / 2;
+        gameFeeds(game).forEach((f) => {
+          const spos = deLayout.get(f.from);
+          if (!spos) return;
+          const sx = spos.x + BOX_WIDTH;
+          const sy = spos.y + BOX_HEIGHT / 2;
+          const midX = sx + Math.max(LINE_EXTEND, (tx - sx) / 2);
+          const d = `M ${sx} ${sy} H ${midX} V ${ty} H ${tx}`;
+          if (f.outcome === "loser") loserPaths.push(d);
+          else connectorPaths.push(d);
+        });
+      }
+    }
+  } else {
+    rounds.forEach((r, roundIndex) => {
+      if (roundIndex === 0) return;
+      r.games.forEach((game, gameIndex) => {
+        const feedsFrom = game.feedsFrom;
+        if (!feedsFrom || feedsFrom.length < 2) return;
+        const posA = gamePosition.get(feedsFrom[0]);
+        const posB = gamePosition.get(feedsFrom[1]);
+        if (!posA || !posB) return;
 
-      const centerY_A = gameCenterY(posA.roundIndex, posA.gameIndex);
-      const centerY_B = gameCenterY(posB.roundIndex, posB.gameIndex);
-      const centerY_curr = gameCenterY(roundIndex, gameIndex);
+        const centerY_A = gameCenterY(posA.roundIndex, posA.gameIndex);
+        const centerY_B = gameCenterY(posB.roundIndex, posB.gameIndex);
+        const centerY_curr = gameCenterY(roundIndex, gameIndex);
 
-      const leftX_curr = roundIndex * (BOX_WIDTH + ROUND_GAP);
-      const rightX_prev = (roundIndex - 1) * (BOX_WIDTH + ROUND_GAP) + BOX_WIDTH;
-      const elbowX = rightX_prev + LINE_EXTEND;
-      const midY = (centerY_A + centerY_B) / 2;
+        const leftX_curr = roundIndex * (BOX_WIDTH + ROUND_GAP);
+        const rightX_prev = (roundIndex - 1) * (BOX_WIDTH + ROUND_GAP) + BOX_WIDTH;
+        const elbowX = rightX_prev + LINE_EXTEND;
+        const midY = (centerY_A + centerY_B) / 2;
 
-      // From feeder A: horizontal right to elbow
-      connectorPaths.push(`M ${rightX_prev} ${centerY_A} H ${elbowX}`);
-      // From feeder B: horizontal right to elbow
-      connectorPaths.push(`M ${rightX_prev} ${centerY_B} H ${elbowX}`);
-      // Vertical between the two horizontals
-      connectorPaths.push(`M ${elbowX} ${centerY_A} V ${centerY_B}`);
-      // Horizontal from elbow to left of current box
-      connectorPaths.push(`M ${elbowX} ${midY} H ${leftX_curr}`);
-      // Vertical from horizontal line down/up to current game center
-      connectorPaths.push(`M ${leftX_curr} ${midY} V ${centerY_curr}`);
+        // From feeder A: horizontal right to elbow
+        connectorPaths.push(`M ${rightX_prev} ${centerY_A} H ${elbowX}`);
+        // From feeder B: horizontal right to elbow
+        connectorPaths.push(`M ${rightX_prev} ${centerY_B} H ${elbowX}`);
+        // Vertical between the two horizontals
+        connectorPaths.push(`M ${elbowX} ${centerY_A} V ${centerY_B}`);
+        // Horizontal from elbow to left of current box
+        connectorPaths.push(`M ${elbowX} ${midY} H ${leftX_curr}`);
+        // Vertical from horizontal line down/up to current game center
+        connectorPaths.push(`M ${leftX_curr} ${midY} V ${centerY_curr}`);
+      });
     });
-  });
+  }
 
   const renderRounds = () =>
     rounds.map((r, roundIndex) =>
@@ -862,6 +995,59 @@ export default function BracketPreview({
       })
     );
 
+  const allGamesFlat = rounds.flatMap((r) => r.games);
+  const renderDoubleElim = () =>
+    rounds.flatMap((r) =>
+      r.games.map((game, gIdx) => {
+        const pos = deLayout.get(game.id);
+        if (!pos) return null;
+        const isSeedGame = r.round === 0 && (game.seeds?.length ?? 0) > 0;
+        const fds = gameFeeds(game);
+        let homeSlotIndex: 0 | 1 | null = null;
+        if (isSeedGame && game.seeds && game.seeds.length >= 2) {
+          homeSlotIndex = getHomeSlotIndex(new Set([game.seeds[0]]), new Set([game.seeds[1]]));
+        } else if (fds.length >= 2) {
+          homeSlotIndex =
+            getHomeSlotIndex(
+              winnerSeedsMap.get(fds[0].from) ?? new Set<number>(),
+              winnerSeedsMap.get(fds[1].from) ?? new Set<number>()
+            ) ?? 0; // double-elim default: slot 0 = home
+        }
+        const myCol = game.col ?? r.round;
+        const earlierGameOptions = allGamesFlat
+          .filter((g) => (g.col ?? 0) < myCol && g.id !== game.id)
+          .map((g) => ({ id: g.id, label: g.label ? `${g.id} · ${g.label}` : g.id }));
+        return (
+          <GameSlot
+            key={game.id}
+            game={game}
+            roundIndex={r.round}
+            gameIndex={gIdx}
+            seedLabels={seedLabels}
+            seedOffset={seedOffset}
+            topPx={pos.y}
+            leftPx={pos.x}
+            editable={editable}
+            deMode
+            onSeedChange={isSeedGame && editable && onStructureChange ? handleSeedChange : undefined}
+            onFeedChange={
+              !isSeedGame && editable && onStructureChange
+                ? (slot, source) => handleFeedChange(game.id, slot, source)
+                : undefined
+            }
+            earlierGameOptions={earlierGameOptions}
+            onDelete={editable && onStructureChange ? () => handleDeleteGameById(game.id) : undefined}
+            duplicates={isSeedGame ? duplicatesSet : undefined}
+            numTeams={isSeedGame ? structure.numTeams : undefined}
+            homeSlotIndex={homeSlotIndex}
+            onGameClick={onGameClick}
+            gameDetails={gameDetails?.[game.id]}
+            prediction={predictionOverlay?.[game.id]}
+          />
+        );
+      })
+    );
+
   const firstRound = structure.rounds[0];
   const overlayGame =
     activeDragId?.startsWith(FIRST_ROUND_DROP_PREFIX) && firstRound?.games
@@ -871,8 +1057,9 @@ export default function BracketPreview({
         })()
       : null;
 
-  const bracketContent =
-    editable && onStructureChange ? (
+  const bracketContent = de ? (
+    renderDoubleElim()
+  ) : editable && onStructureChange ? (
       <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         {renderRounds()}
         <DragOverlay dropAnimation={null} zIndex={1000}>
@@ -909,7 +1096,7 @@ export default function BracketPreview({
       <svg
         width={totalWidth}
         height={totalHeight}
-        className="absolute left-0 top-0 block"
+        className="absolute left-0 top-0 block pointer-events-none"
         aria-hidden
       >
         <g stroke="currentColor" strokeWidth="1.5" fill="none" className="text-muted-foreground/70">
@@ -917,6 +1104,19 @@ export default function BracketPreview({
             <path key={i} d={d} />
           ))}
         </g>
+        {loserPaths.length > 0 && (
+          <g
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeDasharray="4 3"
+            fill="none"
+            className="text-amber-500/70"
+          >
+            {loserPaths.map((d, i) => (
+              <path key={i} d={d} />
+            ))}
+          </g>
+        )}
       </svg>
       {bracketContent}
     </div>
@@ -924,21 +1124,48 @@ export default function BracketPreview({
 
   return (
     <>
-      {/* Normal view — desktop: scrollable bracket; mobile: tap-to-expand card */}
-      <div className="hidden md:block relative overflow-x-auto overflow-y-auto rounded-lg border border-border/50 bg-muted/10 min-h-[320px] max-h-[70vh]">
-        <button
-          ref={fullscreenBtnRef}
-          type="button"
-          onClick={() => setIsFullscreen(true)}
-          title="Fullscreen"
-          aria-label="Enter fullscreen"
-          className="absolute top-2 right-2 z-10 flex items-center justify-center h-7 w-7 rounded bg-muted/60 border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/90 transition-colors"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
-        {/* Only render here when not in fullscreen — avoids duplicate DndContext instances */}
-        {!isFullscreen && bracketCanvas}
-        {editable && !validation.valid && (
+      {/* Normal view — desktop: header (legend + fullscreen) over a scrollable canvas.
+          min-w-0 keeps the wide canvas from blowing out the layout (and pushing the
+          fullscreen button off-screen) when placed inside a flex/grid item. */}
+      <div className="hidden md:block min-w-0">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          {de ? (
+            <div className="flex flex-wrap items-center gap-4 text-[10px] text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-5 border-t border-muted-foreground/70" /> Winner advances
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-5 border-t border-dashed border-amber-500/70" /> Loser drops to losers bracket
+              </span>
+            </div>
+          ) : (
+            <span />
+          )}
+          <button
+            ref={fullscreenBtnRef}
+            type="button"
+            onClick={() => setIsFullscreen(true)}
+            title="Fullscreen — drag to pan, scroll to zoom"
+            aria-label="Enter fullscreen"
+            className="inline-flex shrink-0 items-center gap-1.5 h-8 px-3 rounded border border-border/60 bg-muted/40 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            Fullscreen
+          </button>
+        </div>
+        {/* Scroll area holds only the canvas so the controls below never scroll away. */}
+        <div className="relative overflow-auto rounded-lg border border-border/50 bg-muted/10 min-h-[320px] max-h-[70vh] min-w-0">
+          {/* Only render here when not in fullscreen — avoids duplicate DndContext instances */}
+          {!isFullscreen && bracketCanvas}
+        </div>
+        {editable && de && deValidation && !deValidation.valid && (
+          <ul className="mt-2 text-sm text-destructive list-disc pl-5 space-y-0.5">
+            {deValidation.errors.map((e, i) => (
+              <li key={i}>{e}</li>
+            ))}
+          </ul>
+        )}
+        {editable && !de && !validation.valid && (
           <p className="mt-2 text-sm text-destructive">
             Fix Round 1 seeds: each seed 1–{structure.numTeams} must appear exactly once.
             {validation.duplicates.length > 0 && ` Duplicates: ${validation.duplicates.join(", ")}.`}
@@ -946,11 +1173,15 @@ export default function BracketPreview({
           </p>
         )}
         {editable && onStructureChange && (
-          <AddGameToolbar
-            structure={structure}
-            onAddFirstRound={handleAddFirstRoundGame}
-            onAddToRound={handleAddGameToRound}
-          />
+          de ? (
+            <DeAddGameToolbar structure={structure} onAdd={handleDeAddGame} />
+          ) : (
+            <AddGameToolbar
+              structure={structure}
+              onAddFirstRound={handleAddFirstRoundGame}
+              onAddToRound={handleAddGameToRound}
+            />
+          )
         )}
       </div>
 
@@ -975,8 +1206,9 @@ export default function BracketPreview({
         >
           {/* Toolbar */}
           <div className="flex items-center justify-between px-3 h-11 border-b border-border/60 bg-card shrink-0 gap-2">
-            <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground select-none">
-              Bracket
+            <span className="text-xs text-muted-foreground select-none truncate">
+              <span className="font-semibold uppercase tracking-widest">Bracket</span>
+              <span className="hidden sm:inline ml-2 text-muted-foreground/70">Drag to pan · scroll to zoom</span>
             </span>
             <div className="flex items-center gap-1">
               <Button
@@ -1051,7 +1283,12 @@ export default function BracketPreview({
           </div>
 
           {/* Validation message when editable */}
-          {editable && !validation.valid && (
+          {editable && de && deValidation && !deValidation.valid && (
+            <p className="px-4 py-2 text-sm text-destructive border-t border-border/50 shrink-0">
+              {deValidation.errors.join(" ")}
+            </p>
+          )}
+          {editable && !de && !validation.valid && (
             <p className="px-4 py-2 text-sm text-destructive border-t border-border/50 shrink-0">
               Fix Round 1 seeds: each seed 1–{structure.numTeams} must appear exactly once.
               {validation.duplicates.length > 0 && ` Duplicates: ${validation.duplicates.join(", ")}.`}
@@ -1108,7 +1345,7 @@ function AddGameToolbar({
                     <SelectTrigger className="w-[72px] h-8 text-xs">
                       <SelectValue placeholder="Game A" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[200]">
                       {prevGames.map((g) => (
                         <SelectItem key={g.id} value={g.id}>
                           {g.id}
@@ -1120,7 +1357,7 @@ function AddGameToolbar({
                     <SelectTrigger className="w-[72px] h-8 text-xs">
                       <SelectValue placeholder="Game B" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="z-[200]">
                       {prevGames.map((g) => (
                         <SelectItem key={g.id} value={g.id}>
                           {g.id}
@@ -1171,6 +1408,87 @@ function AddGameToolbar({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/** Add-game toolbar for double-elimination editing: choose two source games and which
+ * result (winner/loser) each contributes, plus the sub-bracket the new game belongs to. */
+function DeAddGameToolbar({
+  structure,
+  onAdd,
+}: {
+  structure: BracketStructure;
+  onAdd: (a: FeedSource, b: FeedSource, group: BracketGame["group"]) => void;
+}) {
+  const games = structure.rounds.flatMap((r) => r.games);
+  const [fromA, setFromA] = useState("");
+  const [outA, setOutA] = useState<FeedSource["outcome"]>("winner");
+  const [fromB, setFromB] = useState("");
+  const [outB, setOutB] = useState<FeedSource["outcome"]>("loser");
+  const [group, setGroup] = useState<NonNullable<BracketGame["group"]>>("losers");
+  const canAdd = !!fromA && !!fromB && fromA !== fromB;
+
+  const gameOption = (g: BracketGame) => (
+    <SelectItem key={g.id} value={g.id}>
+      {g.label ? `${g.id} · ${g.label}` : g.id}
+    </SelectItem>
+  );
+
+  return (
+    <div className="mt-4 pt-4 border-t border-border/50 space-y-3">
+      <p className="text-xs font-medium text-muted-foreground">Add game (double elimination)</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1">
+          <Select value={fromA} onValueChange={setFromA}>
+            <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Game A" /></SelectTrigger>
+            <SelectContent className="z-[200]">{games.map(gameOption)}</SelectContent>
+          </Select>
+          <Select value={outA} onValueChange={(v) => setOutA(v as FeedSource["outcome"])}>
+            <SelectTrigger className="w-[88px] h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent className="z-[200]">
+              <SelectItem value="winner">Winner</SelectItem>
+              <SelectItem value="loser">Loser</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <span className="text-xs text-muted-foreground">vs</span>
+        <div className="flex gap-1">
+          <Select value={fromB} onValueChange={setFromB}>
+            <SelectTrigger className="w-[130px] h-8 text-xs"><SelectValue placeholder="Game B" /></SelectTrigger>
+            <SelectContent className="z-[200]">{games.map(gameOption)}</SelectContent>
+          </Select>
+          <Select value={outB} onValueChange={(v) => setOutB(v as FeedSource["outcome"])}>
+            <SelectTrigger className="w-[88px] h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent className="z-[200]">
+              <SelectItem value="winner">Winner</SelectItem>
+              <SelectItem value="loser">Loser</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Select value={group} onValueChange={(v) => setGroup(v as NonNullable<BracketGame["group"]>)}>
+          <SelectTrigger className="w-[110px] h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent className="z-[200]">
+            <SelectItem value="winners">Winners</SelectItem>
+            <SelectItem value="losers">Losers</SelectItem>
+            <SelectItem value="final">Final</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canAdd}
+          onClick={() => {
+            onAdd({ from: fromA, outcome: outA }, { from: fromB, outcome: outB }, group);
+            setFromA("");
+            setFromB("");
+          }}
+          className="gap-1.5 h-8"
+        >
+          <Plus className="h-4 w-4" />
+          Add
+        </Button>
       </div>
     </div>
   );

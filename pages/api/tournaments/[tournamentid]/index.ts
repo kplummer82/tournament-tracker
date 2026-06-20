@@ -17,6 +17,7 @@ type Row = {
   advances_per_group: number | null;
   num_pool_groups: number | null;
   pool_play_games_per_team: number | null;
+  has_pool_play: boolean | null;
 
   // readable labels from the view
   division: string | null;
@@ -50,6 +51,7 @@ async function fetchRow(id: number): Promise<Row | null> {
       t.advances_per_group,
       t.num_pool_groups,
       t.pool_play_games_per_team,
+      t.has_pool_play,
       t.schedule_config,
       COALESCE((
         SELECT json_agg(json_build_object('id', b.id, 'name', b.name) ORDER BY b.id)
@@ -88,6 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         advances_per_group,
         num_pool_groups,
         pool_play_games_per_team,
+        has_pool_play,
         schedule_config,
         bat_ids,
       } = (req.body ?? {}) as Partial<Row> & { bat_ids?: unknown };
@@ -135,6 +138,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await sql/*sql*/`
           UPDATE public.tournaments
           SET pool_play_games_per_team = ${pool_play_games_per_team ?? null}
+          WHERE tournamentid = ${id};
+        `;
+      }
+      if (has_pool_play !== undefined) {
+        await sql/*sql*/`
+          UPDATE public.tournaments
+          SET has_pool_play = ${Boolean(has_pool_play)}
           WHERE tournamentid = ${id};
         `;
       }
