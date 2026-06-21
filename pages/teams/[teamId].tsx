@@ -26,6 +26,37 @@ import { POSITIONS } from "@/lib/positions";
 
 type RosterPositionMap = Record<number, { primary: string[]; secondary: string[] }>;
 
+/* ─── Notes rendering — auto-link URLs to external sites ──────── */
+const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+
+function renderNotesWithLinks(text: string): React.ReactNode {
+  return text.split(URL_RE).map((part, i) => {
+    if (!part) return null;
+    if (/^(https?:\/\/|www\.)/i.test(part)) {
+      // Pull trailing punctuation out of the link target so a sentence-ending
+      // period or paren doesn't become part of the URL.
+      const match = part.match(/^(.*?)([.,;:!?)\]]*)$/);
+      const url = match ? match[1] : part;
+      const trailing = match ? match[2] : "";
+      const href = url.toLowerCase().startsWith("http") ? url : `https://${url}`;
+      return (
+        <span key={i}>
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline break-all"
+          >
+            {url}
+          </a>
+          {trailing}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 function PositionBadges({ primary, secondary }: { primary: string[]; secondary: string[] }) {
   if (primary.length === 0 && secondary.length === 0) return null;
   return (
@@ -924,6 +955,7 @@ function EditTeamModal({
   const [leagueId, setLeagueId] = useState(team.league_id ? String(team.league_id) : "");
   const [divisionId, setDivisionId] = useState("");
   const [sportId, setSportId] = useState("");
+  const [notes, setNotes] = useState(team.notes ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1031,6 +1063,7 @@ function EditTeamModal({
         year: Number(year),
         season,
         sportId: Number(sportId),
+        notes: notes.trim() || null,
       };
       if (isLeagueTeam) {
         body.leagueId = Number(leagueId);
@@ -1187,6 +1220,22 @@ function EditTeamModal({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Notes */}
+          <div className="grid gap-2">
+            <Label htmlFor="edit-team-notes" className="label-section">
+              Notes <span className="font-normal text-muted-foreground">(optional)</span>
+            </Label>
+            <textarea
+              id="edit-team-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={4}
+              placeholder="Add notes for this team. Paste a link (e.g. https://example.com) and it becomes clickable."
+              className="w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors resize-none"
+              style={{ fontFamily: "var(--font-body)" }}
+            />
           </div>
         </div>
 
@@ -1364,6 +1413,12 @@ export default function TeamDetailPage() {
                   <div>
                     <dt className="text-muted-foreground">League</dt>
                     <dd className="font-medium">{team.league_name ?? "—"}</dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-muted-foreground">Notes</dt>
+                    <dd className="font-medium whitespace-pre-wrap break-words">
+                      {team.notes ? renderNotesWithLinks(team.notes) : "—"}
+                    </dd>
                   </div>
                 </dl>
               </CardContent>

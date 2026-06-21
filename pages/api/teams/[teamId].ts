@@ -14,6 +14,7 @@ export type TeamDetail = {
   league_name: string | null;
   league_division_id: number | null;
   league_division_name: string | null;
+  notes: string | null;
 };
 
 export type TeamTournament = {
@@ -46,7 +47,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           t.league_id           AS league_id,
           l.name                AS league_name,
           t.league_division_id  AS league_division_id,
-          ld.name               AS league_division_name
+          ld.name               AS league_division_name,
+          t.notes               AS notes
         FROM teams t
         LEFT JOIN divisions        d  ON d.id  = t.division
         LEFT JOIN sport            s  ON s.id  = t.sportid
@@ -86,6 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         league_name: teamRows[0].league_name ?? null,
         league_division_id: teamRows[0].league_division_id ?? null,
         league_division_name: teamRows[0].league_division_name ?? null,
+        notes: teamRows[0].notes ?? null,
       };
 
       const tournaments: TeamTournament[] = tournamentRows.map((r) => ({
@@ -104,9 +107,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!session) return;
 
       const body = req.body ?? {};
-      const { name, divisionId, season, year, sportId, leagueId, leagueDivisionId } = body;
+      const { name, divisionId, season, year, sportId, leagueId, leagueDivisionId, notes } = body;
       const hasLeagueId = 'leagueId' in body;
       const hasLeagueDivisionId = 'leagueDivisionId' in body;
+      const hasNotes = 'notes' in body;
+      const notesValue =
+        typeof notes === 'string' && notes.trim() !== '' ? notes.trim() : null;
 
       const updated = await sql`
         UPDATE teams
@@ -123,6 +129,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           league_division_id = CASE WHEN ${hasLeagueDivisionId}
                         THEN ${leagueDivisionId != null ? Number(leagueDivisionId) : null}::int
                         ELSE league_division_id
+                      END,
+          notes = CASE WHEN ${hasNotes}
+                        THEN ${notesValue}::text
+                        ELSE notes
                       END
         WHERE teamid = ${id}
         RETURNING teamid AS id
