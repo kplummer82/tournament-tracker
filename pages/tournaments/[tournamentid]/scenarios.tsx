@@ -230,7 +230,15 @@ function CreateScenarioForm({
           </span>
           <select
             value={teamId}
-            onChange={(e) => setTeamId(Number(e.target.value))}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setTeamId(next);
+              // Keep opponent valid: if it now collides with the selected team,
+              // fall back to the first available opponent (avoids a stale select value).
+              if (Number(opponentTeamId) === next) {
+                setOpponentTeamId(teams.find((t) => t.id !== next)?.id ?? "");
+              }
+            }}
             className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
           >
             {teams.map((t) => (
