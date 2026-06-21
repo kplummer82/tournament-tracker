@@ -36,8 +36,8 @@ function StandingsTable({
   unresolvedTeamIds?: Set<number>;
 }) {
   return (
-    <div className="border border-border overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="border border-border overflow-x-auto">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
           <tr className="border-b border-border bg-surface">
             <th className="p-3 pl-4 text-left label-section w-14">Rank</th>

@@ -61,15 +61,17 @@ export default function FollowButton({
       onClick={toggle}
       className={cn(
         BTN_BASE,
+        "shrink-0",
         following
           ? "border-primary/40 text-primary hover:bg-primary/10"
           : "border-border text-muted-foreground hover:text-foreground hover:border-border/80"
       )}
       style={{ fontFamily: "var(--font-body)" }}
       title={following ? "Unfollow" : "Follow"}
+      aria-label={following ? "Unfollow" : "Follow"}
     >
-      <Star className={cn("h-3 w-3", following && "fill-current")} />
-      {following ? "Following" : "Follow"}
+      <Star className={cn("h-3 w-3 shrink-0", following && "fill-current")} />
+      <span className="hidden sm:inline">{following ? "Following" : "Follow"}</span>
     </button>
   );
 }

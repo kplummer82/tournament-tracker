@@ -292,8 +292,8 @@ function PoolBody() {
         </div>
       ) : !hasGroups ? (
         // No groups — flat table (existing behavior)
-        <div className="border border-border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-border overflow-x-auto">
+          <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b border-border bg-surface">
                 {["Date", "Time", "Home", "Away", "Score", "Status", "Location", ""].map((h) => (
@@ -327,8 +327,8 @@ function PoolBody() {
                   {section.games.length} game{section.games.length !== 1 ? "s" : ""}
                 </span>
               </div>
-              <div className="border border-border overflow-hidden">
-                <table className="w-full text-sm">
+              <div className="border border-border overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-surface">
                       {["Date", "Time", "Home", "Away", "Score", "Status", "Location", ""].map((h) => (

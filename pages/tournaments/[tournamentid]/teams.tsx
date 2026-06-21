@@ -292,8 +292,8 @@ function TeamsBody() {
           </p>
         </div>
       ) : (
-        <div className="border border-border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-border overflow-x-auto">
+          <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-border bg-surface">
                 <th className="text-left p-3 pl-4 label-section">Team</th>

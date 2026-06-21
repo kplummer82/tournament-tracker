@@ -39,10 +39,10 @@ export default function TournamentShell({
         <div className="mx-auto max-w-7xl px-4 md:px-6 h-10 flex items-center justify-between gap-4">
           <Link
             href="/tournaments"
-            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors duration-100"
+            className="flex items-center gap-1.5 shrink-0 whitespace-nowrap text-muted-foreground hover:text-foreground transition-colors duration-100"
             style={{ fontFamily: "var(--font-body)", fontSize: "11px", letterSpacing: "0.06em", textTransform: "uppercase" }}
           >
-            <ArrowLeft className="h-3 w-3" />
+            <ArrowLeft className="h-3 w-3 shrink-0" />
             All Tournaments
           </Link>
 
@@ -57,38 +57,41 @@ export default function TournamentShell({
               {tid && (
                 <Link
                   href={`/tournaments?cloneFrom=${tid}`}
-                  className={cn(BTN_BASE, "border-border text-muted-foreground hover:text-foreground hover:border-border/80")}
+                  aria-label="Clone tournament"
+                  className={cn(BTN_BASE, "shrink-0 border-border text-muted-foreground hover:text-foreground hover:border-border/80")}
                   style={{ fontFamily: "var(--font-body)" }}
                 >
-                  <Copy className="h-3 w-3" />
-                  Clone
+                  <Copy className="h-3 w-3 shrink-0" />
+                  <span className="hidden sm:inline">Clone</span>
                 </Link>
               )}
               <button
                 type="button"
                 onClick={remove}
-                className={cn(BTN_BASE, "border-destructive/40 text-destructive hover:bg-destructive/10")}
+                aria-label="Delete tournament"
+                className={cn(BTN_BASE, "shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10")}
                 style={{ fontFamily: "var(--font-body)" }}
               >
-                <Trash2 className="h-3 w-3" />
-                Delete
+                <Trash2 className="h-3 w-3 shrink-0" />
+                <span className="hidden sm:inline">Delete</span>
               </button>
               <button
                 type="button"
                 onClick={save}
                 disabled={!enableSave || saving}
-                className={cn(BTN_BASE, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
+                aria-label={saving ? "Saving changes" : "Save changes"}
+                className={cn(BTN_BASE, "shrink-0 bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-30")}
                 style={{ fontFamily: "var(--font-body)" }}
               >
-                <Save className="h-3 w-3" />
-                {saving ? "Saving…" : "Save"}
+                <Save className="h-3 w-3 shrink-0" />
+                <span className="hidden sm:inline">{saving ? "Saving…" : "Save"}</span>
               </button>
             </>)}
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-7xl w-full px-6 flex-1 flex flex-col">
+      <div className="mx-auto max-w-7xl w-full px-4 md:px-6 flex-1 flex flex-col">
         {/* ── Tournament header ── */}
         <div className="py-5 border-b border-border">
           <div className="flex items-start gap-3">
