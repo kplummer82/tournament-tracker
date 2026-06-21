@@ -127,9 +127,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           gs.gamestatus                   AS gamestatus_label,
           tg.tournamentid                 AS context_id,
           t.name                          AS context_name,
-          tg.location,
+          -- Resolve from the linked venue first (source of truth): auto-scheduled
+          -- games set tournament_venue_id but not the legacy denormalized columns.
+          COALESCE(vloc.name, tv.custom_name, tg.location) AS location,
           tg.field,
-          tg.location_id,
+          COALESCE(tg.location_id, tv.location_id)         AS location_id,
           NULL::text                      AS game_type,
           NULL::int                       AS bracket_id,
           NULL::text                      AS bracket_game_id
@@ -137,6 +139,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         LEFT JOIN teams ht ON ht.teamid = tg.home
         LEFT JOIN teams at ON at.teamid = tg.away
         LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+        LEFT JOIN tournament_venues tv ON tv.id = tg.tournament_venue_id
+        LEFT JOIN locations vloc ON vloc.id = tv.location_id
         JOIN tournaments t ON t.tournamentid = tg.tournamentid
         WHERE tg.id = ${params.gameId}
         LIMIT 1

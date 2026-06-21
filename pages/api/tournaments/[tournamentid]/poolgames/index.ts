@@ -12,10 +12,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         const r = await client.query(
           `
-          select pv.*,
-                 coalesce(l.address, tv.custom_address) as venue_address,
-                 coalesce(l.city,    tv.custom_city)    as venue_city,
-                 coalesce(l.state,   tv.custom_state)   as venue_state
+          select pv.id,
+                 pv.tournamentid,
+                 pv.hometeam,
+                 pv.awayteam,
+                 pv.gamedate,
+                 pv.gametime,
+                 pv.homescore,
+                 pv.awayscore,
+                 pv.gamestatusid,
+                 pv.gamestatus,
+                 pv.tournament_venue_id,
+                 pv.field,
+                 -- Resolve from the linked venue first (source of truth), so games
+                 -- scheduled via the auto-scheduler — which sets tournament_venue_id
+                 -- but not the legacy denormalized location text — still show a venue.
+                 coalesce(l.name, tv.custom_name, pv.location)  as location,
+                 coalesce(pv.location_id, tv.location_id)       as location_id,
+                 coalesce(l.address, tv.custom_address)         as venue_address,
+                 coalesce(l.city,    tv.custom_city)            as venue_city,
+                 coalesce(l.state,   tv.custom_state)           as venue_state
             from poolgames_view pv
             left join tournament_venues tv on tv.id = pv.tournament_venue_id
             left join locations l on l.id = tv.location_id
