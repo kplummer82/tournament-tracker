@@ -121,20 +121,24 @@ export async function fetchSeasonStandingsData(
 // Tournament (pool play) data fetcher
 // ---------------------------------------------------------------------------
 
-export async function fetchTournamentStandingsData(tournamentId: number): Promise<{
+export async function fetchTournamentStandingsData(
+  tournamentId: number,
+  opts?: { includeInProgress?: boolean; asOfDate?: string }
+): Promise<{
   games: GameRecord[];
   teams: TeamRecord[];
   tiebreakers: TiebreakerConfig[];
   config: SeasonConfig;
 }> {
-  const [teamRows, gameRows, tbRows, configRows] = await Promise.all([
-    sql`
-      SELECT tt.teamid, t.name AS team
-      FROM tournamentteams tt
-      JOIN teams t ON t.teamid = tt.teamid
-      WHERE tt.tournamentid = ${tournamentId}
-    `,
-    sql`
+  const { includeInProgress = false, asOfDate } = opts ?? {};
+
+  // Game query varies by mode. The score-not-null guard stays in every branch:
+  // tournament pool games only count once both scores are entered.
+  //   as-of:            finalized games dated on/before the cutoff
+  //   includeInProgress: in-progress (3) games counted at their current score
+  //   default:          finalized games only (status 4/6/7, NULL→Final)
+  const gameQuery = asOfDate
+    ? sql`
       SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
       FROM tournamentgames
       WHERE tournamentid = ${tournamentId}
@@ -142,7 +146,36 @@ export async function fetchTournamentStandingsData(tournamentId: number): Promis
         AND homescore IS NOT NULL
         AND awayscore IS NOT NULL
         AND COALESCE(gamestatusid, 4) IN (4, 6, 7)
+        AND gamedate <= ${asOfDate}
+    `
+    : includeInProgress
+    ? sql`
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
+      FROM tournamentgames
+      WHERE tournamentid = ${tournamentId}
+        AND poolorbracket = 'Pool'
+        AND homescore IS NOT NULL
+        AND awayscore IS NOT NULL
+        AND COALESCE(gamestatusid, 4) IN (3, 4, 6, 7)
+    `
+    : sql`
+      SELECT id AS gameid, home, away, homescore, awayscore, gamestatusid, gamedate, gametime
+      FROM tournamentgames
+      WHERE tournamentid = ${tournamentId}
+        AND poolorbracket = 'Pool'
+        AND homescore IS NOT NULL
+        AND awayscore IS NOT NULL
+        AND COALESCE(gamestatusid, 4) IN (4, 6, 7)
+    `;
+
+  const [teamRows, gameRows, tbRows, configRows] = await Promise.all([
+    sql`
+      SELECT tt.teamid, t.name AS team
+      FROM tournamentteams tt
+      JOIN teams t ON t.teamid = tt.teamid
+      WHERE tt.tournamentid = ${tournamentId}
     `,
+    gameQuery,
     sql`
       SELECT tb.tiebreaker AS code,
              tb."SortDirection" AS sort_direction,

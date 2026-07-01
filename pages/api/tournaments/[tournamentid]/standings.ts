@@ -29,8 +29,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? req.query.pool_group.trim()
       : null;
 
+  // ?includeInProgress=true counts in-progress (status 3) games at their current score.
+  const includeInProgress = req.query.includeInProgress === "true";
+
   try {
-    const data = await fetchTournamentStandingsData(tournamentId);
+    const data = await fetchTournamentStandingsData(tournamentId, { includeInProgress });
 
     // Fetch pool_group assignments for each team
     const { sql } = await import("@/lib/db");

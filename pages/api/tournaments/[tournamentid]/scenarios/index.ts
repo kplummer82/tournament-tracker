@@ -23,6 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.sample_scenario,
           sq.most_likely_seed, sq.seed_distribution,
           sq.matchup_distribution, sq.most_likely_opponent_id,
+          sq.as_of_date, sq.simulation_method, sq.include_in_progress,
           sq.status, sq.error_message,
           sq.created_at, sq.updated_at
         FROM scenario_questions sq
@@ -35,7 +36,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
-      const { questionType, teamId, targetSeed, seedMode, opponentTeamId } = req.body ?? {};
+      const {
+        questionType, teamId, targetSeed, seedMode, opponentTeamId,
+        asOfDate: rawAsOf, simulationMethod: rawMethod, includeInProgress: rawInProgress,
+      } = req.body ?? {};
+      const simulationMethod = rawMethod === "pythagorean" ? "pythagorean" : "monte_carlo";
+      const asOfDate = typeof rawAsOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawAsOf) ? rawAsOf : null;
+      const includeInProgress = rawInProgress === true;
       const qType = questionType === "first_round_matchup"
         ? "first_round_matchup"
         : questionType === "most_likely_seed"
@@ -72,8 +79,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(400).json({ error: "targetSeed exceeds number of teams in tournament" });
         }
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode)
-          VALUES ('tournament', ${tournamentId}, 'seed_achievable', ${teamId}, ${seed}, ${mode})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, target_seed, seed_mode, as_of_date, simulation_method, include_in_progress)
+          VALUES ('tournament', ${tournamentId}, 'seed_achievable', ${teamId}, ${seed}, ${mode}, ${asOfDate}, ${simulationMethod}, ${includeInProgress})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -81,8 +88,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (qType === "most_likely_seed") {
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
-          VALUES ('tournament', ${tournamentId}, 'most_likely_seed', ${teamId})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date, simulation_method, include_in_progress)
+          VALUES ('tournament', ${tournamentId}, 'most_likely_seed', ${teamId}, ${asOfDate}, ${simulationMethod}, ${includeInProgress})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -90,8 +97,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (qType === "most_likely_matchup") {
         const rows = await sql`
-          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id)
-          VALUES ('tournament', ${tournamentId}, 'most_likely_matchup', ${teamId})
+          INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, as_of_date, simulation_method, include_in_progress)
+          VALUES ('tournament', ${tournamentId}, 'most_likely_matchup', ${teamId}, ${asOfDate}, ${simulationMethod}, ${includeInProgress})
           RETURNING *
         `;
         return res.status(201).json({ scenario: rows[0] });
@@ -111,8 +118,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "Opponent team is not in this tournament" });
       }
       const rows = await sql`
-        INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, opponent_team_id)
-        VALUES ('tournament', ${tournamentId}, 'first_round_matchup', ${teamId}, ${opponentTeamId})
+        INSERT INTO scenario_questions (entity_type, entity_id, question_type, team_id, opponent_team_id, as_of_date, simulation_method, include_in_progress)
+        VALUES ('tournament', ${tournamentId}, 'first_round_matchup', ${teamId}, ${opponentTeamId}, ${asOfDate}, ${simulationMethod}, ${includeInProgress})
         RETURNING *
       `;
       return res.status(201).json({ scenario: rows[0] });

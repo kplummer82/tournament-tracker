@@ -57,23 +57,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `.catch(() => {});
         };
 
+        const asOfDate = scenario.as_of_date ?? undefined;
+        const simulationMethod: "monte_carlo" | "pythagorean" =
+          scenario.simulation_method === "pythagorean" ? "pythagorean" : "monte_carlo";
+        const includeInProgress = scenario.include_in_progress === true;
+
         const result = scenario.question_type === "first_round_matchup"
           ? await runTournamentFirstRoundMatchupAnalysis(
               tournamentId,
               scenario.team_id,
               scenario.opponent_team_id,
-              onProgress
+              onProgress,
+              asOfDate,
+              simulationMethod,
+              includeInProgress
             )
           : scenario.question_type === "most_likely_seed"
-          ? await runTournamentMostLikelySeedAnalysis(tournamentId, scenario.team_id, onProgress)
+          ? await runTournamentMostLikelySeedAnalysis(tournamentId, scenario.team_id, onProgress, asOfDate, simulationMethod, includeInProgress)
           : scenario.question_type === "most_likely_matchup"
-          ? await runTournamentMostLikelyMatchupAnalysis(tournamentId, scenario.team_id, onProgress)
+          ? await runTournamentMostLikelyMatchupAnalysis(tournamentId, scenario.team_id, onProgress, asOfDate, simulationMethod, includeInProgress)
           : await runTournamentScenarioAnalysis(
               tournamentId,
               scenario.team_id,
               scenario.target_seed,
               scenario.seed_mode as "exact" | "or_better",
-              onProgress
+              onProgress,
+              asOfDate,
+              simulationMethod,
+              includeInProgress
             );
 
         const sampleJson = result.sampleWinningScenario !== null

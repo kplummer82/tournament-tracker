@@ -4,8 +4,11 @@ import TournamentProvider, { useTournament } from "@/components/tournaments/Tour
 import TournamentShell from "@/components/tournaments/TournamentShell";
 import { Dices, Trash2, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import SegmentedControl from "@/components/ui/SegmentedControl";
 
 type TeamRow = { id: number; name: string };
+
+type ScenarioTimeMode = "current" | "as-of";
 
 type MatchupEntry = {
   teamId: number;
@@ -30,6 +33,9 @@ type ScenarioRow = {
   seed_distribution: { seed: number; probability: number }[] | null;
   matchup_distribution: MatchupEntry[] | null;
   most_likely_opponent_id: number | null;
+  simulation_method: "monte_carlo" | "pythagorean";
+  as_of_date: string | null;
+  include_in_progress: boolean;
   status: "pending" | "running" | "completed" | "error";
   error_message: string | null;
   created_at: string;
@@ -47,10 +53,12 @@ function MatchupDistribution({
   distribution,
   probability,
   simulationsRun,
+  countLabel,
 }: {
   distribution: MatchupEntry[];
   probability: number | null;
   simulationsRun: number;
+  countLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const maxProb = Math.max(...distribution.map((d) => d.probability), 0);
@@ -70,7 +78,7 @@ function MatchupDistribution({
           </span>
         )}
         <span className="text-[10px] text-muted-foreground ml-auto">
-          {simulationsRun.toLocaleString()} simulations
+          {countLabel ?? `${simulationsRun.toLocaleString()} simulations`}
         </span>
       </div>
 
@@ -129,10 +137,12 @@ function MatchupDistribution({
 function CreateScenarioForm({
   tournamentId,
   teams,
+  dateRange,
   onCreated,
 }: {
   tournamentId: number;
   teams: TeamRow[];
+  dateRange: { minDate: string | null; maxDate: string | null };
   onCreated: (s: ScenarioRow) => void;
 }) {
   const [questionType, setQuestionType] = useState<"seed_achievable" | "first_round_matchup" | "most_likely_seed" | "most_likely_matchup">("seed_achievable");
@@ -140,8 +150,14 @@ function CreateScenarioForm({
   const [opponentTeamId, setOpponentTeamId] = useState<number | "">(teams[1]?.id ?? teams[0]?.id ?? "");
   const [targetSeed, setTargetSeed] = useState(1);
   const [seedMode, setSeedMode] = useState<"or_better" | "exact">("or_better");
+  const [timeMode, setTimeMode] = useState<ScenarioTimeMode>("current");
+  const [asOfDate, setAsOfDate] = useState(() => new Date().toLocaleDateString("en-CA"));
+  const [simMethod, setSimMethod] = useState<"monte_carlo" | "pythagorean">("monte_carlo");
+  const [includeInProgress, setIncludeInProgress] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const today = new Date().toLocaleDateString("en-CA");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -150,11 +166,15 @@ function CreateScenarioForm({
     setSubmitting(true);
     setErr(null);
     try {
-      const body = questionType === "first_round_matchup"
-        ? { questionType, teamId, opponentTeamId }
+      const base = questionType === "first_round_matchup"
+        ? { questionType, teamId, opponentTeamId, simulationMethod: simMethod }
         : questionType === "most_likely_seed" || questionType === "most_likely_matchup"
-        ? { questionType, teamId }
-        : { questionType, teamId, targetSeed, seedMode };
+        ? { questionType, teamId, simulationMethod: simMethod }
+        : { questionType, teamId, targetSeed, seedMode, simulationMethod: simMethod };
+      // As-of is date-based; include-in-progress only applies to the current view.
+      const body = timeMode === "as-of"
+        ? { ...base, asOfDate }
+        : { ...base, includeInProgress };
 
       const res = await fetch(`/api/tournaments/${tournamentId}/scenarios`, {
         method: "POST",
@@ -301,6 +321,66 @@ function CreateScenarioForm({
         )}
       </div>
 
+      {/* Time mode + include in-progress */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <SegmentedControl<ScenarioTimeMode>
+          options={[
+            { key: "current", label: "Current" },
+            { key: "as-of", label: "As-of" },
+          ]}
+          active={timeMode}
+          onChange={setTimeMode}
+          size="sm"
+        />
+        {timeMode === "as-of" ? (
+          <input
+            type="date"
+            value={asOfDate}
+            onChange={(e) => setAsOfDate(e.target.value)}
+            min={dateRange.minDate ?? undefined}
+            max={dateRange.maxDate && dateRange.maxDate < today ? dateRange.maxDate : today}
+            className="border border-border bg-background px-2 py-1 text-xs text-foreground rounded-md focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors"
+            style={{ fontFamily: "var(--font-body)" }}
+          />
+        ) : (
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeInProgress}
+              onChange={(e) => setIncludeInProgress(e.target.checked)}
+              className="w-3.5 h-3.5 accent-primary cursor-pointer"
+            />
+            <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Include In Progress
+            </span>
+          </label>
+        )}
+      </div>
+
+      {/* Method toggle */}
+      <div className="space-y-2">
+        <SegmentedControl<"monte_carlo" | "pythagorean">
+          options={[
+            { key: "monte_carlo", label: "Simulate" },
+            { key: "pythagorean", label: "Predict" },
+          ]}
+          active={simMethod}
+          onChange={setSimMethod}
+          size="sm"
+        />
+        {simMethod === "pythagorean" && (
+          <div className="rounded-md border border-border bg-muted/30 px-3 py-2 space-y-0.5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.08em] text-foreground" style={{ fontFamily: "var(--font-display)" }}>
+              Pythagorean Prediction
+            </p>
+            <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Projects outcomes from each team&apos;s runs scored and allowed using Pythagorean Expectation and Log5.
+              Deterministic — no simulation required. All teams must have played at least one game.
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-3">
         <button
           type="submit"
@@ -391,6 +471,11 @@ function ScenarioCard({
       ? `Can they achieve exactly seed #${scenario.target_seed}?`
       : `Can they achieve seed #${scenario.target_seed} or better?`;
 
+  const isPrediction = scenario.simulation_method === "pythagorean";
+  const countLabel = isPrediction
+    ? "Pythagorean projection"
+    : `${scenario.simulations_run.toLocaleString()} simulations`;
+
   return (
     <div className="border border-border rounded-lg p-4 space-y-3">
       <div className="flex items-start justify-between gap-3">
@@ -408,6 +493,16 @@ function ScenarioCard({
           </p>
           <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
             {questionLabel}
+            {scenario.as_of_date && (
+              <span className="ml-2 inline-block px-1.5 py-px text-[9px] font-bold tracking-[0.05em] uppercase border border-border text-muted-foreground" style={{ fontFamily: "var(--font-display)" }}>
+                As of {new Date(scenario.as_of_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" })}
+              </span>
+            )}
+            {scenario.include_in_progress && !scenario.as_of_date && (
+              <span className="ml-2 inline-block px-1.5 py-px text-[9px] font-bold tracking-[0.05em] uppercase border border-border text-muted-foreground" style={{ fontFamily: "var(--font-display)" }}>
+                Incl. in-progress
+              </span>
+            )}
           </p>
         </div>
         <div className="flex gap-1.5 shrink-0">
@@ -433,17 +528,19 @@ function ScenarioCard({
       {/* Status / Results */}
       {scenario.status === "running" && (
         <div className="space-y-1.5">
-          <div className="flex items-center gap-2">
-            <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
-              <div
-                className="h-full bg-primary transition-all duration-300"
-                style={{ width: `${Math.min(100, (scenario.simulations_run / 100) * 1)}%` }}
-              />
+          {!isPrediction && (
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 flex-1 bg-muted rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all duration-300"
+                  style={{ width: `${Math.min(100, (scenario.simulations_run / 100) * 1)}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                {scenario.simulations_run.toLocaleString()} sims
+              </span>
             </div>
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              {scenario.simulations_run.toLocaleString()} sims
-            </span>
-          </div>
+          )}
           <p className="text-xs text-muted-foreground animate-pulse">Analyzing…</p>
         </div>
       )}
@@ -454,8 +551,9 @@ function ScenarioCard({
             scenario.matchup_distribution && scenario.matchup_distribution.length > 0 ? (
               <MatchupDistribution
                 distribution={scenario.matchup_distribution}
-                probability={scenario.probability}
+                probability={isPrediction ? null : scenario.probability}
                 simulationsRun={scenario.simulations_run}
+                countLabel={isPrediction ? countLabel : undefined}
               />
             ) : (
               <p className="text-xs text-muted-foreground">No matchup data.</p>
@@ -467,13 +565,13 @@ function ScenarioCard({
                   {ordinal(scenario.most_likely_seed)} seed
                 </span>
               )}
-              {scenario.probability !== null && (
+              {!isPrediction && scenario.probability !== null && (
                 <span className="text-lg font-bold tabular-nums" style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}>
                   {Number(scenario.probability).toFixed(1)}%
                 </span>
               )}
               <span className="text-[10px] text-muted-foreground ml-auto">
-                {scenario.simulations_run.toLocaleString()} simulations
+                {countLabel}
               </span>
             </div>
           ) : (
@@ -501,7 +599,7 @@ function ScenarioCard({
                   >
                     Possible
                   </span>
-                  {scenario.probability !== null && (
+                  {!isPrediction && scenario.probability !== null && (
                     <span
                       className="text-lg font-bold tabular-nums"
                       style={{ fontFamily: "var(--font-display)", color: "var(--foreground)" }}
@@ -512,7 +610,7 @@ function ScenarioCard({
                 </>
               )}
               <span className="text-[10px] text-muted-foreground ml-auto">
-                {scenario.simulations_run.toLocaleString()} simulations
+                {countLabel}
               </span>
             </div>
           )}
@@ -536,6 +634,7 @@ function ScenariosBody() {
   const { tid } = useTournament();
   const [teams, setTeams] = useState<TeamRow[]>([]);
   const [scenarios, setScenarios] = useState<ScenarioRow[]>([]);
+  const [dateRange, setDateRange] = useState<{ minDate: string | null; maxDate: string | null }>({ minDate: null, maxDate: null });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -546,17 +645,20 @@ function ScenariosBody() {
       setLoading(true);
       setErr(null);
       try {
-        const [teamsRes, scenariosRes] = await Promise.all([
+        const [teamsRes, scenariosRes, dateRangeRes] = await Promise.all([
           fetch(`/api/tournaments/${tid}/teams`),
           fetch(`/api/tournaments/${tid}/scenarios`),
+          fetch(`/api/tournaments/${tid}/date-range`),
         ]);
         if (!teamsRes.ok || !scenariosRes.ok) throw new Error("Failed to load data");
         // Tournament teams API returns flat array (not { teams: [] })
         const teamsData = await teamsRes.json();
         const scenariosData = await scenariosRes.json();
+        const dateRangeData = dateRangeRes.ok ? await dateRangeRes.json() : {};
         if (!cancelled) {
           setTeams(Array.isArray(teamsData) ? teamsData : []);
           setScenarios(Array.isArray(scenariosData.scenarios) ? scenariosData.scenarios : []);
+          setDateRange({ minDate: dateRangeData.minDate ?? null, maxDate: dateRangeData.maxDate ?? null });
         }
       } catch (e) {
         if (!cancelled) setErr(e instanceof Error ? e.message : "Failed to load");
@@ -620,6 +722,7 @@ function ScenariosBody() {
         <CreateScenarioForm
           tournamentId={tid}
           teams={teams}
+          dateRange={dateRange}
           onCreated={handleCreated}
         />
       )}

@@ -100,13 +100,48 @@ async function getRemainingGames(seasonId: number, asOfDate?: string): Promise<R
 }
 
 /** Get remaining (incomplete) pool-play games for a tournament. */
-async function getRemainingTournamentGames(tournamentId: number): Promise<RemainingGame[]> {
+async function getRemainingTournamentGames(
+  tournamentId: number,
+  opts?: { includeInProgress?: boolean; asOfDate?: string }
+): Promise<RemainingGame[]> {
+  const { includeInProgress = false, asOfDate } = opts ?? {};
+
+  if (asOfDate) {
+    // As-of a past date: "remaining" = everything not yet finalized by that date.
+    // Rained-out (5) and canceled (8) games are never playable, so exclude them.
+    const rows = await sql`
+      SELECT id, home, away
+      FROM tournamentgames
+      WHERE tournamentid = ${tournamentId}
+        AND poolorbracket = 'Pool'
+        AND gamestatusid IS DISTINCT FROM 5
+        AND gamestatusid IS DISTINCT FROM 8
+        AND NOT (COALESCE(gamestatusid, 4) IN (4, 6, 7) AND gamedate <= ${asOfDate})
+    `;
+    return rows as unknown as RemainingGame[];
+  }
+
+  if (includeInProgress) {
+    // In-progress games are locked in as final (counted in standings), so only
+    // truly-unplayed games (scheduled / unscheduled) remain to be simulated.
+    const rows = await sql`
+      SELECT id, home, away
+      FROM tournamentgames
+      WHERE tournamentid = ${tournamentId}
+        AND poolorbracket = 'Pool'
+        AND (gamestatusid IS NULL OR gamestatusid = 1)
+    `;
+    return rows as unknown as RemainingGame[];
+  }
+
+  // Default: in-progress (3) games are treated as undecided and simulated alongside
+  // scheduled / unscheduled games.
   const rows = await sql`
     SELECT id, home, away
     FROM tournamentgames
     WHERE tournamentid = ${tournamentId}
       AND poolorbracket = 'Pool'
-      AND (gamestatusid IS NULL OR gamestatusid = 1)
+      AND (gamestatusid IS NULL OR gamestatusid IN (1, 3))
   `;
   return rows as unknown as RemainingGame[];
 }
@@ -869,12 +904,20 @@ export async function runTournamentScenarioAnalysis(
   teamId: number,
   targetSeed: number,
   seedMode: SeedMode,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  includeInProgress?: boolean
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
-    getRemainingTournamentGames(tournamentId),
-    fetchTournamentStandingsData(tournamentId),
+    getRemainingTournamentGames(tournamentId, { includeInProgress, asOfDate }),
+    fetchTournamentStandingsData(tournamentId, { includeInProgress, asOfDate }),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "seed_achievable", teamId, targetSeed, seedMode, null, []);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -927,13 +970,21 @@ export async function runTournamentFirstRoundMatchupAnalysis(
   tournamentId: number,
   teamId: number,
   opponentTeamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  includeInProgress?: boolean
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
-    getRemainingTournamentGames(tournamentId),
-    fetchTournamentStandingsData(tournamentId),
+    getRemainingTournamentGames(tournamentId, { includeInProgress, asOfDate }),
+    fetchTournamentStandingsData(tournamentId, { includeInProgress, asOfDate }),
     getBracketSlicesForTournament(tournamentId),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "first_round_matchup", teamId, null, null, opponentTeamId, bracketSlices);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -983,12 +1034,20 @@ export async function runMostLikelySeedAnalysis(
 export async function runTournamentMostLikelySeedAnalysis(
   tournamentId: number,
   teamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  includeInProgress?: boolean
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
-    getRemainingTournamentGames(tournamentId),
-    fetchTournamentStandingsData(tournamentId),
+    getRemainingTournamentGames(tournamentId, { includeInProgress, asOfDate }),
+    fetchTournamentStandingsData(tournamentId, { includeInProgress, asOfDate }),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "most_likely_seed", teamId, null, null, null, []);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
@@ -1039,13 +1098,21 @@ export async function runMostLikelyMatchupAnalysis(
 export async function runTournamentMostLikelyMatchupAnalysis(
   tournamentId: number,
   teamId: number,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  asOfDate?: string,
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  includeInProgress?: boolean
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
-    getRemainingTournamentGames(tournamentId),
-    fetchTournamentStandingsData(tournamentId),
+    getRemainingTournamentGames(tournamentId, { includeInProgress, asOfDate }),
+    fetchTournamentStandingsData(tournamentId, { includeInProgress, asOfDate }),
     getBracketSlicesForTournament(tournamentId),
   ]);
+
+  if (simulationMethod === "pythagorean") {
+    return runPythagoreanAnalysis(remainingGames, standingsData, "most_likely_matchup", teamId, null, null, null, bracketSlices);
+  }
+
   const maxRunDiff = standingsData.config.maxrundiff;
 
   const callFn = (simulated: SimulatedOutcome[]): Promise<StandingsRow[]> =>
