@@ -3,7 +3,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Search, X } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown, ChevronLeft, ChevronRight, Search, X } from "lucide-react";
 import Header from "@/components/Header";
 import ListingCard, { type ListingRow } from "@/components/scrimmages/ListingCard";
 import CreateListingModal from "@/components/scrimmages/CreateListingModal";
@@ -459,31 +465,38 @@ export default function ScrimmageMarketplacePage() {
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
                 Bats
               </label>
-              <div className="flex items-center gap-1">
-                {bats.map((b) => {
-                  const active = filters.bats?.includes(b.id) ?? false;
-                  const disabled = isBatDisabled(b);
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      onClick={() => toggleBatFilter(b.id)}
-                      disabled={disabled}
-                      title={disabled ? "Not used in the selected sport" : undefined}
-                      className={`px-2 h-9 text-[10px] uppercase tracking-wider border transition-colors duration-100 ${
-                        disabled
-                          ? "border-border/40 text-muted-foreground/40 cursor-not-allowed"
-                          : active
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border text-muted-foreground hover:border-primary hover:text-primary"
-                      }`}
-                      style={{ fontFamily: "var(--font-body)" }}
-                    >
-                      {b.name}
-                    </button>
-                  );
-                })}
-              </div>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className={`inline-flex items-center justify-between gap-2 min-w-[110px] h-9 px-2 text-[10px] uppercase tracking-wider border bg-input transition-colors duration-100 focus:outline-none data-[state=open]:border-primary ${
+                    (filters.bats?.length ?? 0) > 0
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+                  }`}
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  {(filters.bats?.length ?? 0) > 0 ? `Bats (${filters.bats!.length})` : "Bats"}
+                  <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-[10rem]">
+                  {bats.map((b) => {
+                    const disabled = isBatDisabled(b);
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={b.id}
+                        checked={filters.bats?.includes(b.id) ?? false}
+                        disabled={disabled}
+                        onCheckedChange={() => toggleBatFilter(b.id)}
+                        onSelect={(e) => e.preventDefault()}
+                        title={disabled ? "Not used in the selected sport" : undefined}
+                        className="text-xs uppercase tracking-wider"
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        {b.name}
+                      </DropdownMenuCheckboxItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           )}
 
