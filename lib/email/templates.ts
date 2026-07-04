@@ -79,3 +79,29 @@ ${inviteUrl}
 
   return { subject, html, text };
 }
+
+/**
+ * MFA one-time code email — sent when a user with two-step verification signs
+ * in (or turns the feature on). App-layer send via Resend, not Neon Auth SMTP.
+ */
+export function mfaCodeEmail(params: {
+  code: string;
+  expiresMinutes: number;
+}): EmailContent {
+  const { code, expiresMinutes } = params;
+
+  const subject = "Your Stacked Bench verification code";
+
+  const html = shell(`
+    <p style="margin:0 0 16px;">Use this code to finish signing in:</p>
+    <p style="margin:0 0 24px;font-size:32px;font-weight:700;letter-spacing:0.35em;color:${BRAND};font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;">${esc(code)}</p>
+    <p style="margin:0;color:#71717a;font-size:13px;">This code expires in ${expiresMinutes} minutes. If you didn't try to sign in, you can ignore this email — your password still protects your account.</p>
+  `);
+
+  const text = `Your Stacked Bench verification code is: ${code}
+
+This code expires in ${expiresMinutes} minutes. If you didn't try to sign in, you can ignore this email.
+`;
+
+  return { subject, html, text };
+}

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getSessionForRequest } from "./server";
 import { sql } from "@/lib/db";
+import { markSessionVerified, readTrustedDeviceToken } from "@/lib/mfa";
 import {
   getUserRoles,
   getSeasonAncestry,
@@ -49,11 +50,76 @@ export async function isUserInactive(userId: string): Promise<boolean> {
   }
 }
 
+// Positive-only MFA cache: session ids known to NOT need verification right
+// now (user has MFA off, or this session/device already verified). Never
+// cache "needs MFA" — verification may complete on another serverless
+// instance and must take effect on the next request here.
+const mfaOkCache = new Map<string, number>(); // sessionId -> cache expiry (ms epoch)
+const MFA_CACHE_TTL_MS = 60_000; // 60 seconds
+const MFA_CACHE_MAX = 5000;
+
+function cacheMfaOk(sessionId: string): void {
+  if (mfaOkCache.size > MFA_CACHE_MAX) mfaOkCache.clear();
+  mfaOkCache.set(sessionId, Date.now() + MFA_CACHE_TTL_MS);
+}
+
 /**
- * Require an authenticated session. Returns the session or sends 401 and returns null.
- * If approval mode is enabled, also rejects users with inactive status.
+ * Does this session still owe a second factor? True only when the user has
+ * MFA enabled AND the session hasn't verified AND no valid trusted-device
+ * cookie is present. A trusted-device hit is promoted to a verified session
+ * so subsequent checks skip the device join.
  */
-export async function requireSession(
+export async function needsMfaVerification(
+  req: NextApiRequest,
+  session: Session
+): Promise<boolean> {
+  const sessionId = session.session?.id;
+  if (!sessionId) return false; // no stable session id — fail open
+
+  const cachedUntil = mfaOkCache.get(sessionId);
+  if (cachedUntil && Date.now() < cachedUntil) return false;
+
+  try {
+    const deviceToken = readTrustedDeviceToken(req);
+    const rows = await sql`
+      SELECT up.mfa_enabled,
+             (vs.session_id IS NOT NULL) AS session_verified,
+             td.id AS trusted_device_id
+      FROM user_profiles up
+      LEFT JOIN mfa_verified_sessions vs
+        ON vs.session_id = ${sessionId} AND vs.expires_at > NOW()
+      LEFT JOIN mfa_trusted_devices td
+        ON td.user_id = up.user_id
+       AND td.token = ${deviceToken ?? ""}
+       AND td.revoked_at IS NULL
+       AND td.expires_at > NOW()
+      WHERE up.user_id = ${session.user.id}
+    `;
+    const row = rows[0];
+    if (!row || !row.mfa_enabled || row.session_verified) {
+      cacheMfaOk(sessionId);
+      return false;
+    }
+    if (row.trusted_device_id) {
+      await markSessionVerified(sessionId, session.user.id, session.session.expiresAt);
+      await sql`UPDATE mfa_trusted_devices SET last_used_at = NOW() WHERE id = ${row.trusted_device_id}`;
+      cacheMfaOk(sessionId);
+      return false;
+    }
+    return true;
+  } catch {
+    // If the tables don't exist yet, treat as verified (fail open — matches
+    // the isApprovalRequired/isUserInactive posture).
+    return false;
+  }
+}
+
+/**
+ * Like requireSession but does NOT gate on MFA. Only for the MFA endpoints
+ * themselves (/api/mfa/status|challenge|verify), which an MFA-pending session
+ * must be able to reach to complete verification.
+ */
+export async function requireSessionAllowMfaPending(
   req: NextApiRequest,
   res: NextApiResponse
 ): Promise<Session | null> {
@@ -66,6 +132,27 @@ export async function requireSession(
   const approvalEnabled = await isApprovalRequired();
   if (approvalEnabled && await isUserInactive(session.user.id)) {
     res.status(401).json({ error: "Account pending approval" });
+    return null;
+  }
+
+  return session;
+}
+
+/**
+ * Require an authenticated session. Returns the session or sends 401 and returns null.
+ * If approval mode is enabled, also rejects users with inactive status.
+ * If the user opted into MFA, also rejects sessions that haven't completed
+ * the second factor (401 with code "mfa_required").
+ */
+export async function requireSession(
+  req: NextApiRequest,
+  res: NextApiResponse
+): Promise<Session | null> {
+  const session = await requireSessionAllowMfaPending(req, res);
+  if (!session) return null;
+
+  if (await needsMfaVerification(req, session)) {
+    res.status(401).json({ error: "MFA required", code: "mfa_required" });
     return null;
   }
 

@@ -112,6 +112,13 @@ export default function Header() {
                   Admin
                 </Link>
               )}
+              <Link
+                href="/account"
+                className="text-[11px] tracking-[0.08em] uppercase text-muted-foreground hover:text-primary transition-colors duration-100"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                Account
+              </Link>
               <button
                 type="button"
                 onClick={async () => { await authClient.signOut(); window.location.href = "/"; }}
@@ -220,11 +227,21 @@ export default function Header() {
                 );
               })}
 
+              {user && (
+                <Link
+                  href="/account"
+                  onClick={() => setMenuOpen(false)}
+                  className="flex items-center px-5 py-3 text-sm font-medium tracking-[0.06em] uppercase text-muted-foreground hover:text-foreground hover:bg-elevated border-t border-border mt-2"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Account
+                </Link>
+              )}
               {isAdmin && (
                 <Link
                   href="/admin"
                   onClick={() => setMenuOpen(false)}
-                  className="flex items-center px-5 py-3 text-sm font-medium tracking-[0.06em] uppercase text-muted-foreground hover:text-foreground hover:bg-elevated border-t border-border mt-2"
+                  className="flex items-center px-5 py-3 text-sm font-medium tracking-[0.06em] uppercase text-muted-foreground hover:text-foreground hover:bg-elevated"
                   style={{ fontFamily: "var(--font-body)" }}
                 >
                   Admin

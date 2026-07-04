@@ -24,6 +24,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     setQuote(QUOTES[Math.floor(Math.random() * QUOTES.length)]);
+    // Clear any leftover login-in-progress flag from a previous attempt
+    // (mirrors the signup-in-progress handling on /sign-up).
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("login-in-progress");
+    }
   }, []);
 
   const registered = router.query.registered === "1";
@@ -32,6 +37,13 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    // Tell AuthGate not to redirect us away from /login the instant the
+    // session cookie is set — the MFA-status check below has to finish
+    // deciding between the callback and /mfa/verify first.
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("login-in-progress", "1");
+    }
 
     // Attempt sign-in. The auth client may throw or report an error even
     // when the server-side sign-in succeeds (cookie gets set), so we
@@ -55,12 +67,32 @@ export default function LoginPage() {
           !router.query.callbackUrl.startsWith("//")
             ? router.query.callbackUrl
             : null;
+
+        // Second factor: users who opted into MFA verify a code first.
+        // On any status-check failure, proceed — the API layer still
+        // enforces the gate (401 mfa_required) so this is UX-only.
+        try {
+          const statusRes = await fetch("/api/mfa/status", { credentials: "include" });
+          if (statusRes.ok) {
+            const status = await statusRes.json();
+            if (status.verificationRequired) {
+              window.location.href = `/mfa/verify?callbackUrl=${encodeURIComponent(callback ?? "/")}`;
+              return;
+            }
+          }
+        } catch { /* proceed without the MFA redirect */ }
+
+        window.sessionStorage.removeItem("login-in-progress");
         window.location.href = callback ?? "/";
         return;
       }
     } catch { /* fall through to show error */ }
 
-    // Genuinely failed — no session exists
+    // Genuinely failed — no session exists. Clear the in-progress flag so a
+    // later navigation doesn't see a stale flag.
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("login-in-progress");
+    }
     setError(clientError ?? "Invalid email or password");
     setLoading(false);
   };

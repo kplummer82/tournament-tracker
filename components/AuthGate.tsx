@@ -10,9 +10,10 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { data: session, isPending } = authClient.useSession();
   const [userPending, setUserPending] = useState<boolean | null>(null);
+  const [mfaRequired, setMfaRequired] = useState<boolean | null>(null);
   const redirectingRef = useRef(false);
 
-  // Fetch per-user pending status whenever session changes (login/signup)
+  // Fetch per-user pending + MFA status whenever session changes (login/signup)
   const userId = session?.user?.id;
   useEffect(() => {
     if (isPending) return; // wait for session to resolve
@@ -20,6 +21,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
       .then((r) => r.json())
       .then((d) => setUserPending(d.userPending ?? false))
       .catch(() => setUserPending(false));
+    if (!userId) {
+      setMfaRequired(false);
+      return;
+    }
+    fetch("/api/mfa/status", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : { verificationRequired: false }))
+      .then((d) => setMfaRequired(d.verificationRequired ?? false))
+      .catch(() => setMfaRequired(false));
   }, [userId, isPending]);
 
   // Reset redirect guard when route changes
@@ -46,11 +55,17 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     const signupInProgress =
       typeof window !== "undefined" &&
       window.sessionStorage.getItem("signup-in-progress") === "1";
+    // Same race on /login: its handler decides between the callback and
+    // /mfa/verify after the session cookie lands.
+    const loginInProgress =
+      typeof window !== "undefined" &&
+      window.sessionStorage.getItem("login-in-progress") === "1";
     if (
       !isPending &&
       session?.user &&
       !redirectingRef.current &&
-      !signupInProgress
+      !signupInProgress &&
+      !loginInProgress
     ) {
       redirectingRef.current = true;
       router.replace("/");
@@ -60,7 +75,7 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   }
 
   // --- Loading state ---
-  if (isPending || userPending === null) {
+  if (isPending || userPending === null || mfaRequired === null) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full" />
@@ -80,6 +95,16 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // --- Approval mode: pending users ---
   if (userPending) {
     return <PendingApprovalScreen />;
+  }
+
+  // --- MFA: sessions that still owe a second factor ---
+  // Covers deep links and stale tabs; the API layer enforces regardless.
+  if (mfaRequired && router.pathname !== "/mfa/verify") {
+    if (!redirectingRef.current) {
+      redirectingRef.current = true;
+      router.replace(`/mfa/verify?callbackUrl=${encodeURIComponent(router.asPath)}`);
+    }
+    return null;
   }
 
   // --- Authenticated & approved ---

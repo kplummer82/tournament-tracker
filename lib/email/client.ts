@@ -3,9 +3,10 @@ import { Resend } from "resend";
 /**
  * Centralized transactional email sending via Resend.
  *
- * This is the app-side send path (invites, notifications). Auth emails
- * (verification, password reset, 2FA/OTP) are sent by Neon Auth through its
- * own Custom SMTP config — they do NOT go through this module.
+ * This is the app-side send path (invites, notifications, MFA codes). Neon
+ * Auth's own emails (verification, password reset) are sent through its
+ * Custom SMTP config and do NOT go through this module — but the app-layer
+ * MFA codes (lib/mfa.ts) DO, since Neon Auth has no MFA support yet.
  *
  * Emails send from the verified `send.stackedbench.com` subdomain so the
  * root domain stays free for a future mailbox host (MS365/Google/Zoho).
