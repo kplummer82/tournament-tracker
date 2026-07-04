@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
-import { verifyAddress } from "@/lib/usps";
 import { geocodeAddress } from "@/lib/mapbox/geocodeAddress";
 
 function parseLocationId(req: NextApiRequest): number | null {
@@ -19,7 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const rows = await sql`
         SELECT
           l.id, l.name, l.address, l.city, l.state, l.zip,
-          l.latitude, l.longitude, l.usps_verified,
+          l.latitude, l.longitude,
           to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
         FROM locations l
         WHERE l.id = ${locationId}
@@ -51,29 +50,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
       let finalLng: number | null =
         typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
-      let uspsVerified = false;
-
-      // Re-verify via USPS if enabled and address fields are provided
-      const uspsRows = await sql`SELECT value FROM app_settings WHERE key = 'usps_enabled'`;
-      const uspsEnabled = !uspsRows.length || uspsRows[0].value !== "false";
-
-      if (uspsEnabled && finalAddress && finalCity && finalState && finalZip) {
-        const result = await verifyAddress({
-          address: finalAddress,
-          city: finalCity,
-          state: finalState,
-          zip: finalZip,
-        });
-        if (result.verified) {
-          finalAddress = result.address;
-          finalCity = result.city;
-          finalState = result.state;
-          finalZip = result.zip;
-          uspsVerified = true;
-        }
-      } else if (!uspsEnabled) {
-        console.info("[locations] USPS disabled — skipping verification");
-      }
 
       // Re-geocode on every save (per product decision). Overwrites caller-supplied
       // lat/lng only if Mapbox returns a result; falls back to existing values otherwise.
@@ -106,10 +82,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           state     = COALESCE(${finalState}, state),
           zip       = COALESCE(${finalZip}, zip),
           latitude  = COALESCE(${finalLat}, latitude),
-          longitude = COALESCE(${finalLng}, longitude),
-          usps_verified = ${uspsVerified}
+          longitude = COALESCE(${finalLng}, longitude)
         WHERE id = ${locationId}
-        RETURNING id, name, address, city, state, zip, latitude, longitude, usps_verified,
+        RETURNING id, name, address, city, state, zip, latitude, longitude,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       if (!rows.length) return res.status(404).json({ error: "Not found" });

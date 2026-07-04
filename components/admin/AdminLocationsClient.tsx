@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { AlertTriangle, ChevronDown, ChevronRight, Download, MapPin, Pencil, Plus, Trash2, Upload, X, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Download, MapPin, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AddressFields } from "./AddressAutofillInput";
 import type { PlaceSearchResult } from "./MapboxPlaceSearch";
 import BulkImportLocationsModal from "./BulkImportLocationsModal";
+import ViewToggle, { type ScrimmageView } from "@/components/scrimmages/ViewToggle";
+
+const LocationsMap = dynamic(() => import("./LocationsMap"), { ssr: false });
 
 const AddressAutofillInput = dynamic(
   () => import("./AddressAutofillInput"),
@@ -36,7 +39,6 @@ type Location = {
   field_count: number;
   created_at: string;
   fields?: Field[];
-  usps_verified?: boolean;
 };
 
 const INPUT =
@@ -111,6 +113,12 @@ export default function AdminLocationsClient() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
 
+  // List / map view. The map needs every location (the list is paginated),
+  // so it fetches the full set separately, refreshed on each switch to map.
+  const [view, setView] = useState<ScrimmageView>("list");
+  const [allLocations, setAllLocations] = useState<Location[]>([]);
+  const [allLoading, setAllLoading] = useState(false);
+
   // A just-created location, kept pinned to the top of the list (across refetches
   // on the default page-1/no-search view) so the admin can add fields immediately.
   const [pinnedLocation, setPinnedLocation] = useState<Location | null>(null);
@@ -180,6 +188,38 @@ export default function AdminLocationsClient() {
       .catch(() => { /* default false */ });
   }, []);
 
+  // Load the full (unpaginated) list whenever the map view is opened, so
+  // edits made in list view are reflected without extra bookkeeping.
+  useEffect(() => {
+    if (view !== "map") return;
+    let cancelled = false;
+    setAllLoading(true);
+    fetch("/api/locations")
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled) setAllLocations(d.rows ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setAllLocations([]);
+      })
+      .finally(() => {
+        if (!cancelled) setAllLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [view]);
+
+  // Map view applies the search filter client-side, mirroring the server's
+  // name/city/state matching.
+  const mapLocations = useMemo(() => {
+    if (!q) return allLocations;
+    const needle = q.toLowerCase();
+    return allLocations.filter((l) =>
+      [l.name, l.city, l.state].some((v) => v?.toLowerCase().includes(needle))
+    );
+  }, [allLocations, q]);
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Load fields when expanding a location
@@ -237,6 +277,10 @@ export default function AdminLocationsClient() {
       setQ("");
       setPage(1);
       setLocations((prev) => [
+        newLoc,
+        ...prev.filter((l) => l.id !== newLoc.id),
+      ]);
+      setAllLocations((prev) => [
         newLoc,
         ...prev.filter((l) => l.id !== newLoc.id),
       ]);
@@ -308,7 +352,6 @@ export default function AdminLocationsClient() {
                   city: json.city,
                   state: json.state,
                   zip: json.zip,
-                  usps_verified: json.usps_verified,
                 }
               : l
           )
@@ -546,7 +589,7 @@ export default function AdminLocationsClient() {
         </div>
       </form>
 
-      {/* Search + result count */}
+      {/* Search + result count + view toggle */}
       <div className="flex items-center gap-3">
         <input
           className={cn(INPUT, "flex-1")}
@@ -558,12 +601,25 @@ export default function AdminLocationsClient() {
           className="text-xs text-muted-foreground tabular-nums shrink-0"
           style={{ fontFamily: "var(--font-body)" }}
         >
-          {loading ? "…" : `${total} location${total === 1 ? "" : "s"}`}
+          {view === "map"
+            ? allLoading
+              ? "…"
+              : `${mapLocations.length} location${mapLocations.length === 1 ? "" : "s"}`
+            : loading
+              ? "…"
+              : `${total} location${total === 1 ? "" : "s"}`}
         </span>
+        {mapboxEnabled && <ViewToggle value={view} onChange={setView} />}
       </div>
 
-      {/* List */}
-      {loading ? (
+      {/* Map — gated on the Mapbox master switch like all other Mapbox calls */}
+      {view === "map" && mapboxEnabled ? (
+        allLoading ? (
+          <div className="h-[500px] bg-elevated animate-pulse" />
+        ) : (
+          <LocationsMap locations={mapLocations} />
+        )
+      ) : /* List */ loading ? (
         <div className="space-y-2">
           {Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="h-16 bg-elevated animate-pulse" />
@@ -685,16 +741,6 @@ export default function AdminLocationsClient() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm">{loc.name}</span>
-                          {loc.usps_verified && (
-                            <span
-                              className="inline-flex items-center gap-0.5 text-[10px] font-bold tracking-widest border border-green-600/30 bg-green-600/10 text-green-600 px-1.5 py-0.5"
-                              style={{ fontFamily: "var(--font-body)" }}
-                              title="Address verified by USPS"
-                            >
-                              <CheckCircle2 className="h-3 w-3" />
-                              USPS
-                            </span>
-                          )}
                           <span
                             className="text-xs text-muted-foreground"
                             style={{ fontFamily: "var(--font-body)" }}
@@ -877,8 +923,8 @@ export default function AdminLocationsClient() {
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
+      {/* Pagination — list view only */}
+      {view === "list" && totalPages > 1 && (
         <div className="flex items-center justify-between pt-2">
           <button
             type="button"

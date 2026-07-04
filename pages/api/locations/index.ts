@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
-import { verifyAddress } from "@/lib/usps";
 import { geocodeAddress } from "@/lib/mapbox/geocodeAddress";
 
 const toInt = (v: any, fallback: number) => {
@@ -50,7 +49,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `
           SELECT
             l.id, l.name, l.address, l.city, l.state, l.zip,
-            l.latitude, l.longitude, l.usps_verified,
+            l.latitude, l.longitude,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM location_fields lf WHERE lf.location_id = l.id) AS field_count
           FROM locations l
@@ -65,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           `
           SELECT
             l.id, l.name, l.address, l.city, l.state, l.zip,
-            l.latitude, l.longitude, l.usps_verified,
+            l.latitude, l.longitude,
             to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             (SELECT COUNT(*)::int FROM location_fields lf WHERE lf.location_id = l.id) AS field_count
           FROM locations l
@@ -124,33 +123,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
       let finalLng: number | null =
         typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
-      let uspsVerified = false;
-
-      // Verify address via USPS if enabled and address fields are provided
-      const uspsRows = await sql`SELECT value FROM app_settings WHERE key = 'usps_enabled'`;
-      const uspsEnabled = !uspsRows.length || uspsRows[0].value !== "false";
-
-      if (uspsEnabled && finalAddress && finalCity && finalState && finalZip) {
-        const result = await verifyAddress({
-          address: finalAddress,
-          city: finalCity,
-          state: finalState,
-          zip: finalZip,
-        });
-        if (result.verified) {
-          finalAddress = result.address;
-          finalCity = result.city;
-          finalState = result.state;
-          finalZip = result.zip;
-          uspsVerified = true;
-        } else {
-          console.warn("[locations] USPS verification failed:", result.error, { address: finalAddress, city: finalCity, state: finalState, zip: finalZip });
-        }
-      } else if (!uspsEnabled) {
-        console.info("[locations] USPS disabled — skipping verification");
-      } else {
-        console.warn("[locations] USPS skipped — missing fields:", { address: finalAddress, city: finalCity, state: finalState, zip: finalZip });
-      }
 
       // Re-geocode on every save. Only overrides client-supplied coords if Mapbox returns a hit.
       const geocoded = await geocodeAddress({
@@ -166,9 +138,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const inserted = await sql`
-        INSERT INTO locations (name, address, city, state, zip, latitude, longitude, usps_verified)
-        VALUES (${name.trim()}, ${finalAddress}, ${finalCity}, ${finalState}, ${finalZip}, ${finalLat}, ${finalLng}, ${uspsVerified})
-        RETURNING id, name, address, city, state, zip, latitude, longitude, usps_verified,
+        INSERT INTO locations (name, address, city, state, zip, latitude, longitude)
+        VALUES (${name.trim()}, ${finalAddress}, ${finalCity}, ${finalState}, ${finalZip}, ${finalLat}, ${finalLng})
+        RETURNING id, name, address, city, state, zip, latitude, longitude,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
 

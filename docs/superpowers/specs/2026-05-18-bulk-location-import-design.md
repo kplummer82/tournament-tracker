@@ -4,6 +4,12 @@
 **Owner:** Kellan
 **Status:** Draft for review
 
+> **Update (2026-07-04):** USPS address verification was removed from the app
+> (the USPS API was being retired/monetized and the app doesn't mail anything;
+> addresses come from Mapbox typeahead). References to `lib/usps.ts`, the USPS
+> verify step, and the "USPS badge" below are historical — the current import
+> flow is **Mapbox geocode → INSERT** only. See `database/migration_drop_usps_verified.sql`.
+
 ## Context
 
 The `locations` and `location_fields` tables are currently populated one row at a time through the `/admin/locations` UI. To seed the database with real baseball/softball venues across CA/AZ/OR/NV (and to make future bulk additions easy for league commissioners), we need a CSV-based bulk import feature.

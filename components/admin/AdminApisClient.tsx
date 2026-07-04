@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
-type ApiKey = "mapbox_enabled" | "usps_enabled" | "itunes_enabled";
+type ApiKey = "mapbox_enabled" | "itunes_enabled";
 
 const DEFAULTS: Record<ApiKey, boolean> = {
   mapbox_enabled: false,
-  usps_enabled: true,
   itunes_enabled: true,
 };
 
@@ -20,14 +19,6 @@ const API_CONFIG: { key: ApiKey; title: string; description: string }[] = [
       "and any future Mapbox integrations. Keep this off in DEV/LDQA unless actively " +
       "testing a Mapbox feature. Use it in production as an emergency kill switch if " +
       "Mapbox causes problems.",
-  },
-  {
-    key: "usps_enabled",
-    title: "USPS",
-    description:
-      "Controls address verification via the USPS Address Validation API. When disabled, " +
-      "locations are saved with addresses exactly as entered and will not receive the " +
-      "USPS-verified badge. All other location functionality is unaffected.",
   },
   {
     key: "itunes_enabled",
@@ -61,7 +52,6 @@ export default function AdminApisClient() {
         const s = data?.settings ?? {};
         const loaded: Record<ApiKey, boolean> = {
           mapbox_enabled: s.mapbox_enabled === true,
-          usps_enabled: s.usps_enabled !== false,
           itunes_enabled: s.itunes_enabled !== false,
         };
         setSettings(loaded);

@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS locations (
   zip             TEXT,
   latitude        NUMERIC(10,7),
   longitude       NUMERIC(10,7),
-  usps_verified   BOOLEAN NOT NULL DEFAULT false,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

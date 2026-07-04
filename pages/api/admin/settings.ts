@@ -2,14 +2,13 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
 
-const SETTINGS_KEYS = ["max_simulations", "require_user_approval", "mapbox_enabled", "usps_enabled", "itunes_enabled"] as const;
+const SETTINGS_KEYS = ["max_simulations", "require_user_approval", "mapbox_enabled", "itunes_enabled"] as const;
 type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 const DEFAULTS: Record<SettingsKey, string> = {
   max_simulations: "10000",
   require_user_approval: "false",
   mapbox_enabled: "false",
-  usps_enabled: "true",
   itunes_enabled: "true",
 };
 
@@ -33,7 +32,6 @@ async function readAll() {
     max_simulations: parseInt(await getSetting("max_simulations"), 10),
     require_user_approval: (await getSetting("require_user_approval")) === "true",
     mapbox_enabled: (await getSetting("mapbox_enabled")) === "true",
-    usps_enabled: (await getSetting("usps_enabled")) !== "false",
     itunes_enabled: (await getSetting("itunes_enabled")) !== "false",
   };
 }
@@ -64,7 +62,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       if (body.require_user_approval !== undefined) await upsertBool("require_user_approval", body.require_user_approval);
       if (body.mapbox_enabled !== undefined)        await upsertBool("mapbox_enabled", body.mapbox_enabled);
-      if (body.usps_enabled !== undefined)          await upsertBool("usps_enabled", body.usps_enabled);
       if (body.itunes_enabled !== undefined)        await upsertBool("itunes_enabled", body.itunes_enabled);
 
       return res.status(200).json({ settings: await readAll() });
