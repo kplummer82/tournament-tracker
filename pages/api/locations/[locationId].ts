@@ -42,10 +42,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const { name, address, city, state, zip, latitude, longitude } = req.body ?? {};
 
-      let finalAddress = address?.trim() ?? null;
-      let finalCity = city?.trim() ?? null;
-      let finalState = state?.trim() ?? null;
-      let finalZip = zip?.trim() ?? null;
+      const finalAddress = address?.trim() ?? null;
+      const finalCity = city?.trim() ?? null;
+      const finalState = state?.trim() ?? null;
+      const finalZip = zip?.trim() ?? null;
       let finalLat: number | null =
         typeof latitude === "number" ? latitude : (parseFloat(latitude) || null);
       let finalLng: number | null =
