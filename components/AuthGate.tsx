@@ -4,7 +4,11 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/router";
 import { authClient } from "@/lib/auth/client";
 
-const PUBLIC_PAGES = new Set(["/login", "/sign-up"]);
+// Auth pages bounce already-signed-in users away (to "/").
+const AUTH_PAGES = new Set(["/login", "/sign-up"]);
+// Public marketing/training pages render for everyone, signed in or out.
+const PUBLIC_PAGES = new Set(["/", "/learn"]);
+const PUBLIC_PAGE_PREFIXES = ["/learn/"];
 
 export default function AuthGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -45,8 +49,30 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
   }
 
-  // --- Public pages ---
-  if (PUBLIC_PAGES.has(router.pathname)) {
+  // --- Public marketing/training pages ---
+  // Signed-out visitors (and static generation, where the session is pending)
+  // get the content immediately — no spinner, so SSG emits real HTML.
+  // Signed-in users keep the pending-approval and MFA treatments; a brief
+  // content flash while those statuses resolve is acceptable because the API
+  // layer enforces both regardless.
+  if (
+    PUBLIC_PAGES.has(router.pathname) ||
+    PUBLIC_PAGE_PREFIXES.some((p) => router.pathname.startsWith(p))
+  ) {
+    if (isPending || !session?.user) return <>{children}</>;
+    if (userPending) return <PendingApprovalScreen />;
+    if (mfaRequired && router.pathname !== "/mfa/verify") {
+      if (!redirectingRef.current) {
+        redirectingRef.current = true;
+        router.replace(`/mfa/verify?callbackUrl=${encodeURIComponent(router.asPath)}`);
+      }
+      return null;
+    }
+    return <>{children}</>;
+  }
+
+  // --- Auth pages (login / sign-up) ---
+  if (AUTH_PAGES.has(router.pathname)) {
     // Redirect logged-in users away from login/sign-up — but NOT when a
     // signup is mid-flight, because the sign-up page's own handler does
     // post-signup routing (intent write, status read, persona-specific

@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PAGES = new Set(["/login", "/sign-up"]);
+// "/" is the public marketing landing; /learn is the public guide library.
+const PUBLIC_PAGES = new Set(["/login", "/sign-up", "/", "/learn"]);
 // Pages reachable while logged out (prefix match — covers dynamic routes).
 // /invite/<token> is the invite landing page; it must work pre-login.
-const PUBLIC_PAGE_PREFIXES = ["/invite/"];
+// /learn/<slug> are public training guides.
+const PUBLIC_PAGE_PREFIXES = ["/invite/", "/learn/"];
 // /api/invites/peek is a pre-login token lookup (no secrets beyond the invite
 // the recipient already holds). The other /api/invites/* routes stay gated.
 const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/invites/peek"];

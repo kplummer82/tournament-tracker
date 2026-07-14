@@ -1,4 +1,5 @@
 import Header from "@/components/Header";
+import Head from "next/head";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
 import { useEffect, useState } from "react";
@@ -34,6 +35,13 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen flex flex-col">
+      <Head>
+        <title>Stacked Bench — Youth Sports Management</title>
+        <meta
+          name="description"
+          content="Season schedules, live standings, tiebreaker rules, and bracket play for youth sports leagues and tournaments — all in one place."
+        />
+      </Head>
       <Header />
 
       {/* ── Hero ──────────────────────────────────────────── */}
@@ -72,6 +80,24 @@ export default function HomePage() {
           >
             Season schedules, live standings, tiebreaker rules, and bracket play — all in one place.
           </p>
+          {!user && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <Link
+                href="/sign-up"
+                className="bg-primary text-primary-foreground px-6 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase hover:opacity-90 transition-opacity duration-100"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                Get started
+              </Link>
+              <Link
+                href="/learn"
+                className="px-6 py-2.5 text-[11px] font-semibold tracking-[0.1em] uppercase border border-border text-foreground hover:border-primary hover:text-primary transition-colors duration-100"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                Browse the guides
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 

@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: "/teams",          label: "Teams",           key: "teams" },
   { href: "/scrimmages",     label: "Scrimmages",      key: "scrimmages" },
   { href: "/bracket-builder",label: "Bracket Builder", key: "bracket-builder" },
+  { href: "/learn",          label: "Learn",           key: "learn" },
 ] as const;
 
 function UserSquare({ name, email }: { name?: string | null; email?: string | null }) {
@@ -46,6 +47,7 @@ export default function Header() {
     pathname.startsWith("/teams")           ? "teams" :
     pathname.startsWith("/scrimmages")     ? "scrimmages" :
     pathname.startsWith("/bracket-builder") ? "bracket-builder" :
+    pathname.startsWith("/learn")           ? "learn" :
     "home";
 
   return (

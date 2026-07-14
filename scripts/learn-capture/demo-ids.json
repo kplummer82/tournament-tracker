@@ -1,0 +1,29 @@
+{
+  "leagueId": 4,
+  "divisionId": 6,
+  "seasonId": 6,
+  "teamIds": {
+    "Thunderhawks": 112,
+    "River Otters": 113,
+    "Mudcats": 114,
+    "Night Owls": 115,
+    "Sandsharks": 116,
+    "Yetis": 117
+  },
+  "rosterIds": {
+    "2": 40,
+    "4": 41,
+    "5": 42,
+    "7": 43,
+    "9": 44,
+    "11": 45,
+    "13": 46,
+    "21": 47,
+    "23": 48,
+    "27": 49,
+    "42": 50,
+    "44": 51
+  },
+  "demoGameId": 781,
+  "hawks": 112
+}

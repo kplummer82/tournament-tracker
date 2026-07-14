@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stacked Bench — Defensive Lineup Guide</title>
+<style>
+  @font-face {
+    font-family: "Barlow Condensed";
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+    src: url({{FONT:barlow-600.woff2}}) format("woff2");
+  }
+  @font-face {
+    font-family: "Barlow Condensed";
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+    src: url({{FONT:barlow-700.woff2}}) format("woff2");
+  }
+  @font-face {
+    font-family: "DM Sans";
+    font-weight: 100 1000;
+    font-style: normal;
+    font-display: swap;
+    src: url({{FONT:dmsans-var.woff2}}) format("woff2");
+  }
+
+  :root {
+    --ink:    #070708;
+    --panel:  #121214;
+    --card:   #1a1a1d;
+    --line:   #2c2c31;
+    --text:   #f4f1ec;
+    --muted:  #a29c93;
+    --orange: #ff4b00;
+    --yellow: #ffe500;
+    --amber:  #ffa500;
+    --red:    #f0442c;
+    --green:  #34d27b;
+    --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+    --body: "DM Sans", "Segoe UI", sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--ink);
+    font-family: var(--body);
+    color: var(--text);
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  /* ── Slide frame ──────────────────────────────────────────── */
+  .deck { display: flex; flex-direction: column; align-items: center; gap: 28px; padding: 28px 0; }
+
+  .slide {
+    width: 1280px;
+    height: 720px;
+    background:
+      radial-gradient(1100px 500px at 85% -10%, rgba(255, 75, 0, 0.05), transparent 60%),
+      var(--panel);
+    border: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    padding: 52px 64px 0;
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .foot {
+    margin-top: auto;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--line);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .foot .num {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0;
+    color: #0c0c0c;
+    background: var(--orange);
+    min-width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+  }
+
+  .eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--orange);
+    display: block;
+    margin-bottom: 10px;
+  }
+
+  h1, h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    text-transform: uppercase;
+    line-height: 0.95;
+  }
+  h2 { font-size: 46px; letter-spacing: 0.01em; }
+
+  /* the app's own tab strip, reused as a "you are here" device */
+  .tabstrip {
+    display: inline-flex;
+    border: 1px solid var(--line);
+    background: var(--card);
+    margin-bottom: 26px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .tabstrip span { padding: 7px 16px; }
+  .tabstrip .on { background: var(--orange); color: #0c0c0c; font-weight: 700; }
+
+  .cols { display: flex; gap: 44px; flex: 1; min-height: 0; align-items: flex-start; }
+  .notes { width: 336px; flex-shrink: 0; }
+  .notes h2 { margin-bottom: 18px; }
+  .notes p { color: var(--muted); font-size: 15px; margin-bottom: 14px; }
+  .notes p strong { color: var(--text); font-weight: 600; }
+
+  ul.diamond { list-style: none; margin-top: 4px; }
+  ul.diamond li {
+    position: relative;
+    padding-left: 22px;
+    margin-bottom: 12px;
+    font-size: 14.5px;
+    color: var(--text);
+  }
+  ul.diamond li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 7px;
+    width: 7px;
+    height: 7px;
+    background: var(--orange);
+    transform: rotate(45deg);
+  }
+  ul.diamond li span { color: var(--muted); }
+
+  /* screenshot frame */
+  .shot {
+    flex: 1;
+    min-width: 0;
+    border: 1px solid var(--line);
+    background: #0c0c0c;
+    align-self: center;
+  }
+  .shot .bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .shot .bar i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+  .shot .bar em {
+    font-style: normal;
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-left: 8px;
+    letter-spacing: 0.04em;
+  }
+  .shot img { width: 100%; display: block; }
+  .shot.portrait { flex: 0 0 auto; width: 380px; }
+
+  .callout {
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--yellow);
+    background: var(--card);
+    padding: 12px 16px;
+    font-size: 13.5px;
+    color: var(--muted);
+    margin-top: 18px;
+  }
+  .callout strong { color: var(--text); }
+
+  /* ── Title slide ──────────────────────────────────────────── */
+  .title-slide { justify-content: center; padding-top: 0; }
+  .title-slide .foot { position: absolute; bottom: 0; left: 64px; right: 64px; }
+  .wordmark {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 20px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 46px;
+  }
+  .wordmark b { color: var(--orange); }
+  .title-slide h1 { font-size: 128px; max-width: 900px; }
+  .title-slide h1 em { font-style: normal; color: var(--orange); }
+  .title-sub {
+    margin-top: 26px;
+    font-size: 19px;
+    color: var(--muted);
+    max-width: 620px;
+  }
+  .title-meta {
+    margin-top: 40px;
+    display: flex;
+    gap: 12px;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .title-meta span { border: 1px solid var(--line); padding: 6px 12px; }
+  .field-svg {
+    position: absolute;
+    right: -130px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.85;
+  }
+
+  /* ── Sequence slide ───────────────────────────────────────── */
+  .steps { display: flex; gap: 20px; flex: 1; align-items: stretch; padding-bottom: 44px; margin-top: 10px; }
+  .step {
+    flex: 1;
+    border: 1px solid var(--line);
+    background: var(--card);
+    padding: 24px 22px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+  }
+  .step .k {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 46px;
+    color: var(--orange);
+    line-height: 1;
+    margin-bottom: 14px;
+  }
+  .step h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+  .step p { font-size: 13.5px; color: var(--muted); }
+  .step .where {
+    margin-top: auto;
+    padding-top: 14px;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .step .where b { color: var(--yellow); font-weight: 600; }
+  .step::after {
+    content: "";
+    position: absolute;
+    right: -14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-top: 1.5px solid var(--orange);
+    border-right: 1.5px solid var(--orange);
+    transform: translateY(-50%) rotate(45deg);
+    z-index: 1;
+  }
+  .step:last-child::after { display: none; }
+
+  /* ── Rules slide ──────────────────────────────────────────── */
+  .rulecards { display: flex; gap: 24px; margin-top: 20px; flex: 1; }
+  .rulecard {
+    flex: 1;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--amber);
+    background: var(--card);
+    padding: 30px 34px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .rulecard h3 {
+    font-family: var(--display);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 34px;
+    margin-bottom: 4px;
+  }
+  .rulecard .law {
+    font-size: 19px;
+    color: var(--text);
+    margin: 10px 0 14px;
+  }
+  .rulecard .law b { color: var(--amber); font-weight: 600; }
+  .rulecard p { font-size: 14px; color: var(--muted); }
+  .rules-meta { display: flex; gap: 20px; margin-top: 24px; padding-bottom: 28px; }
+  .rules-meta div { flex: 1; border-left: 2px solid var(--line); padding-left: 14px; font-size: 13px; color: var(--muted); }
+  .rules-meta b { display: block; color: var(--text); font-size: 13.5px; font-weight: 600; margin-bottom: 2px; }
+
+  /* ── Facts / closing slide ────────────────────────────────── */
+  .facts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-top: 8px; }
+  .fact { border: 1px solid var(--line); background: var(--card); padding: 20px; }
+  .fact b {
+    display: block;
+    font-family: var(--display);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 19px;
+    margin-bottom: 6px;
+  }
+  .fact p { font-size: 13px; color: var(--muted); }
+  .fact code {
+    font-family: Consolas, monospace;
+    font-size: 12px;
+    color: var(--yellow);
+    background: #0c0c0c;
+    padding: 1px 5px;
+  }
+  .next {
+    margin-top: 26px;
+    border: 1px dashed var(--line);
+    padding: 18px 22px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .next b { color: var(--text); }
+  .next .eyebrow { margin-bottom: 6px; color: var(--yellow); }
+  .signoff {
+    margin-top: auto;
+    padding-bottom: 34px;
+    font-family: var(--display);
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: 84px;
+    line-height: 1;
+  }
+  .signoff em { font-style: normal; color: var(--orange); }
+  .closing .foot { margin-top: 0; }
+
+  /* ── Screen navigation ────────────────────────────────────── */
+  @media screen {
+    html { scroll-snap-type: y mandatory; scroll-behavior: smooth; }
+    .slide { scroll-snap-align: center; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55); }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  }
+
+  /* ── Print / PDF ──────────────────────────────────────────── */
+  @page { size: 1280px 720px; margin: 0; }
+  @media print {
+    body { background: none; }
+    .deck { display: block; padding: 0; }
+    .slide { border: none; page-break-after: always; box-shadow: none; }
+    .slide:last-child { page-break-after: auto; }
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- 1 ▸ Title -->
+  <section class="slide title-slide">
+    <svg class="field-svg" width="620" height="620" viewBox="0 0 620 620" fill="none" aria-hidden="true">
+      <rect x="155" y="155" width="310" height="310" transform="rotate(45 310 310)" stroke="#2c2c31" stroke-width="1.5"/>
+      <rect x="225" y="225" width="170" height="170" transform="rotate(45 310 310)" stroke="#2c2c31" stroke-width="1"/>
+      <rect x="302" y="521" width="16" height="16" transform="rotate(45 310 529)" fill="#ff4b00"/>
+      <rect x="521" y="302" width="16" height="16" transform="rotate(45 529 310)" fill="#2c2c31"/>
+      <rect x="302" y="83"  width="16" height="16" transform="rotate(45 310 91)"  fill="#2c2c31"/>
+      <rect x="83"  y="302" width="16" height="16" transform="rotate(45 91 310)"  fill="#2c2c31"/>
+      <circle cx="310" cy="310" r="34" stroke="#3a3a40" stroke-width="1.5"/>
+    </svg>
+    <div class="wordmark">Stacked <b>Bench</b></div>
+    <h1>Defensive<br><em>Lineups</em></h1>
+    <p class="title-sub">Setting the defense, inning by inning — from roster position priorities to optional fairness rules. A field guide to every workflow.</p>
+    <div class="title-meta"><span>Feature guide</span><span>July 2026</span><span>stackedbench.com</span></div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">1</span></footer>
+  </section>
+
+  <!-- 2 ▸ One page per game -->
+  <section class="slide">
+    <div class="cols">
+      <div class="notes">
+        <span class="eyebrow">The game page</span>
+        <h2>One page,<br>every game</h2>
+        <p>Every game — <strong>season, tournament, or scrimmage</strong> — gets the same management page with the same tabs.</p>
+        <ul class="diamond">
+          <li><strong>Managing as</strong> sets which side you're running; <span>Switch flips to the other dugout.</span></li>
+          <li>The tab order <em>is</em> the workflow: <span>Confirmations → Batting Order → Defense.</span></li>
+          <li>Reports live at the end <span>for the post-game view.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/games/season/781 · Overview</em></div>
+        <img src="{{IMG:deck-11-overview.png}}" alt="Game page overview tab">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">2</span></footer>
+  </section>
+
+  <!-- 3 ▸ Workflow sequence -->
+  <section class="slide">
+    <span class="eyebrow">The workflow</span>
+    <h2 style="margin-bottom: 26px">Four moves, in order</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="k">1</div>
+        <h3>Set positions</h3>
+        <p>Mark each player's primary and secondary positions once, on the roster. The lineup tools read them everywhere.</p>
+        <div class="where">Where · <b>Team → Roster → Player</b></div>
+      </div>
+      <div class="step">
+        <div class="k">2</div>
+        <h3>Confirm players</h3>
+        <p>Track who's in for this game. Only confirmed players can be placed in a lineup.</p>
+        <div class="where">Where · <b>Game → Confirmations</b></div>
+      </div>
+      <div class="step">
+        <div class="k">3</div>
+        <h3>Batting order</h3>
+        <p>Auto-fill the confirmed list, then drag into the order you want.</p>
+        <div class="where">Where · <b>Game → Batting Order</b></div>
+      </div>
+      <div class="step">
+        <div class="k">4</div>
+        <h3>Build the defense</h3>
+        <p>Assign nine positions per inning. The bench fills itself, and optional fairness rules watch your back.</p>
+        <div class="where">Where · <b>Game → Defense</b></div>
+      </div>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">3</span></footer>
+  </section>
+
+  <!-- 4 ▸ Position priorities -->
+  <section class="slide">
+    <div class="cols">
+      <div class="notes">
+        <span class="eyebrow">Before the game · roster</span>
+        <h2>Position<br>priorities</h2>
+        <p>On each player's page, click a position tile once for <strong>primary (1°)</strong>, again for <strong>secondary (2°)</strong>, once more to clear.</p>
+        <ul class="diamond">
+          <li>Any mix works — <span>a utility kid can carry four primaries.</span></li>
+          <li>Priorities feed the lineup picker's sort order, <span>so the right names surface first at every position.</span></li>
+        </ul>
+        <div class="callout"><strong>Why it matters:</strong> this one-time setup is what makes building a defense fast on game day.</div>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/teams/112/roster/42 · Positions</em></div>
+        <img src="{{IMG:deck-02-positions.png}}" alt="Player position priority tiles">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">4</span></footer>
+  </section>
+
+  <!-- 5 ▸ Roster badges -->
+  <section class="slide">
+    <div class="cols">
+      <div class="notes">
+        <span class="eyebrow">Before the game · roster</span>
+        <h2>The whole bench, at a glance</h2>
+        <p>The roster list wears every player's positions as badges — <strong>solid for primary, outlined for secondary</strong>.</p>
+        <ul class="diamond">
+          <li>Spot coverage gaps before they bite <span>— who's your backup catcher?</span></li>
+          <li>Walk-up songs ride along too. <span>Priorities are for coaches; the songs are for the dugout.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/teams/112 · Roster</em></div>
+        <img src="{{IMG:deck-01-roster.png}}" alt="Roster with position badges">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">5</span></footer>
+  </section>
+
+  <!-- 6 ▸ Confirmations -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span class="on">Confirmations</span><span>Batting Order</span><span>Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>Confirm<br>who's playing</h2>
+        <p>Mark each player <strong style="color: var(--green)">confirmed</strong>, <strong style="color: var(--red)">declined</strong>, or leave them pending.</p>
+        <ul class="diamond">
+          <li>Confirmations gate both lineup tabs — <span>no ghosts in the batting order.</span></li>
+          <li>Only confirmed players appear in the defense picker <span>and in the bench math.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/games/season/781 · Confirmations</em></div>
+        <img src="{{IMG:deck-03-confirmations.png}}" alt="Confirmations tab">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">6</span></footer>
+  </section>
+
+  <!-- 7 ▸ Batting order -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span class="on">Batting Order</span><span>Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>Set the<br>batting order</h2>
+        <p><strong>Auto-fill</strong> drops every confirmed player in by jersey number; drag the handles to arrange from there.</p>
+        <ul class="diamond">
+          <li>The counter keeps you honest: <span>12 of 12 confirmed players in the lineup.</span></li>
+          <li>Nothing sticks until you hit <strong>Save</strong>.</li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/games/season/781 · Batting Order</em></div>
+        <img src="{{IMG:deck-04-batting.png}}" alt="Batting order tab">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">7</span></footer>
+  </section>
+
+  <!-- 8 ▸ Defense grid -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span class="on">Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>The defense grid</h2>
+        <p>Nine positions down, innings across — <strong>up to 9 innings</strong>, six by default. Click the inning buttons to size the game.</p>
+        <ul class="diamond">
+          <li><strong>Copy</strong> pulls the previous inning across, <span>then you tweak the two or three seats that change.</span></li>
+          <li>The optional <strong>Rules</strong> toggles live right beside the innings <span>— more on those in a moment.</span></li>
+          <li>Save anytime; drafts are fine.</li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>/games/season/781 · Defense</em></div>
+        <img src="{{IMG:deck-05-defense-empty.png}}" alt="Empty defense grid">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">8</span></footer>
+  </section>
+
+  <!-- 9 ▸ Player picker -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span class="on">Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>A picker that knows your roster</h2>
+        <p>Every cell is a searchable picker, <strong>sorted by fit</strong>: primaries first (1°), then secondaries (2°), then the rest.</p>
+        <ul class="diamond">
+          <li>Type a name or a jersey number to filter.</li>
+          <li>Players already fielding this inning are crossed out.</li>
+          <li><strong>Tab</strong> hops cell to cell — <span>a full inning takes seconds from the keyboard.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>Defense · picking a pitcher</em></div>
+        <img src="{{IMG:deck-06-combobox.png}}" alt="Player picker dropdown sorted by priority">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">9</span></footer>
+  </section>
+
+  <!-- 10 ▸ Bench -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span class="on">Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>The bench writes itself</h2>
+        <p>Anyone confirmed but not on the field is on the bench — <strong>computed per inning, automatically</strong>.</p>
+        <ul class="diamond">
+          <li>No separate bench bookkeeping, ever.</li>
+          <li>Scan it inning by inning to sanity-check playing time <span>before you save.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>Defense · bench summary</em></div>
+        <img src="{{IMG:deck-09-bench.png}}" alt="Bench per inning">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">10</span></footer>
+  </section>
+
+  <!-- 11 ▸ Duplicates -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span class="on">Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2 style="color: var(--red)">Hard stop:<br>duplicates</h2>
+        <p>One player can't hold two positions in the same inning. Both cells go <strong style="color: var(--red)">red</strong> and <strong>Save locks</strong> until it's fixed.</p>
+        <ul class="diamond">
+          <li>This is the only rule that blocks saving <span>— it's a data error, not a judgment call.</span></li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>Defense · same player at P and C</em></div>
+        <img src="{{IMG:deck-07-duplicate.png}}" alt="Duplicate player error">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">11</span></footer>
+  </section>
+
+  <!-- 12 ▸ Fairness rules -->
+  <section class="slide">
+    <span class="eyebrow">Optional fairness rules</span>
+    <h2 style="margin-bottom: 6px">Everyone plays. The app keeps score.</h2>
+    <p style="color: var(--muted); font-size: 15px; max-width: 760px">Two opt-in rules — off by default, toggled per game and team, saved the moment you click. They watch the innings <em>in order</em>, the way the game is actually played.</p>
+    <div class="rulecards">
+      <div class="rulecard">
+        <h3>Fair sit</h3>
+        <div class="law">Everyone sits once <b>before</b> anyone sits twice.</div>
+        <p>No player takes a second bench inning while a teammate still hasn't had their first.</p>
+      </div>
+      <div class="rulecard">
+        <h3>Fair outfield</h3>
+        <div class="law">Everyone plays outfield once <b>before</b> anyone plays it twice.</div>
+        <p>LF, CF, and RF innings spread across the whole roster before anyone repeats.</p>
+      </div>
+    </div>
+    <div class="rules-meta">
+      <div><b>Off by default</b>Turn them on only for the games where they apply.</div>
+      <div><b>Remembered</b>Saved per game &amp; team instantly — still set when you come back.</div>
+      <div><b>Drafts don't false-alarm</b>Only complete innings (all nine seats filled) are judged.</div>
+      <div><b>League-ready</b>Built so league or division defaults can trickle down later.</div>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">12</span></footer>
+  </section>
+
+  <!-- 13 ▸ Warnings in action -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span class="on">Defense</span><span>Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2 style="color: var(--amber)">Warnings,<br>not roadblocks</h2>
+        <p>Break a rule and the app <strong>names names</strong> — but Save stays live. It's the coach's call.</p>
+        <ul class="diamond">
+          <li>The <strong style="color: var(--amber)">amber banner</strong> says who repeats, and who's still waiting.</li>
+          <li>Outfield repeats tint their grid cell; <span>sit repeats glow in the bench list.</span></li>
+          <li>Uncheck the rule and the warnings clear.</li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <div class="bar"><i></i><i></i><i></i><em>Defense · both rules on, inning 2 repeats</em></div>
+        <img src="{{IMG:deck-08-warnings.png}}" alt="Fairness warnings in action">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">13</span></footer>
+  </section>
+
+  <!-- 14 ▸ Game-day report -->
+  <section class="slide">
+    <div class="tabstrip"><span>Overview</span><span>Confirmations</span><span>Batting Order</span><span>Defense</span><span class="on">Reports</span></div>
+    <div class="cols">
+      <div class="notes">
+        <h2>Print it.<br>Post it.</h2>
+        <p>One click on the <strong>Reports</strong> tab turns everything you just built into a game-day PDF.</p>
+        <ul class="diamond">
+          <li><strong>A field diagram for every inning</strong> — <span>every parent finds their kid's position at a glance.</span></li>
+          <li>The bench is listed under each inning, <span>and the batting order rides alongside.</span></li>
+          <li>A separate <strong>batting-order card</strong> <span>when that's all the fence needs.</span></li>
+          <li>Standard letter page — <span>print it, clip it to the dugout fence, done.</span></li>
+        </ul>
+      </div>
+      <figure class="shot portrait">
+        <div class="bar"><i></i><i></i><i></i><em>lineup-2026-05-16-thunderhawks.pdf</em></div>
+        <img src="{{IMG:deck-13-lineupcard.png}}" alt="Generated lineup card PDF with per-inning field diagrams">
+      </figure>
+    </div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">14</span></footer>
+  </section>
+
+  <!-- 15 ▸ Under the hood -->
+  <section class="slide closing">
+    <span class="eyebrow">Under the hood</span>
+    <h2 style="margin-bottom: 20px">Small surface, room to grow</h2>
+    <div class="facts">
+      <div class="fact"><b>Scoped per game &amp; team</b><p>Lineups, confirmations, and rule toggles are stored per game and per team — each dugout manages its own.</p></div>
+      <div class="fact"><b>Saved on the spot</b><p>Rule toggles persist the moment they're clicked. Lineups save explicitly, so drafts stay drafts.</p></div>
+      <div class="fact"><b>Open rulebook</b><p>Rules are stored as <code>fair_sit</code> / <code>fair_outfield</code> flags in an extensible set — new rules slot in without rework.</p></div>
+    </div>
+    <div class="next">
+      <span class="eyebrow">What's next</span>
+      <b>League &amp; division defaults.</b> The same rules, set once at the league or division level, trickling down to every game — with the per-game toggles you've seen here as the override.
+    </div>
+    <div class="signoff">Play <em>ball.</em></div>
+    <footer class="foot"><span>Stacked Bench · Defensive Lineup Guide</span><span class="num">15</span></footer>
+  </section>
+
+</div>
+<script>
+  // Arrow-key navigation between slides (screen only)
+  const slides = [...document.querySelectorAll(".slide")];
+  const current = () => {
+    const mid = window.scrollY + window.innerHeight / 2;
+    return slides.reduce((best, s, i) => {
+      const c = s.offsetTop + s.offsetHeight / 2;
+      return Math.abs(c - mid) < Math.abs(slides[best].offsetTop + slides[best].offsetHeight / 2 - mid) ? i : best;
+    }, 0);
+  };
+  addEventListener("keydown", (e) => {
+    if (["ArrowDown", "ArrowRight", "PageDown", " "].includes(e.key)) {
+      e.preventDefault();
+      slides[Math.min(current() + 1, slides.length - 1)].scrollIntoView({ block: "center" });
+    } else if (["ArrowUp", "ArrowLeft", "PageUp"].includes(e.key)) {
+      e.preventDefault();
+      slides[Math.max(current() - 1, 0)].scrollIntoView({ block: "center" });
+    }
+  });
+</script>
+</body>
+</html>
