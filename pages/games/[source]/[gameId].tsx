@@ -1,5 +1,5 @@
 import { useRouter } from "next/router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import type { GameDetail } from "@/pages/api/games/[source]/[gameId]";
 import { ReportsTab } from "@/components/games/ReportsTab";
 import { LocationDisplay } from "@/components/LocationPicker";
 import { usePermissions } from "@/lib/hooks/usePermissions";
+import { validateLineupRules, OUTFIELD_POSITIONS, type LineupRules, type LineupRuleKey } from "@/lib/lineupRules";
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
@@ -865,18 +866,22 @@ function DefenseTab({
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [numInnings, setNumInnings] = useState(6);
+  const [rules, setRules] = useState<LineupRules>({});
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [lineupRes, confRes, posRes] = await Promise.all([
+      const [lineupRes, confRes, posRes, rulesRes] = await Promise.all([
         fetch(`/api/games/${source}/${gameId}/defensive-lineup?team=${teamId}`),
         fetch(`/api/games/${source}/${gameId}/confirmations?team=${teamId}`),
         fetch(`/api/teams/${teamId}/roster/positions`),
+        fetch(`/api/games/${source}/${gameId}/lineup-rules?team=${teamId}`),
       ]);
       const lineupData = await lineupRes.json();
       const confData = await confRes.json();
       const posData = posRes.ok ? await posRes.json() : { positions: [] };
+      const rulesData = rulesRes.ok ? await rulesRes.json() : { rules: {} };
+      setRules(rulesData.rules ?? {});
 
       // Build a lookup: roster_id → { position → priority }
       const posByRoster: Record<number, Record<string, "primary" | "secondary">> = {};
@@ -959,6 +964,22 @@ function DefenseTab({
     setSaving(false);
   };
 
+  const toggleRule = async (key: LineupRuleKey) => {
+    const prev = rules;
+    const next = { ...rules, [key]: !rules[key] };
+    setRules(next);
+    try {
+      const res = await fetch(`/api/games/${source}/${gameId}/lineup-rules`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_id: teamId, rules: next }),
+      });
+      if (!res.ok) setRules(prev);
+    } catch {
+      setRules(prev);
+    }
+  };
+
   const playerName = (rosterId: number) => {
     const p = confirmed.find((c) => c.roster_id === rosterId);
     if (!p) return "?";
@@ -988,6 +1009,21 @@ function DefenseTab({
   };
 
   const hasDuplicates = activeInnings.some((inn) => duplicatesInInning(inn).size > 0);
+
+  const violations = useMemo(
+    () =>
+      validateLineupRules({
+        lineup,
+        confirmedIds: confirmed.map((c) => c.roster_id),
+        activeInnings: [...activeInnings],
+        rules,
+      }),
+    [lineup, confirmed, activeInnings, rules]
+  );
+  const sitViolation = violations.find((v) => v.rule === "fair_sit");
+  const ofViolation = violations.find((v) => v.rule === "fair_outfield");
+
+  const namesFor = (ids: number[]) => ids.map(playerName).join(", ");
 
   const cellOrder = activeInnings.flatMap((inn) => POSITIONS.map((p) => `${inn}-${p}`));
 
@@ -1036,6 +1072,31 @@ function DefenseTab({
             ))}
           </div>
         </div>
+        <div className="flex items-center gap-4">
+          <p className="text-sm text-muted-foreground">Rules:</p>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!rules.fair_sit}
+              onChange={() => toggleRule("fair_sit")}
+              className="w-3.5 h-3.5 accent-primary cursor-pointer"
+            />
+            <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Fair sit
+            </span>
+          </label>
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={!!rules.fair_outfield}
+              onChange={() => toggleRule("fair_outfield")}
+              className="w-3.5 h-3.5 accent-primary cursor-pointer"
+            />
+            <span className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+              Fair outfield
+            </span>
+          </label>
+        </div>
         <div className="flex flex-col items-end gap-1">
           <button
             onClick={save}
@@ -1055,6 +1116,23 @@ function DefenseTab({
           )}
         </div>
       </div>
+
+      {(sitViolation || ofViolation) && (
+        <div className="border border-warning/40 bg-warning/10 px-3 py-2 space-y-1">
+          {sitViolation && (
+            <p className="text-[11px] text-warning">
+              Fair sit — inning {sitViolation.inning}: {namesFor(sitViolation.offenders)} would sit a 2nd time
+              before {namesFor(sitViolation.waiting)} {sitViolation.waiting.length === 1 ? "has" : "have"} sat.
+            </p>
+          )}
+          {ofViolation && (
+            <p className="text-[11px] text-warning">
+              Fair outfield — inning {ofViolation.inning}: {namesFor(ofViolation.offenders)} would play outfield
+              a 2nd time before {namesFor(ofViolation.waiting)} {ofViolation.waiting.length === 1 ? "has" : "have"} played outfield.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="overflow-x-auto">
         <Card>
@@ -1101,9 +1179,21 @@ function DefenseTab({
                       const usedInInning = playersInInning(inn);
                       const dupes = duplicatesInInning(inn);
                       const isDuplicate = assigned != null && dupes.has(assigned);
+                      const isOfOffender =
+                        ofViolation?.inning === inn &&
+                        (OUTFIELD_POSITIONS as readonly string[]).includes(pos) &&
+                        assigned != null &&
+                        ofViolation.offenders.includes(assigned);
 
                       return (
-                        <td key={key} className={cn("p-1", isDuplicate && "bg-destructive/10")}>
+                        <td
+                          key={key}
+                          className={cn(
+                            "p-1",
+                            isDuplicate && "bg-destructive/10",
+                            !isDuplicate && isOfOffender && "bg-warning/10"
+                          )}
+                        >
                           <PlayerCombobox
                             players={confirmed}
                             position={pos}
@@ -1143,7 +1233,20 @@ function DefenseTab({
                 <div key={inn} className="flex items-start gap-2 text-xs">
                   <span className="text-muted-foreground font-semibold shrink-0 w-12">Inn {inn}:</span>
                   <span className="text-muted-foreground">
-                    {unassigned.map((c) => playerLabel(c)).join(", ")}
+                    {unassigned.map((c, i) => (
+                      <span key={c.roster_id}>
+                        {i > 0 && ", "}
+                        <span
+                          className={cn(
+                            sitViolation?.inning === inn &&
+                              sitViolation.offenders.includes(c.roster_id) &&
+                              "text-warning font-semibold"
+                          )}
+                        >
+                          {playerLabel(c)}
+                        </span>
+                      </span>
+                    ))}
                   </span>
                 </div>
               );
