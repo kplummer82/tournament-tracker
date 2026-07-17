@@ -2,6 +2,7 @@
 
 # Playwright auth state (contains session cookies — never commit)
 tests/auth-state.json
+tests/e2e/.auth-regular.json
 
 # dependencies
 /node_modules
