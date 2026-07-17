@@ -244,8 +244,7 @@ export default function AdminLocationsClient() {
   };
 
   // Create location
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreate = async () => {
     if (!form.name.trim()) return;
     setSaving(true);
     setError(null);
@@ -474,7 +473,11 @@ export default function AdminLocationsClient() {
         onImportComplete={refreshAfterBulkImport}
       />
       {/* Create form */}
-      <form onSubmit={handleCreate} className="p-4 border border-border bg-card space-y-3">
+      {/* Deliberately a <div>, not a <form>: AddressAutofillInput renders its own
+          <form>, which Mapbox's AddressAutofill needs as an ancestor (it walks up
+          for one and silently no-ops without it). Nesting that inside a form here
+          would be invalid HTML. Enter-to-submit is wired on the name input below. */}
+      <div className="p-4 border border-border bg-card space-y-3">
         <div className="flex items-center justify-between">
           <span
             className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
@@ -557,6 +560,12 @@ export default function AdminLocationsClient() {
                   setForm((p) => ({ ...p, name: e.target.value }));
                   setNameFromAddress(false);
                 }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleCreate();
+                  }
+                }}
                 required
               />
             </div>
@@ -576,7 +585,8 @@ export default function AdminLocationsClient() {
         </div>
         <div className="flex justify-end">
           <button
-            type="submit"
+            type="button"
+            onClick={handleCreate}
             disabled={saving || !form.name.trim()}
             className={cn(
               BTN_BASE,
@@ -587,7 +597,7 @@ export default function AdminLocationsClient() {
             {saving ? "Creating\u2026" : "Create Location"}
           </button>
         </div>
-      </form>
+      </div>
 
       {/* Search + result count + view toggle */}
       <div className="flex items-center gap-3">
