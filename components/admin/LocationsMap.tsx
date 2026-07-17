@@ -2,6 +2,7 @@
 
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef } from "react";
+import MapFullscreenShell from "@/components/map/MapFullscreenShell";
 // Types only — runtime import is dynamic to avoid SSR `window` errors.
 import type { Map as MapboxMap, Popup as MapboxPopup, GeoJSONSource } from "mapbox-gl";
 
@@ -285,23 +286,23 @@ export default function LocationsMap({ locations }: Props) {
   }
 
   return (
-    <div className="space-y-2">
-      <div
-        ref={containerRef}
-        className="w-full h-[500px] border border-border bg-card"
-        aria-label="Locations map"
-      />
-      {unmappedCount > 0 && (
-        <p
-          className="text-xs text-muted-foreground"
-          style={{ fontFamily: "var(--font-body)" }}
-        >
-          {unmappedCount} location{unmappedCount !== 1 ? "s" : ""} without map
-          coordinates {unmappedCount !== 1 ? "are" : "is"} not shown. Edit a
-          location and pick its address to geocode it.
-        </p>
-      )}
-    </div>
+    <MapFullscreenShell
+      containerRef={containerRef}
+      mapRef={mapRef}
+      label="Locations map"
+      caption={
+        unmappedCount > 0 ? (
+          <p
+            className="text-xs text-muted-foreground"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {unmappedCount} location{unmappedCount !== 1 ? "s" : ""} without map
+            coordinates {unmappedCount !== 1 ? "are" : "is"} not shown. Edit a
+            location and pick its address to geocode it.
+          </p>
+        ) : undefined
+      }
+    />
   );
 }
 

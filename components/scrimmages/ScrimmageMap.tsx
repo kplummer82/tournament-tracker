@@ -2,6 +2,7 @@
 
 import "mapbox-gl/dist/mapbox-gl.css";
 import React, { useEffect, useRef } from "react";
+import MapFullscreenShell from "@/components/map/MapFullscreenShell";
 import type { ListingRow } from "@/components/scrimmages/ListingCard";
 // Types only — runtime import is dynamic to avoid SSR `window` errors.
 import type { Map as MapboxMap, Popup as MapboxPopup, GeoJSONSource } from "mapbox-gl";
@@ -337,10 +338,10 @@ export default function ScrimmageMap({ listings, center }: Props) {
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="w-full h-[500px] border border-border bg-card"
-      aria-label="Scrimmage results map"
+    <MapFullscreenShell
+      containerRef={containerRef}
+      mapRef={mapRef}
+      label="Scrimmage results map"
     />
   );
 }
