@@ -17,6 +17,12 @@ export type AddressGeocode = {
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
 
+// Without this a hung Mapbox request has no upper bound, and because the bulk
+// importer geocodes rows one at a time a single stall blocks the whole batch.
+// Bounds the worst-case commit chunk: CHUNK_SIZE x (this + insert time) has to
+// stay under the route's maxDuration. See pages/api/locations/bulk.ts.
+const GEOCODE_TIMEOUT_MS = 4000;
+
 function buildQuery(input: AddressInput): string {
   // Require at least a street address; geocoding/v5 is for address → coords,
   // not POI name lookup. For POI-only inputs (e.g. "Mission Sports Park") the
@@ -49,7 +55,8 @@ export async function geocodeAddress(
 
   try {
     const res = await fetch(
-      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?${params}`
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?${params}`,
+      { signal: AbortSignal.timeout(GEOCODE_TIMEOUT_MS) }
     );
     if (!res.ok) {
       console.warn("[geocodeAddress] non-OK response", res.status, query);
@@ -67,8 +74,14 @@ export async function geocodeAddress(
       lng,
       place: typeof feature.place_name === "string" ? feature.place_name : query,
     };
-  } catch (err) {
-    console.warn("[geocodeAddress] fetch failed", err);
+  } catch (err: any) {
+    // Returning null (rather than throwing) keeps a slow or failing geocode from
+    // failing the row — the caller inserts it with NULL lat/lng.
+    if (err?.name === "TimeoutError") {
+      console.warn("[geocodeAddress] timed out after", GEOCODE_TIMEOUT_MS, "ms", query);
+    } else {
+      console.warn("[geocodeAddress] fetch failed", err);
+    }
     return null;
   }
 }
