@@ -3,6 +3,7 @@ import { X, Plus, CalendarDays, ChevronLeft, AlertTriangle } from "lucide-react"
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, GameTimeSlot, ScheduleResult } from "@/lib/auto-schedule";
 import { normalizeScheduleConfig } from "@/lib/auto-schedule";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -265,6 +266,8 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                 <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
                   Day Rules
                 </h3>
+                {/* Slot location/field are plain inputs here — no picker to carry the notice */}
+                <FieldAvailabilityNotice className="mb-3" />
                 <div className="space-y-2">
                   {([0, 1, 2, 3, 4, 5, 6] as DayRule['dayOfWeek'][]).map(dow => {
                     const enabled = isDayEnabled(dow);

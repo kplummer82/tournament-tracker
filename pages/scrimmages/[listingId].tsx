@@ -8,6 +8,7 @@ import OfferDialog from "@/components/scrimmages/OfferDialog";
 import CounterOfferDialog from "@/components/scrimmages/CounterOfferDialog";
 import RespondWithNoteDialog, { type RespondAction } from "@/components/scrimmages/RespondWithNoteDialog";
 import { LocationDisplay } from "@/components/LocationPicker";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 import { ArrowLeft, Calendar, Clock, MapPin, Navigation, Users, MessageSquare, ArrowRightLeft } from "lucide-react";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 
@@ -380,6 +381,8 @@ export default function ListingDetailPage() {
                 </div>
               </div>
             ) : null}
+
+            <FieldAvailabilityNotice variant="accepting" tone="inline" />
 
             <div className="flex items-center gap-2 text-foreground">
               <Users className="h-4 w-4 text-muted-foreground" />

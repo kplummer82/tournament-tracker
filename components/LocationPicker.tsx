@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,8 @@ interface LocationPickerProps {
   field: string;
   onChange: (val: LocationPickerValue) => void;
   compact?: boolean;
+  /** Suppress the field-availability disclaimer when the consumer renders its own. */
+  hideNotice?: boolean;
 }
 
 // ─── Per-id detail cache ────────────────────────────────────────────────────────
@@ -87,6 +90,7 @@ export default function LocationPicker({
   field,
   onChange,
   compact = false,
+  hideNotice = false,
 }: LocationPickerProps) {
   const [selectedLoc, setSelectedLoc] = useState<LocOption | null>(
     locationId != null ? detailCache.get(locationId) ?? null : null
@@ -444,6 +448,7 @@ export default function LocationPicker({
       {SelectedBlock}
       {SearchingBlock}
       {CustomBlock}
+      {!hideNotice && <FieldAvailabilityNotice />}
     </div>
   );
 }

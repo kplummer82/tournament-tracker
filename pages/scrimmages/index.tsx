@@ -16,6 +16,7 @@ import CreateListingModal from "@/components/scrimmages/CreateListingModal";
 import ZipRadiusFilter, { type ZipRadiusValue } from "@/components/scrimmages/ZipRadiusFilter";
 import ViewToggle, { type ScrimmageView } from "@/components/scrimmages/ViewToggle";
 import ScrimmageMap from "@/components/scrimmages/ScrimmageMap";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 import Link from "next/link";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 
@@ -322,6 +323,8 @@ export default function ScrimmageMarketplacePage() {
             </Link>
           </div>
         </div>
+
+        <FieldAvailabilityNotice variant="accepting" tone="inline" className="pt-3" />
 
         {/* Filter bar */}
         <div className="flex flex-wrap items-end gap-3 py-4">

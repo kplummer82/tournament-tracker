@@ -8,6 +8,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import LocationPicker, { type LocationPickerValue } from "@/components/LocationPicker";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 import { usePermissions, type UserRoleRow } from "@/lib/hooks/usePermissions";
 import { geocodeZip } from "@/lib/mapbox/geocodeZip";
 
@@ -394,8 +395,12 @@ export default function CreateListingModal({
                 location={location.location}
                 field={location.field}
                 onChange={setLocation}
+                hideNotice
               />
             )}
+
+            {/* One notice for both branches — the travel path has no LocationPicker */}
+            <FieldAvailabilityNotice className="mt-3" />
           </div>
 
           {/* Opponent scope */}

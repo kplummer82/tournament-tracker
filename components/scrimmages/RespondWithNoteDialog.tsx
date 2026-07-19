@@ -6,6 +6,7 @@ import {
   DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 export type RespondAction = "accepted" | "declined" | "withdrawn";
 
@@ -106,6 +107,8 @@ export default function RespondWithNoteDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {action === "accepted" && <FieldAvailabilityNotice variant="accepting" />}
+
           <div>
             <Label className="text-[11px] uppercase tracking-wider">
               Note <span className="text-muted-foreground">(optional)</span>

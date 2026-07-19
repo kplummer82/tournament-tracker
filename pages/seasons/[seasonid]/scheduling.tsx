@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
 import type { LocationPickerValue } from "@/components/LocationPicker";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -420,6 +421,8 @@ function SchedulingRules({
           {/* Day Rules */}
           <div>
             <h4 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Day Rules</h4>
+            {/* Slot pickers below are compact and render no notice of their own */}
+            <FieldAvailabilityNotice className="mb-2" />
             <div className="space-y-2">
               {([0, 1, 2, 3, 4, 5, 6] as DayRule['dayOfWeek'][]).map(dow => {
                 const enabled = isDayEnabled(dow);

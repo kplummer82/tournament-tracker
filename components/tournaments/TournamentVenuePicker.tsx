@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { VenueDTO } from "@/components/tournaments/venues/VenueCard";
+import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 export interface TournamentVenuePickerValue {
   tournamentVenueId: number | null;
@@ -102,6 +103,7 @@ export default function TournamentVenuePicker({ tournamentId, value, onChange }:
         ))}
       </select>
       {error && <p className="col-span-2 text-xs text-destructive">{error}</p>}
+      <FieldAvailabilityNotice className="col-span-2" />
     </div>
   );
 }
