@@ -51,18 +51,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let finalLng: number | null =
         typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
 
-      // Re-geocode on every save (per product decision). Overwrites caller-supplied
-      // lat/lng only if Mapbox returns a result; falls back to existing values otherwise.
-      const geocoded = await geocodeAddress({
-        name: name?.trim() ?? null,
-        address: finalAddress,
-        city: finalCity,
-        state: finalState,
-        zip: finalZip,
-      });
-      if (geocoded) {
-        finalLat = geocoded.lat;
-        finalLng = geocoded.lng;
+      // Coord precedence: explicit caller-supplied lat/lng (pin drag or Mapbox
+      // POI pick) wins and skips geocoding. Otherwise re-geocode only when the
+      // address actually changed or the row has no coords yet — unconditional
+      // re-geocoding would snap hand-corrected pins back to Mapbox's address
+      // point on every save.
+      if (finalLat == null || finalLng == null) {
+        const existingRows = await sql`
+          SELECT address, city, state, zip, latitude, longitude
+          FROM locations
+          WHERE id = ${locationId}
+        `;
+        if (!existingRows.length) return res.status(404).json({ error: "Not found" });
+        const existing = existingRows[0];
+
+        const addressChanged =
+          (finalAddress != null && finalAddress !== existing.address) ||
+          (finalCity != null && finalCity !== existing.city) ||
+          (finalState != null && finalState !== existing.state) ||
+          (finalZip != null && finalZip !== existing.zip);
+        const missingCoords = existing.latitude == null || existing.longitude == null;
+
+        if (addressChanged || missingCoords) {
+          const geocoded = await geocodeAddress({
+            name: name?.trim() ?? null,
+            address: finalAddress ?? existing.address,
+            city: finalCity ?? existing.city,
+            state: finalState ?? existing.state,
+            zip: finalZip ?? existing.zip,
+          });
+          if (geocoded) {
+            finalLat = geocoded.lat;
+            finalLng = geocoded.lng;
+          }
+        }
       }
       // Propagate refreshed coords to any listings denormalizing this location.
       if (finalLat != null && finalLng != null) {

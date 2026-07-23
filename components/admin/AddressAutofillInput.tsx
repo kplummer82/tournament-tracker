@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useRef, useState } from "react";
 import { AddressAutofill } from "@mapbox/search-js-react";
@@ -171,7 +171,7 @@ export default function AddressAutofillInput({
         >
           <input
             className={INPUT}
-            placeholder="Start typing an address\u2026"
+            placeholder="Start typing an address…"
             autoComplete="address-line1"
             value={streetInputValue ?? value.address}
             onChange={handleStreetChange}

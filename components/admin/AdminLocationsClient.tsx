@@ -308,7 +308,11 @@ export default function AdminLocationsClient() {
       zip: loc.zip ?? "",
     });
     setEditStreetInput(loc.address ?? "");
-    setEditLatLng({ latitude: loc.latitude, longitude: loc.longitude });
+    // Null until the admin explicitly picks a place. Sending nulls tells the
+    // server "no coord change" — it keeps existing coords (or re-geocodes if
+    // the address changed). Echoing existing coords back would read as an
+    // explicit choice and block re-geocoding on address edits.
+    setEditLatLng({ latitude: null, longitude: null });
     setEditNameFromAddress(false);
     setEditError(null);
     setConfirmDelete(null);
@@ -351,6 +355,8 @@ export default function AdminLocationsClient() {
                   city: json.city,
                   state: json.state,
                   zip: json.zip,
+                  latitude: json.latitude,
+                  longitude: json.longitude,
                 }
               : l
           )
@@ -365,6 +371,24 @@ export default function AdminLocationsClient() {
     } finally {
       setEditSaving(false);
     }
+  };
+
+  // Save a pin dragged to a new spot on the map view. Coords-only PATCH; the
+  // server treats explicit coords as authoritative and skips re-geocoding.
+  const handleSavePin = async (id: number, latitude: number, longitude: number) => {
+    const res = await fetch(`/api/locations/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ latitude, longitude }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Failed to move pin");
+    const apply = (l: Location) =>
+      l.id === id
+        ? { ...l, latitude: json.latitude, longitude: json.longitude }
+        : l;
+    setAllLocations((prev) => prev.map(apply));
+    setLocations((prev) => prev.map(apply));
   };
 
   // Delete location
@@ -627,7 +651,7 @@ export default function AdminLocationsClient() {
         allLoading ? (
           <div className="h-[500px] bg-elevated animate-pulse" />
         ) : (
-          <LocationsMap locations={mapLocations} />
+          <LocationsMap locations={mapLocations} onSavePin={handleSavePin} />
         )
       ) : /* List */ loading ? (
         <div className="space-y-2">

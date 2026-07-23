@@ -124,17 +124,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       let finalLng: number | null =
         typeof longitude === "number" ? longitude : (parseFloat(longitude) || null);
 
-      // Re-geocode on every save. Only overrides client-supplied coords if Mapbox returns a hit.
-      const geocoded = await geocodeAddress({
-        name: name?.trim() ?? null,
-        address: finalAddress,
-        city: finalCity,
-        state: finalState,
-        zip: finalZip,
-      });
-      if (geocoded) {
-        finalLat = geocoded.lat;
-        finalLng = geocoded.lng;
+      // Client-supplied coords (a Mapbox POI pick) beat an address geocode —
+      // parks often geocode to a street-address point outside the grounds — so
+      // only geocode when the client didn't send any.
+      if (finalLat == null || finalLng == null) {
+        const geocoded = await geocodeAddress({
+          name: name?.trim() ?? null,
+          address: finalAddress,
+          city: finalCity,
+          state: finalState,
+          zip: finalZip,
+        });
+        if (geocoded) {
+          finalLat = geocoded.lat;
+          finalLng = geocoded.lng;
+        }
       }
 
       const inserted = await sql`

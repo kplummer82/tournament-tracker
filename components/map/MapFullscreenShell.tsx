@@ -31,6 +31,10 @@ type Props = {
   label: string;
   /** Optional note under the map; becomes a footer strip in fullscreen. */
   caption?: React.ReactNode;
+  /** Optional floating UI rendered over the map (children position themselves
+   *  with absolute classes). Kept inside the map's relative wrapper so it
+   *  overlays correctly in both inline and fullscreen modes. */
+  overlay?: React.ReactNode;
 };
 
 export default function MapFullscreenShell({
@@ -38,6 +42,7 @@ export default function MapFullscreenShell({
   mapRef,
   label,
   caption,
+  overlay,
 }: Props) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const expandBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -143,6 +148,9 @@ export default function MapFullscreenShell({
             <Maximize2 className="h-4 w-4" />
           </button>
         )}
+        {/* Trailing sibling like the expand button — the container div's
+            position in the tree stays fixed. */}
+        {overlay}
       </div>
 
       {caption && (
