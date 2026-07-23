@@ -32,6 +32,7 @@ export default function RosterDetailPage() {
   const canEdit = teamId && team
     ? permissions.canEditTeam(Number(teamId), team.league_id ?? null)
     : false;
+  const isAdmin = permissions.isSystemAdmin;
 
   // Editing state
   const [editing, setEditing] = useState(false);
@@ -50,6 +51,14 @@ export default function RosterDetailPage() {
   // Delete state
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // COPPA data-deletion (anonymize) state — admin only
+  const [showCoppa, setShowCoppa] = useState(false);
+  const [coppaConfirmText, setCoppaConfirmText] = useState("");
+  const [coppaRequestedBy, setCoppaRequestedBy] = useState("");
+  const [coppaReason, setCoppaReason] = useState("");
+  const [coppaSubmitting, setCoppaSubmitting] = useState(false);
+  const [coppaError, setCoppaError] = useState<string | null>(null);
 
   // Fetch data
   useEffect(() => {
@@ -166,6 +175,42 @@ export default function RosterDetailPage() {
     }
   };
 
+  const handleCoppaDelete = async () => {
+    if (!teamId || !rosterId) return;
+    setCoppaSubmitting(true);
+    setCoppaError(null);
+    try {
+      const res = await fetch(`/api/teams/${teamId}/roster/${rosterId}/anonymize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requestedBy: coppaRequestedBy.trim() || null,
+          reason: coppaReason.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.player) {
+        setPerson(data.player);
+      } else {
+        // Already anonymized — refetch the current row.
+        const r = await fetch(`/api/teams/${teamId}/roster/${rosterId}`, { cache: "no-store" });
+        if (r.ok) setPerson(await r.json());
+      }
+      setShowCoppa(false);
+      setCoppaConfirmText("");
+      setCoppaRequestedBy("");
+      setCoppaReason("");
+    } catch (e) {
+      setCoppaError(e instanceof Error ? e.message : "Failed to delete player data");
+    } finally {
+      setCoppaSubmitting(false);
+    }
+  };
+
   if (router.isFallback || loading) {
     return (
       <div className="min-h-screen">
@@ -195,6 +240,7 @@ export default function RosterDetailPage() {
   }
 
   const fullName = [person.first_name, person.last_name].filter(Boolean).join(" ");
+  const isAnonymized = !!person.deleted_at;
 
   const labelCls = "text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium";
   const valueCls = "text-sm text-foreground";
@@ -227,6 +273,19 @@ export default function RosterDetailPage() {
           </p>
         </div>
 
+        {isAnonymized && (
+          <div
+            className="border border-border bg-elevated/50 px-4 py-3 text-xs text-muted-foreground"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            This player&apos;s personal information was deleted on{" "}
+            {new Date(person.deleted_at as string).toLocaleDateString()} in response to a
+            data-deletion request (COPPA). The jersey number is retained so past lineups stay
+            readable; historical games this player appeared in are preserved. This action cannot be
+            undone.
+          </div>
+        )}
+
         {/* ── Read-only details ─────────────────────────────────── */}
         {!editing && (
           <Card>
@@ -238,7 +297,7 @@ export default function RosterDetailPage() {
                 >
                   Details
                 </h2>
-                {canEdit && (
+                {canEdit && !isAnonymized && (
                   <button
                     type="button"
                     onClick={startEditing}
@@ -461,7 +520,7 @@ export default function RosterDetailPage() {
         )}
 
         {/* ── Danger zone ───────────────────────────────────────── */}
-        {canEdit && !editing && (
+        {canEdit && !editing && !isAnonymized && (
           <Card className="border-destructive/20">
             <CardContent className="p-6">
               <h2
@@ -516,7 +575,133 @@ export default function RosterDetailPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* ── COPPA data deletion (admin only) ──────────────────── */}
+        {isAdmin && !editing && !isAnonymized && (
+          <Card className="border-destructive/30">
+            <CardContent className="p-6">
+              <h2
+                className="uppercase mb-2"
+                style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "14px", letterSpacing: "-0.01em" }}
+              >
+                Delete Player Data (COPPA)
+              </h2>
+              <p className="text-xs text-muted-foreground mb-3 max-w-prose" style={{ fontFamily: "var(--font-body)" }}>
+                Permanently anonymize this player&apos;s personal information in response to a
+                data-deletion request. Their name, hat monogram, and walk-up song are erased and
+                replaced with a generic label; the jersey number is kept and their game history is
+                preserved. This cannot be undone.
+              </p>
+              <button
+                type="button"
+                onClick={() => { setShowCoppa(true); setCoppaError(null); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border border-destructive/50 text-destructive hover:bg-destructive/10 transition-colors duration-100"
+                style={{ fontFamily: "var(--font-body)" }}
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete player data
+              </button>
+            </CardContent>
+          </Card>
+        )}
       </main>
+
+      {/* ── COPPA confirm modal ─────────────────────────────────── */}
+      {showCoppa && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !coppaSubmitting && setShowCoppa(false)}
+        >
+          <Card
+            className="w-full max-w-md border-destructive/30"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardContent className="p-6 space-y-4">
+              <h2
+                className="uppercase"
+                style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "16px", letterSpacing: "-0.01em" }}
+              >
+                Delete Player Data
+              </h2>
+              <p className="text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                This permanently anonymizes <span className="text-foreground font-semibold">{fullName}</span>.
+                Their name and personal fields are erased and replaced with{" "}
+                <span className="text-foreground font-semibold">Deleted Player {person.id}</span>.
+                The jersey number and game history are kept. This cannot be undone.
+              </p>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                  Requested by (optional)
+                </Label>
+                <Input
+                  value={coppaRequestedBy}
+                  onChange={(e) => setCoppaRequestedBy(e.target.value)}
+                  placeholder="e.g. parent name / email"
+                  className={fieldCls}
+                  style={{ fontFamily: "var(--font-body)" }}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                  Reason / note (optional)
+                </Label>
+                <Input
+                  value={coppaReason}
+                  onChange={(e) => setCoppaReason(e.target.value)}
+                  placeholder="e.g. COPPA deletion request"
+                  className={fieldCls}
+                  style={{ fontFamily: "var(--font-body)" }}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+                  Type the player&apos;s name to confirm
+                </Label>
+                <Input
+                  value={coppaConfirmText}
+                  onChange={(e) => setCoppaConfirmText(e.target.value)}
+                  placeholder={fullName}
+                  className={fieldCls}
+                  style={{ fontFamily: "var(--font-body)" }}
+                />
+              </div>
+
+              {coppaError && (
+                <p className="text-xs text-destructive" style={{ fontFamily: "var(--font-body)" }}>{coppaError}</p>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCoppaDelete}
+                  disabled={coppaSubmitting || coppaConfirmText.trim() !== fullName.trim()}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em]",
+                    "bg-destructive text-white hover:opacity-90 transition-opacity duration-100",
+                    (coppaSubmitting || coppaConfirmText.trim() !== fullName.trim()) && "opacity-50 cursor-not-allowed"
+                  )}
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  {coppaSubmitting && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Delete data
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCoppa(false)}
+                  disabled={coppaSubmitting}
+                  className="px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground transition-colors duration-100"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

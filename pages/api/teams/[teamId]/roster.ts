@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 
 export type RosterRow = {
   id: number;
@@ -11,6 +12,7 @@ export type RosterRow = {
   hat_monogram: string | null;
   walkup_song: string | null;
   walkup_song_itunes_id: number | null;
+  deleted_at: string | null;
 };
 
 function parseTeamId(req: NextApiRequest): number | null {
@@ -28,7 +30,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = (await sql`
         SELECT id, teamid, first_name, last_name, role, jersey_number,
-               hat_monogram, walkup_song, walkup_song_itunes_id
+               hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
         FROM public.team_roster
         WHERE teamid = ${teamId}
         ORDER BY role ASC, last_name ASC NULLS LAST, first_name ASC
@@ -37,6 +39,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "POST") {
+      const session = await requireTeamAccess(req, res, teamId);
+      if (!session) return;
+
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
       const firstName = typeof body.first_name === "string" ? body.first_name.trim() : "";
       const role = body.role === "staff" ? "staff" : body.role === "player" ? "player" : null;
@@ -62,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           (teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id)
         VALUES
           (${teamId}, ${firstName}, ${lastName}, ${role}, ${jersey}, ${hatMonogram}, ${walkupSong}, ${walkupSongItunesId})
-        RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
+        RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
       `) as RosterRow[];
 
       return res.status(201).json(inserted[0]);

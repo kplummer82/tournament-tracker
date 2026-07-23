@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 
 function parseId(val: string | string[] | undefined): number | null {
@@ -20,7 +21,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const rows = await sql`
         SELECT id, teamid, first_name, last_name, role, jersey_number,
-               hat_monogram, walkup_song, walkup_song_itunes_id
+               hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
         FROM public.team_roster
         WHERE id = ${rosterId} AND teamid = ${teamId}
         LIMIT 1
@@ -36,6 +37,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   /* ── DELETE ──────────────────────────────────────────────────── */
   if (req.method === "DELETE") {
+    const session = await requireTeamAccess(req, res, teamId);
+    if (!session) return;
     try {
       const rows = await sql`
         DELETE FROM public.team_roster
@@ -53,6 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   /* ── PATCH ───────────────────────────────────────────────────── */
   if (req.method === "PATCH") {
+    const session = await requireTeamAccess(req, res, teamId);
+    if (!session) return;
     try {
       const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
 

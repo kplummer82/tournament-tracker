@@ -470,7 +470,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
 
   // Action buttons for display rows
   const renderActions = (r: RosterRow) => {
-    if (!canEdit) return null;
+    if (!canEdit || r.deleted_at) return null;
     return (
       <div className="flex items-center justify-end gap-1">
         <button
@@ -695,7 +695,10 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                         return (
                           <tr
                             key={r.id}
-                            className="border-t border-border hover:bg-elevated/40 transition-colors duration-75 cursor-pointer"
+                            className={cn(
+                              "border-t border-border hover:bg-elevated/40 transition-colors duration-75 cursor-pointer",
+                              r.deleted_at && "opacity-60"
+                            )}
                             onClick={() => router.push(`/teams/${teamId}/roster/${r.id}`)}
                           >
                             <td
@@ -708,7 +711,18 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                             </td>
                             <td className="p-3 font-medium" style={{ fontFamily: "var(--font-body)" }}>
                               <div className="flex items-center gap-2 flex-wrap">
-                                <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
+                                <span className={cn(r.deleted_at && "italic text-muted-foreground")}>
+                                  {[r.first_name, r.last_name].filter(Boolean).join(" ")}
+                                </span>
+                                {r.deleted_at && (
+                                  <span
+                                    className="px-1.5 py-0.5 text-[9px] uppercase tracking-[0.06em] border border-border text-muted-foreground"
+                                    style={{ fontFamily: "var(--font-body)" }}
+                                    title="Personal information deleted (COPPA)"
+                                  >
+                                    Data deleted
+                                  </span>
+                                )}
                                 {(() => {
                                   const pos = positionMap[r.id];
                                   return pos && (pos.primary.length > 0 || pos.secondary.length > 0)

@@ -39,6 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           AND gc.game_id = ${params.gameId}
         WHERE r.teamid = ${teamId}
           AND r.role = 'player'
+          AND r.deleted_at IS NULL
         ORDER BY r.jersey_number ASC NULLS LAST, r.last_name ASC NULLS LAST, r.first_name ASC
       `;
       return res.status(200).json({ confirmations: rows });
