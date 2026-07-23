@@ -3,6 +3,7 @@ import GettingStarted, { sections as gettingStartedSections } from "@/components
 import FollowYourTeam, { sections as followYourTeamSections } from "@/components/learn/guides/follow-your-team";
 import DefensiveLineups, { sections as defensiveLineupsSections } from "@/components/learn/guides/defensive-lineups";
 import FirstSeason, { sections as firstSeasonSections } from "@/components/learn/guides/first-season";
+import TeamRoster, { sections as teamRosterSections } from "@/components/learn/guides/team-roster";
 
 export type LearnPersona = "follower" | "coach" | "league-operator" | "tournament-organizer";
 
@@ -96,6 +97,19 @@ export const GUIDES: GuideEntry[] = [
     relatedRoutes: ["/leagues"],
     Component: FirstSeason,
     sections: firstSeasonSections,
+  },
+  {
+    slug: "team-roster",
+    title: "Create & manage a team roster",
+    summary: "Add players and staff, set jersey numbers and positions, and keep the roster current all season.",
+    personas: ["coach"],
+    category: "teams",
+    order: 5,
+    updated: "2026-07-22",
+    heroImage: "/learn/roster.png",
+    relatedRoutes: ["/teams"],
+    Component: TeamRoster,
+    sections: teamRosterSections,
   },
 ];
 
