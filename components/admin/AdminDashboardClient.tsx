@@ -33,6 +33,7 @@ type DashboardData = {
   scenarios: { total: number; byStatus: Record<string, number> };
   brackets: { library: number; custom: number };
   settings: { maxSimulations: number; requireApproval: boolean };
+  locationSuggestions?: { pending: number };
 };
 
 const SEASON_STATUS_COLORS: Record<string, string> = {
@@ -115,6 +116,14 @@ export default function AdminDashboardClient() {
   }
   if (data.games.season.overdue > 0) {
     alerts.push({ label: "Overdue games", count: data.games.season.overdue, href: "#", variant: "amber" });
+  }
+  if ((data.locationSuggestions?.pending ?? 0) > 0) {
+    alerts.push({
+      label: "Pending location suggestions",
+      count: data.locationSuggestions!.pending,
+      href: "/admin/suggestions",
+      variant: "amber",
+    });
   }
 
   // Active tournament count

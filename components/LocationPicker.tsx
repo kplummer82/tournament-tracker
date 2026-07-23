@@ -1,9 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { MapPin, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
+import { usePermissions } from "@/lib/hooks/usePermissions";
+
+// Loaded on demand — the modal pulls in Mapbox search widgets that most
+// pages rendering a picker never need.
+const SuggestLocationModal = dynamic(
+  () => import("@/components/locations/SuggestLocationModal"),
+  { ssr: false }
+);
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -110,6 +119,11 @@ export default function LocationPicker({
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Crowdsourced-suggestion entry points — role-holders only (the submit API
+  // is requireRoleHolder-gated; hiding the affordance avoids teasing a 403).
+  const { hasAnyRole } = usePermissions();
+  const [suggest, setSuggest] = useState<{ mode: "edit" | "new"; name?: string } | null>(null);
 
   // Resolve the selected location's detail (incl. fields) when locationId changes.
   useEffect(() => {
@@ -302,10 +316,19 @@ export default function LocationPicker({
             }
           />
         )}
+        {hasAnyRole && !compact && (
+          <button
+            type="button"
+            onClick={() => setSuggest({ mode: "edit" })}
+            className="block text-xs text-muted-foreground hover:text-primary underline underline-offset-2 transition-colors"
+          >
+            Suggest an edit / report a problem
+          </button>
+        )}
       </div>
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, selectedLoc, field, fieldIsOfficial, officialFields, compact]);
+  }, [mode, selectedLoc, field, fieldIsOfficial, officialFields, compact, hasAnyRole]);
 
   // ── Custom: free-form location + field, framed as an "unverified" chip ──
   // Mirrors the SelectedBlock pill so freeform vs official is legible at a glance.
@@ -399,6 +422,19 @@ export default function LocationPicker({
                 >
                   Use a custom location instead →
                 </button>
+                {hasAnyRole && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      setSuggest({ mode: "new", name: debouncedQuery });
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-elevated border-t border-border/50 text-muted-foreground"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    Can&apos;t find it? Suggest a new location
+                  </button>
+                )}
               </>
             ) : (
               <>
@@ -426,6 +462,19 @@ export default function LocationPicker({
                 >
                   Use a custom location instead →
                 </button>
+                {hasAnyRole && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      setSuggest({ mode: "new", name: debouncedQuery });
+                    }}
+                    className="w-full text-left px-3 py-2 text-xs hover:bg-elevated border-t border-border/50 text-muted-foreground"
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    Can&apos;t find it? Suggest a new location
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -433,12 +482,25 @@ export default function LocationPicker({
       </div>
     ) : null;
 
+  const SuggestModal = suggest ? (
+    <SuggestLocationModal
+      open
+      onOpenChange={(o) => {
+        if (!o) setSuggest(null);
+      }}
+      mode={suggest.mode}
+      locationId={suggest.mode === "edit" ? locationId : null}
+      initialName={suggest.name}
+    />
+  ) : null;
+
   if (compact) {
     return (
       <span className="inline-flex items-center gap-1 align-middle">
         {SelectedBlock}
         {SearchingBlock}
         {CustomBlock}
+        {SuggestModal}
       </span>
     );
   }
@@ -449,6 +511,7 @@ export default function LocationPicker({
       {SearchingBlock}
       {CustomBlock}
       {!hideNotice && <FieldAvailabilityNotice />}
+      {SuggestModal}
     </div>
   );
 }

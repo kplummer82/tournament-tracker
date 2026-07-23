@@ -175,6 +175,27 @@ export async function requireAdmin(
   return session;
 }
 
+/**
+ * Require a session that holds at least one scoped role (team_manager,
+ * league_admin, ...) or is a system admin. Gates location suggestions:
+ * any-authenticated-user is NOT enough. Client-side parity is
+ * usePermissions().hasAnyRole.
+ */
+export async function requireRoleHolder(
+  req: NextApiRequest,
+  res: NextApiResponse
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+  if (session.user.role === "admin") return session;
+
+  const roles = await getUserRoles(session.user.id);
+  if (roles.length > 0) return session;
+
+  res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
 // --------------- Scoped Access Helpers ---------------
 
 /**

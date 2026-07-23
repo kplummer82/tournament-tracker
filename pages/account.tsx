@@ -3,6 +3,7 @@ import type { GetServerSideProps } from "next";
 import Header from "@/components/Header";
 import MfaSection from "@/components/account/MfaSection";
 import TrustedDevices from "@/components/account/TrustedDevices";
+import MySuggestions from "@/components/account/MySuggestions";
 import { getSessionForRequest } from "@/lib/auth/server";
 
 interface Props {
@@ -52,6 +53,7 @@ export default function AccountPage({ name, email }: Props) {
         <div className="space-y-6">
           <MfaSection onChanged={() => setDevicesKey((k) => k + 1)} />
           <TrustedDevices refreshKey={devicesKey} />
+          <MySuggestions />
         </div>
       </main>
     </div>

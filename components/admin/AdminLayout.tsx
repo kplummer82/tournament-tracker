@@ -4,7 +4,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
 
-type AdminTab = "dashboard" | "users" | "roles" | "brackets" | "governing-bodies" | "locations" | "bats" | "simulations" | "apis";
+type AdminTab = "dashboard" | "users" | "roles" | "brackets" | "governing-bodies" | "locations" | "suggestions" | "bats" | "simulations" | "apis";
 
 const TAB_CONFIG: { value: AdminTab; label: string; href: string }[] = [
   { value: "dashboard", label: "Dashboard", href: "/admin/dashboard" },
@@ -13,6 +13,7 @@ const TAB_CONFIG: { value: AdminTab; label: string; href: string }[] = [
   { value: "brackets", label: "System Brackets", href: "/admin/brackets" },
   { value: "governing-bodies", label: "Governing Bodies", href: "/admin/governing-bodies" },
   { value: "locations", label: "Locations", href: "/admin/locations" },
+  { value: "suggestions", label: "Suggestions", href: "/admin/suggestions" },
   { value: "bats", label: "Bats", href: "/admin/bats" },
   { value: "simulations", label: "Simulations", href: "/admin/simulations" },
   { value: "apis", label: "APIs", href: "/admin/apis" },

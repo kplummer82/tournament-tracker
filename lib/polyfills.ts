@@ -1,5 +1,8 @@
 if (typeof crypto !== "undefined" && !crypto.randomUUID) {
-  crypto.randomUUID = () => {
+  // Cast the whole function: with both DOM and Node type declarations in the
+  // program, randomUUID's type is an overload set that a plain arrow function
+  // (returning string) isn't assignable to.
+  crypto.randomUUID = (() => {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -7,8 +10,6 @@ if (typeof crypto !== "undefined" && !crypto.randomUUID) {
     const hex = [...bytes]
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}` as ReturnType<
-      typeof crypto.randomUUID
-    >;
-  };
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }) as typeof crypto.randomUUID;
 }

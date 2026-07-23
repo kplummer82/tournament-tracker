@@ -25,6 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       scenariosResult,
       bracketsResult,
       settingsResult,
+      suggestionsResult,
     ] = await Promise.all([
       // 1. Users
       sql`SELECT
@@ -88,6 +89,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // 12. Settings
       sql`SELECT key, value FROM app_settings WHERE key IN ('max_simulations', 'require_user_approval')`,
+
+      // 13. Pending location suggestions
+      sql`SELECT COUNT(*) FILTER (WHERE status = 'pending')::int AS pending FROM location_suggestions`,
     ]);
 
     // Parse users
@@ -211,6 +215,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       settings: {
         maxSimulations,
         requireApproval,
+      },
+      locationSuggestions: {
+        pending: suggestionsResult[0]?.pending ?? 0,
       },
     });
   } catch (err: unknown) {
