@@ -87,6 +87,7 @@ type League = {
   state: string | null;
   governing_body_id: number | null;
   governing_body_name: string | null;
+  governing_body_other: string | null;
   sportid: number | null;
   sport: string | null;
   division_count: number;
@@ -98,7 +99,64 @@ type SportRow = { id: number; name: string };
 const INPUT = "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 const BTN_BASE = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-100 border";
 
-type EditForm = { name: string; abbreviation: string; city: string; state: string; governing_body_id: string; sportid: string };
+type EditForm = { name: string; abbreviation: string; city: string; state: string; governing_body_id: string; governing_body_other: string; sportid: string };
+
+// Sentinel values for the governing-body selector (non-numeric so they never collide with a body id).
+const GB_UNAFFILIATED = "unaffiliated";
+const GB_OTHER = "other";
+
+// Translate the selector value + typed "Other" name into an API payload.
+function govBodyPayload(selectValue: string, otherText: string): { governing_body_id: number | null; governing_body_other: string | null } {
+  if (selectValue === GB_OTHER) {
+    return { governing_body_id: null, governing_body_other: otherText.trim() || null };
+  }
+  if (selectValue === GB_UNAFFILIATED || selectValue === "") {
+    return { governing_body_id: null, governing_body_other: null };
+  }
+  return { governing_body_id: Number(selectValue), governing_body_other: null };
+}
+
+// Derive the selector value from a stored league: real body id, "other", or "unaffiliated".
+function govBodySelectValue(l: Pick<League, "governing_body_id" | "governing_body_other">): string {
+  if (l.governing_body_id) return String(l.governing_body_id);
+  if (l.governing_body_other) return GB_OTHER;
+  return GB_UNAFFILIATED;
+}
+
+// Required governing-body selector + conditional free-text for "Other". Shared by create + edit forms.
+function GovBodyField({
+  value, otherValue, onValueChange, onOtherChange, govBodies,
+}: {
+  value: string;
+  otherValue: string;
+  onValueChange: (v: string) => void;
+  onOtherChange: (v: string) => void;
+  govBodies: GovBody[];
+}) {
+  return (
+    <>
+      <select className={INPUT} required value={value} onChange={(e) => onValueChange(e.target.value)}>
+        <option value="" disabled>Governing body *</option>
+        <option value={GB_UNAFFILIATED}>Unaffiliated (self-governing)</option>
+        <option value={GB_OTHER}>Other (not listed)…</option>
+        {govBodies.map((g) => (
+          <option key={g.id} value={String(g.id)}>
+            {g.abbreviation ? `${g.abbreviation} – ${g.name}` : g.name}
+          </option>
+        ))}
+      </select>
+      {value === GB_OTHER && (
+        <input
+          className={INPUT}
+          placeholder="Governing body name *"
+          value={otherValue}
+          onChange={(e) => onOtherChange(e.target.value)}
+          required
+        />
+      )}
+    </>
+  );
+}
 
 export default function LeaguesPage() {
   const [leagues, setLeagues] = useState<League[]>([]);
@@ -106,7 +164,7 @@ export default function LeaguesPage() {
   const [govBodies, setGovBodies] = useState<GovBody[]>([]);
   const [sports, setSports] = useState<SportRow[]>([]);
   const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
+  const [form, setForm] = useState({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", governing_body_other: "", sportid: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
@@ -114,7 +172,7 @@ export default function LeaguesPage() {
 
   // Edit state
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
+  const [editForm, setEditForm] = useState<EditForm>({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", governing_body_other: "", sportid: "" });
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -133,15 +191,20 @@ export default function LeaguesPage() {
   const createLeague = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) return;
+    if (form.governing_body_id === GB_OTHER && !form.governing_body_other.trim()) {
+      setError("Enter the governing body name, or choose Unaffiliated.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
+      const gbFields = govBodyPayload(form.governing_body_id, form.governing_body_other);
       const body: Record<string, unknown> = {
         name: form.name.trim(),
         abbreviation: form.abbreviation.trim() || null,
         city: form.city.trim() || null,
         state: form.state.trim() || null,
-        governing_body_id: form.governing_body_id ? Number(form.governing_body_id) : null,
+        ...gbFields,
         sportid: form.sportid ? Number(form.sportid) : null,
       };
       const res = await fetch("/api/leagues", {
@@ -151,10 +214,10 @@ export default function LeaguesPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to create");
-      const gb = govBodies.find((g) => g.id === body.governing_body_id);
+      const gb = govBodies.find((g) => g.id === gbFields.governing_body_id);
       const sp = sports.find((s) => s.id === body.sportid);
-      setLeagues((prev) => [{ ...json, governing_body_name: gb?.name ?? null, sport: sp?.name ?? null, division_count: 0 }, ...prev]);
-      setForm({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", sportid: "" });
+      setLeagues((prev) => [{ ...json, governing_body_name: gb?.name ?? null, governing_body_other: gbFields.governing_body_other, sport: sp?.name ?? null, division_count: 0 }, ...prev]);
+      setForm({ name: "", abbreviation: "", city: "", state: "", governing_body_id: "", governing_body_other: "", sportid: "" });
       setShowCreate(false);
     } catch (e: any) {
       setError(e.message);
@@ -187,7 +250,8 @@ export default function LeaguesPage() {
       abbreviation: league.abbreviation ?? "",
       city: league.city ?? "",
       state: league.state ?? "",
-      governing_body_id: league.governing_body_id ? String(league.governing_body_id) : "",
+      governing_body_id: govBodySelectValue(league),
+      governing_body_other: league.governing_body_other ?? "",
       sportid: league.sportid ? String(league.sportid) : "",
     });
     setEditError(null);
@@ -201,9 +265,14 @@ export default function LeaguesPage() {
 
   const handleEditSave = async (id: number) => {
     if (!editForm.name.trim()) return;
+    if (editForm.governing_body_id === GB_OTHER && !editForm.governing_body_other.trim()) {
+      setEditError("Enter the governing body name, or choose Unaffiliated.");
+      return;
+    }
     setEditSaving(true);
     setEditError(null);
     try {
+      const gbFields = govBodyPayload(editForm.governing_body_id, editForm.governing_body_other);
       const res = await fetch(`/api/leagues/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -212,7 +281,7 @@ export default function LeaguesPage() {
           abbreviation: editForm.abbreviation.trim() || null,
           city: editForm.city.trim() || null,
           state: editForm.state.trim() || null,
-          governing_body_id: editForm.governing_body_id ? Number(editForm.governing_body_id) : null,
+          ...gbFields,
           sportid: editForm.sportid ? Number(editForm.sportid) : null,
         }),
       });
@@ -231,6 +300,7 @@ export default function LeaguesPage() {
                 state: json.state,
                 governing_body_id: json.governing_body_id,
                 governing_body_name: newGb?.name ?? null,
+                governing_body_other: json.governing_body_other ?? null,
                 sportid: json.sportid ?? null,
                 sport: newSport?.name ?? null,
               }
@@ -245,17 +315,19 @@ export default function LeaguesPage() {
     }
   };
 
-  // Group leagues by governing body
+  // Group leagues by governing body: a listed body groups by its name, an "Other" league
+  // groups under its typed name, and Unaffiliated leagues fall into a single bucket sorted last.
   const grouped = leagues.reduce<Record<string, { label: string | null; items: League[] }>>((acc, l) => {
-    const key = l.governing_body_name ?? "__none__";
-    if (!acc[key]) acc[key] = { label: l.governing_body_name, items: [] };
+    const groupName = l.governing_body_name ?? l.governing_body_other ?? null;
+    const key = groupName ?? "__unaffiliated__";
+    if (!acc[key]) acc[key] = { label: groupName, items: [] };
     acc[key].items.push(l);
     return acc;
   }, {});
 
   const groups = Object.entries(grouped).sort(([a], [b]) => {
-    if (a === "__none__") return 1;
-    if (b === "__none__") return -1;
+    if (a === "__unaffiliated__") return 1;
+    if (b === "__unaffiliated__") return -1;
     return a.localeCompare(b);
   });
 
@@ -305,18 +377,13 @@ export default function LeaguesPage() {
               <input className={INPUT} placeholder="Abbreviation (e.g. SMYB)" value={form.abbreviation} onChange={(e) => setForm((p) => ({ ...p, abbreviation: e.target.value }))} />
               <input className={INPUT} placeholder="City" value={form.city} onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))} />
               <StateCombobox className={INPUT} value={form.state} onChange={(v) => setForm((p) => ({ ...p, state: v }))} />
-              <select
-                className={INPUT}
+              <GovBodyField
                 value={form.governing_body_id}
-                onChange={(e) => setForm((p) => ({ ...p, governing_body_id: e.target.value }))}
-              >
-                <option value="">Governing body (optional)</option>
-                {govBodies.map((g) => (
-                  <option key={g.id} value={String(g.id)}>
-                    {g.abbreviation ? `${g.abbreviation} – ${g.name}` : g.name}
-                  </option>
-                ))}
-              </select>
+                otherValue={form.governing_body_other}
+                onValueChange={(v) => setForm((p) => ({ ...p, governing_body_id: v }))}
+                onOtherChange={(v) => setForm((p) => ({ ...p, governing_body_other: v }))}
+                govBodies={govBodies}
+              />
               <select
                 className={INPUT}
                 value={form.sportid}
@@ -355,7 +422,7 @@ export default function LeaguesPage() {
                     className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground"
                     style={{ fontFamily: "var(--font-body)" }}
                   >
-                    {group.label ?? "Independent"}
+                    {group.label ?? "Unaffiliated"}
                   </span>
                 </div>
                 <div className="space-y-2">
@@ -390,18 +457,13 @@ export default function LeaguesPage() {
                               value={editForm.state}
                               onChange={(v) => setEditForm((p) => ({ ...p, state: v }))}
                             />
-                            <select
-                              className={INPUT}
+                            <GovBodyField
                               value={editForm.governing_body_id}
-                              onChange={(e) => setEditForm((p) => ({ ...p, governing_body_id: e.target.value }))}
-                            >
-                              <option value="">Governing body (optional)</option>
-                              {govBodies.map((g) => (
-                                <option key={g.id} value={String(g.id)}>
-                                  {g.abbreviation ? `${g.abbreviation} – ${g.name}` : g.name}
-                                </option>
-                              ))}
-                            </select>
+                              otherValue={editForm.governing_body_other}
+                              onValueChange={(v) => setEditForm((p) => ({ ...p, governing_body_id: v }))}
+                              onOtherChange={(v) => setEditForm((p) => ({ ...p, governing_body_other: v }))}
+                              govBodies={govBodies}
+                            />
                             <select
                               className={INPUT}
                               value={editForm.sportid}

@@ -20,6 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           l.governing_body_id,
           gb.name        AS governing_body_name,
           gb.abbreviation AS governing_body_abbreviation,
+          l.governing_body_other,
           s.id           AS sportid,
           s.sportname    AS sport,
           to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
@@ -62,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireLeagueAccess(req, res, id);
       if (!session) return;
 
-      const { name, abbreviation, city, state, governing_body_id, sportid } = req.body ?? {};
+      const { name, abbreviation, city, state, governing_body_id, governing_body_other, sportid } = req.body ?? {};
       const gbId = governing_body_id !== undefined
         ? (governing_body_id === null || governing_body_id === "" ? null : Number(governing_body_id))
         : undefined;
@@ -72,21 +73,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const abbrProvided = "abbreviation" in (req.body ?? {});
       const cityProvided = "city" in (req.body ?? {});
       const stateProvided = "state" in (req.body ?? {});
+      const otherProvided = "governing_body_other" in (req.body ?? {});
       const newAbbr = abbrProvided ? (abbreviation?.trim() || null) : null;
       const newCity = cityProvided ? (city?.trim() || null) : null;
       const newState = stateProvided ? (state?.trim() || null) : null;
+      // A listed governing body wins; otherwise keep the typed "Other" name (or null = Unaffiliated).
+      const newOther = (gbId !== undefined && gbId !== null)
+        ? null
+        : (otherProvided ? (governing_body_other?.trim() || null) : undefined);
 
       const rows = await sql`
         UPDATE leagues
         SET
-          name              = COALESCE(${name?.trim() ?? null}, name),
-          abbreviation      = CASE WHEN ${abbrProvided} THEN ${newAbbr} ELSE abbreviation END,
-          city              = CASE WHEN ${cityProvided} THEN ${newCity} ELSE city END,
-          state             = CASE WHEN ${stateProvided} THEN ${newState} ELSE state END,
-          governing_body_id = CASE WHEN ${gbId !== undefined} THEN ${gbId ?? null} ELSE governing_body_id END,
-          sportid           = CASE WHEN ${sId !== undefined} THEN ${sId ?? null} ELSE sportid END
+          name                 = COALESCE(${name?.trim() ?? null}, name),
+          abbreviation         = CASE WHEN ${abbrProvided} THEN ${newAbbr} ELSE abbreviation END,
+          city                 = CASE WHEN ${cityProvided} THEN ${newCity} ELSE city END,
+          state                = CASE WHEN ${stateProvided} THEN ${newState} ELSE state END,
+          governing_body_id    = CASE WHEN ${gbId !== undefined} THEN ${gbId ?? null} ELSE governing_body_id END,
+          governing_body_other = CASE WHEN ${newOther !== undefined} THEN ${newOther ?? null} ELSE governing_body_other END,
+          sportid              = CASE WHEN ${sId !== undefined} THEN ${sId ?? null} ELSE sportid END
         WHERE id = ${id}
-        RETURNING id, name, abbreviation, city, state, governing_body_id, sportid,
+        RETURNING id, name, abbreviation, city, state, governing_body_id, governing_body_other, sportid,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       if (!rows.length) return res.status(404).json({ error: "Not found" });

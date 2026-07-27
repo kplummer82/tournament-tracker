@@ -12,16 +12,22 @@ CREATE TABLE governing_bodies (
 );
 
 -- 2. Leagues (e.g., San Marcos Youth Baseball)
---    governing_body_id is nullable — leagues can exist without a governing body
+--    governing_body_id is nullable — leagues can exist without a governing body.
+--    Affiliation is a three-state choice made at create/edit time:
+--      governing_body_id set                        -> affiliated with a listed body
+--      both null                                    -> Unaffiliated (self-governing)
+--      governing_body_id null + governing_body_other -> "Other": a body not in our list,
+--                                                       named free-text on the league
 CREATE TABLE leagues (
-  id                SERIAL PRIMARY KEY,
-  governing_body_id INT REFERENCES governing_bodies(id) ON DELETE SET NULL,
-  name              TEXT NOT NULL,
-  abbreviation      TEXT,
-  city              TEXT,
-  state             TEXT,
-  sportid           INT REFERENCES sport(id) ON DELETE SET NULL,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                   SERIAL PRIMARY KEY,
+  governing_body_id    INT REFERENCES governing_bodies(id) ON DELETE SET NULL,
+  governing_body_other TEXT,
+  name                 TEXT NOT NULL,
+  abbreviation         TEXT,
+  city                 TEXT,
+  state                TEXT,
+  sportid              INT REFERENCES sport(id) ON DELETE SET NULL,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- 3. League divisions (e.g., Mustang, Pinto, Bronco)

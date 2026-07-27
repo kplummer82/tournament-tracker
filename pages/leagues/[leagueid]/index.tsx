@@ -16,6 +16,7 @@ type League = {
   governing_body_id: number | null;
   governing_body_name: string | null;
   governing_body_abbreviation: string | null;
+  governing_body_other: string | null;
   sportid: number | null;
   sport: string | null;
 };
@@ -427,7 +428,7 @@ export default function LeagueDetailPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-3 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                {league.governing_body_name && <span>{league.governing_body_name}</span>}
+                <span>{league.governing_body_name ?? league.governing_body_other ?? "Unaffiliated"}</span>
                 {[league.city, league.state].filter(Boolean).join(", ") && (
                   <span>{[league.city, league.state].filter(Boolean).join(", ")}</span>
                 )}

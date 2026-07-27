@@ -27,6 +27,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -44,6 +45,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -61,6 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -80,6 +83,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -97,6 +101,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -114,6 +119,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -132,6 +138,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -149,6 +156,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -166,6 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -184,6 +193,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -200,6 +210,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -216,6 +227,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               l.id, l.name, l.abbreviation, l.city, l.state,
               l.governing_body_id,
               gb.name AS governing_body_name,
+              l.governing_body_other,
               l.sportid,
               s.sportname AS sport,
               to_char(l.created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
@@ -235,25 +247,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireSession(req, res);
       if (!session) return;
 
-      const { name, abbreviation, city, state, governing_body_id, sportid } = req.body ?? {};
+      const { name, abbreviation, city, state, governing_body_id, governing_body_other, sportid } = req.body ?? {};
       if (!name?.trim()) {
         return res.status(400).json({ error: "name is required" });
       }
       const gbId = governing_body_id ? Number(governing_body_id) : null;
+      // A listed governing body wins; otherwise keep the typed "Other" name (or null = Unaffiliated).
+      const gbOther = gbId ? null : (governing_body_other?.trim() || null);
       const sId = sportid ? Number(sportid) : null;
 
       const inserted = await sql`
-        INSERT INTO leagues (name, abbreviation, city, state, governing_body_id, sportid, created_by)
+        INSERT INTO leagues (name, abbreviation, city, state, governing_body_id, governing_body_other, sportid, created_by)
         VALUES (
           ${name.trim()},
           ${abbreviation?.trim() ?? null},
           ${city?.trim() ?? null},
           ${state?.trim() ?? null},
           ${gbId},
+          ${gbOther},
           ${sId},
           ${session.user.id}
         )
-        RETURNING id, name, abbreviation, city, state, governing_body_id, sportid,
+        RETURNING id, name, abbreviation, city, state, governing_body_id, governing_body_other, sportid,
           to_char(created_at, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at
       `;
       const newLeague = inserted[0];
