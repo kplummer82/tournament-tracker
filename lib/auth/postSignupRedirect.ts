@@ -14,11 +14,16 @@ export interface PostSignupRedirectOptions {
  *
  *   intent  | status='active'                | status='inactive'
  *  ---------|--------------------------------|---------------------------
- *   follower | /find or /tournaments         | /login?registered=1
- *   coach    | /welcome/coach                | /welcome/coach (banner)
+ *   follower | /find or /tournaments         | /welcome/pending
+ *   coach    | /welcome/coach                | /welcome/pending
  *   league_operator       | /leagues/new      | /welcome/pending
  *   tournament_organizer  | /tournaments/new  | /welcome/pending
- *   null    | /                              | /login?registered=1
+ *   null    | /                              | /welcome/pending
+ *
+ * Any inactive (awaiting-approval) user — regardless of persona — lands on the
+ * single canonical /welcome/pending screen, which renders the exact same
+ * component AuthGate shows on later visits. This is what keeps the message
+ * consistent between "right after signup" and "navigate back before approval".
  */
 export function postSignupRedirect(
   intent: SignupIntent | null,
@@ -27,24 +32,25 @@ export function postSignupRedirect(
 ): string {
   const { findPageExists = false } = options;
 
+  // Awaiting approval — one screen for everyone.
+  if (status === "inactive") return "/welcome/pending";
+
   if (intent === "follower") {
-    if (status === "inactive") return "/login?registered=1";
     return findPageExists ? "/find" : "/tournaments";
   }
 
   if (intent === "coach") {
-    // Coach welcome page handles both active and inactive cases internally
     return "/welcome/coach";
   }
 
   if (intent === "league_operator") {
-    return status === "inactive" ? "/welcome/pending" : "/leagues/new";
+    return "/leagues/new";
   }
 
   if (intent === "tournament_organizer") {
-    return status === "inactive" ? "/welcome/pending" : "/tournaments/new";
+    return "/tournaments/new";
   }
 
   // Unknown intent (null / older signup / write failed) — fall back
-  return status === "inactive" ? "/login?registered=1" : "/";
+  return "/";
 }

@@ -79,14 +79,14 @@ export default function AdminUsersClient() {
     }
   };
 
-  const setRole = async (userId: string, role: "admin" | "user") => {
-    setUpdatingId(userId);
+  const setRole = async (user: UserRow, role: "admin" | "user") => {
+    setUpdatingId(user.id);
     try {
-      const res = await fetch(`/api/admin/users/${userId}/role`, {
+      const res = await fetch(`/api/admin/users/${user.id}/role`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ role }),
+        body: JSON.stringify({ role, email: user.email, name: user.name }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -100,15 +100,15 @@ export default function AdminUsersClient() {
     }
   };
 
-  const toggleStatus = async (userId: string, currentStatus: string) => {
-    setUpdatingId(userId);
+  const toggleStatus = async (user: UserRow, currentStatus: string) => {
+    setUpdatingId(user.id);
     const newStatus = currentStatus === "active" ? "inactive" : "active";
     try {
-      const res = await fetch(`/api/admin/users/${userId}/status`, {
+      const res = await fetch(`/api/admin/users/${user.id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, email: user.email, name: user.name }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -216,7 +216,7 @@ export default function AdminUsersClient() {
                     </td>
                     <td className="p-3">
                       <button
-                        onClick={() => toggleStatus(u.id, userStatus)}
+                        onClick={() => toggleStatus(u, userStatus)}
                         disabled={isUpdating}
                         className="inline-flex items-center gap-1.5 text-xs font-medium disabled:opacity-50"
                       >
@@ -240,7 +240,7 @@ export default function AdminUsersClient() {
                             variant="outline"
                             size="sm"
                             disabled={isUpdating}
-                            onClick={() => setRole(u.id, "user")}
+                            onClick={() => setRole(u, "user")}
                           >
                             {isUpdating ? "Updating…" : "Remove admin"}
                           </Button>
@@ -249,7 +249,7 @@ export default function AdminUsersClient() {
                             variant="default"
                             size="sm"
                             disabled={isUpdating}
-                            onClick={() => setRole(u.id, "admin")}
+                            onClick={() => setRole(u, "admin")}
                           >
                             {isUpdating ? "Updating…" : "Make admin"}
                           </Button>

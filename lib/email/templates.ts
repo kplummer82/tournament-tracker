@@ -55,10 +55,20 @@ export function inviteEmail(params: {
   invitedByName: string;
   /** Human label for what they're being invited to, e.g. "the Spring 2026 season". */
   scopeLabel: string;
+  /**
+   * When true, the destination site requires admin approval for new accounts.
+   * Sets expectations so the email matches what the invitee sees after signup:
+   * they'll land on a "pending approval" screen, not immediate access.
+   */
+  requiresApproval?: boolean;
 }): EmailContent {
-  const { inviteUrl, invitedByName, scopeLabel } = params;
+  const { inviteUrl, invitedByName, scopeLabel, requiresApproval } = params;
 
   const subject = `${invitedByName} invited you to ${scopeLabel} on Stacked Bench`;
+
+  const approvalNoteHtml = requiresApproval
+    ? `<p style="margin:0 0 24px;color:#71717a;font-size:13px;">New accounts are reviewed by an administrator before access is granted. After you sign up you'll see a "pending approval" screen, and we'll email you the moment you're approved.</p>`
+    : "";
 
   const html = shell(`
     <p style="margin:0 0 16px;"><strong>${esc(invitedByName)}</strong> has invited you to join
@@ -67,14 +77,62 @@ export function inviteEmail(params: {
     <p style="margin:0 0 24px;">
       <a href="${esc(inviteUrl)}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;">Accept invitation</a>
     </p>
+    ${approvalNoteHtml}
     <p style="margin:0;color:#71717a;font-size:13px;">If the button doesn't work, paste this link into your browser:<br>
     <a href="${esc(inviteUrl)}" style="color:${BRAND};word-break:break-all;">${esc(inviteUrl)}</a></p>
   `);
+
+  const approvalNoteText = requiresApproval
+    ? `\nNew accounts are reviewed by an administrator before access is granted. After you sign up you'll see a "pending approval" screen, and we'll email you the moment you're approved.\n`
+    : "";
 
   const text = `${invitedByName} has invited you to join ${scopeLabel} on Stacked Bench.
 
 Accept the invitation and set up your account:
 ${inviteUrl}
+${approvalNoteText}`;
+
+  return { subject, html, text };
+}
+
+/**
+ * Approval email — sent when an admin activates a previously-inactive account.
+ * Backs the "we'll email you when you're approved" promise on the pending
+ * screen. `scopeLabel` names an entity the user was just granted (e.g. via a
+ * pending invite accepted on approval), when applicable.
+ */
+export function approvedEmail(params: {
+  appUrl: string;
+  name?: string;
+  scopeLabel?: string;
+}): EmailContent {
+  const { appUrl, name, scopeLabel } = params;
+  const loginUrl = `${appUrl.replace(/\/$/, "")}/login`;
+
+  const subject = "You're approved — welcome to Stacked Bench";
+
+  const scopeLineHtml = scopeLabel
+    ? `<p style="margin:0 0 16px;">You now have access to <strong>${esc(scopeLabel)}</strong>.</p>`
+    : "";
+
+  const html = shell(`
+    <p style="margin:0 0 16px;">${name ? `Hi ${esc(name)},` : "Good news —"}</p>
+    <p style="margin:0 0 16px;">An administrator has approved your Stacked Bench account. You now have full access.</p>
+    ${scopeLineHtml}
+    <p style="margin:0 0 24px;">
+      <a href="${esc(loginUrl)}" style="display:inline-block;background:${BRAND};color:#ffffff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:8px;">Log in</a>
+    </p>
+    <p style="margin:0;color:#71717a;font-size:13px;">If the button doesn't work, paste this link into your browser:<br>
+    <a href="${esc(loginUrl)}" style="color:${BRAND};word-break:break-all;">${esc(loginUrl)}</a></p>
+  `);
+
+  const scopeLineText = scopeLabel ? `\nYou now have access to ${scopeLabel}.\n` : "";
+
+  const text = `${name ? `Hi ${name},` : "Good news —"}
+
+An administrator has approved your Stacked Bench account. You now have full access.
+${scopeLineText}
+Log in: ${loginUrl}
 `;
 
   return { subject, html, text };

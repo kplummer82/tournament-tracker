@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireAdmin } from "@/lib/auth/requireSession";
-import { sql } from "@/lib/db";
+import { activateUser } from "@/lib/auth/activation";
 
 function getOrigin(req: NextApiRequest): string {
   const proto = req.headers["x-forwarded-proto"] ?? "http";
@@ -45,11 +45,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!authRes.ok) {
       return res.status(authRes.status).json(data);
     }
-    // Activate: set user status to 'active' so they can access the app
+    // Granting a role implies approval — activate the user (and run the
+    // approval side effects: accept pending invites + send the approval email
+    // on a real inactive→active transition). Non-fatal: the role grant above
+    // already succeeded, so a failure here must not turn into an error.
     try {
-      await sql`UPDATE user_profiles SET status = 'active', updated_at = NOW() WHERE user_id = ${id}`;
-    } catch {
-      // Non-fatal — table may not exist yet
+      await activateUser({ req, userId: id, email: body.email, name: body.name });
+    } catch (e) {
+      console.error("[admin set role] activation failed", e);
     }
     return res.status(200).json(data);
   } catch (err) {

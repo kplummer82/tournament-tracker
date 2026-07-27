@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { SignupIntent } from "@/lib/auth/permissions";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 
 const INPUT_STYLE =
   "w-full border border-border bg-input px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
@@ -24,6 +25,8 @@ interface Props {
   prefilledEmail?: string;
   onChangeIntent: () => void;
   onSubmit: (values: { name: string; email: string; password: string }) => Promise<void>;
+  /** Start a Google signup, carrying the chosen persona through the OAuth handoff. */
+  onGoogle?: () => void;
   loading: boolean;
   error: string | null;
 }
@@ -33,6 +36,7 @@ export function CredentialsForm({
   prefilledEmail,
   onChangeIntent,
   onSubmit,
+  onGoogle,
   loading,
   error,
 }: Props) {
@@ -138,6 +142,22 @@ export function CredentialsForm({
           {loading ? "Creating account…" : SUBMIT_LABEL[intent]}
         </button>
       </form>
+
+      {onGoogle && (
+        <>
+          <div className="flex items-center gap-3 my-5">
+            <div className="h-px flex-1 bg-border" />
+            <span
+              className="text-[10px] tracking-[0.12em] uppercase text-muted-foreground"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              or
+            </span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <GoogleSignInButton onClick={onGoogle} disabled={loading} label="Sign up with Google" />
+        </>
+      )}
     </div>
   );
 }

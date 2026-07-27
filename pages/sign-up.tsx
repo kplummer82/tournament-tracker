@@ -165,6 +165,23 @@ export default function SignUpPage() {
     window.location.href = target;
   };
 
+  // Start a Google signup. The chosen persona rides through the OAuth handoff in
+  // the callbackURL; /auth/oauth-complete persists it and routes like email.
+  const handleGoogle = async () => {
+    if (!intent) return;
+    setError(null);
+    try {
+      const callbackURL = `${window.location.origin}/auth/oauth-complete?intent=${encodeURIComponent(intent)}`;
+      const res = await authClient.signIn.social({ provider: "google", callbackURL });
+      const url = (res as { data?: { url?: string } } | undefined)?.data?.url;
+      const err = (res as { error?: { message?: string } } | undefined)?.error;
+      if (err) setError(err.message ?? "Google sign-in failed");
+      else if (url) window.location.href = url; // navigate if the client didn't already
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed");
+    }
+  };
+
   const showPicker = !intent;
 
   return (
@@ -249,6 +266,9 @@ export default function SignUpPage() {
             prefilledEmail={invite?.email}
             onChangeIntent={() => setIntent(null)}
             onSubmit={handleSubmit}
+            // Invite signups keep the email locked to the invited address, so
+            // Google (which brings its own account email) isn't offered there.
+            onGoogle={inviteToken ? undefined : handleGoogle}
             loading={loading}
             error={error}
           />

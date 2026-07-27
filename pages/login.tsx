@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { authClient } from "@/lib/auth/client";
+import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
 
 const INPUT_STYLE =
   "w-full border border-border bg-input px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
@@ -32,6 +33,31 @@ export default function LoginPage() {
   }, []);
 
   const registered = router.query.registered === "1";
+
+  const rawCallback =
+    typeof router.query.callbackUrl === "string" &&
+    router.query.callbackUrl.startsWith("/") &&
+    !router.query.callbackUrl.startsWith("//")
+      ? router.query.callbackUrl
+      : null;
+
+  // Google sign-in for returning users. Routes through /auth/oauth-complete so a
+  // brand-new Google account is still seeded (approval/MFA) and persona-routed;
+  // the intended post-login target rides along as ?next.
+  const handleGoogle = async () => {
+    setError(null);
+    try {
+      const params = rawCallback ? `?next=${encodeURIComponent(rawCallback)}` : "";
+      const callbackURL = `${window.location.origin}/auth/oauth-complete${params}`;
+      const res = await authClient.signIn.social({ provider: "google", callbackURL });
+      const url = (res as { data?: { url?: string } } | undefined)?.data?.url;
+      const err = (res as { error?: { message?: string } } | undefined)?.error;
+      if (err) setError(err.message ?? "Google sign-in failed");
+      else if (url) window.location.href = url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Google sign-in failed");
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,7 +210,7 @@ export default function LoginPage() {
 
           {registered && (
             <p className="mb-5 text-sm text-success border border-success/30 bg-success/10 px-3 py-2" style={{ fontFamily: "var(--font-body)" }}>
-              Account created. Sign in below.
+              Account created. If we sent you a verification email, confirm it first — then sign in below.
             </p>
           )}
 
@@ -227,6 +253,18 @@ export default function LoginPage() {
               {loading ? "Signing in…" : "Sign In"}
             </button>
           </form>
+
+          <div className="flex items-center gap-3 my-5">
+            <div className="h-px flex-1 bg-border" />
+            <span
+              className="text-[10px] tracking-[0.12em] uppercase text-muted-foreground"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              or
+            </span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <GoogleSignInButton onClick={handleGoogle} disabled={loading} />
 
           <p className="mt-6 text-sm text-muted-foreground text-center" style={{ fontFamily: "var(--font-body)" }}>
             Don&apos;t have an account?{" "}

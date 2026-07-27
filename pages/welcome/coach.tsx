@@ -2,41 +2,31 @@ import Header from "@/components/Header";
 import Link from "next/link";
 import type { GetServerSideProps } from "next";
 import { getSessionForRequest } from "@/lib/auth/server";
-import { getUserStatus } from "@/lib/auth/profile";
 
 interface Props {
   email: string;
-  status: "active" | "inactive";
 }
 
+// Only active coaches reach this page — inactive (awaiting-approval) users are
+// routed to /welcome/pending by postSignupRedirect and short-circuited by
+// AuthGate, so there is no pending state to handle here.
 export const getServerSideProps: GetServerSideProps<Props> = async ({ req }) => {
   const session = await getSessionForRequest(req as any);
   if (!session?.user) {
     return { redirect: { destination: "/login", permanent: false } };
   }
-  const status = await getUserStatus(session.user.id);
   return {
     props: {
       email: session.user.email ?? "",
-      status,
     },
   };
 };
 
-export default function CoachWelcome({ email, status }: Props) {
+export default function CoachWelcome({ email }: Props) {
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-1 mx-auto max-w-2xl w-full px-6 py-16">
-        {status === "inactive" && (
-          <div
-            className="mb-8 border border-primary/30 bg-primary/10 text-foreground px-4 py-3 text-sm"
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            Your account is awaiting approval before you can be added to a team.
-          </div>
-        )}
-
         <h1
           className="mb-3"
           style={{

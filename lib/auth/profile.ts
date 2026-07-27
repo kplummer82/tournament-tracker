@@ -49,6 +49,32 @@ export async function setUserSignupIntent(
 }
 
 /**
+ * Ensure a user_profiles row exists, seeding approval-aware status if it's
+ * brand new. Idempotent (ON CONFLICT DO NOTHING) so an existing row — and its
+ * status — is never disturbed.
+ *
+ * This is the OAuth safety net: Google/social logins don't traverse the
+ * email `sign-up` path that creates the row in the auth proxy, so without this
+ * an OAuth user would have no row and "no row = active" would let them bypass
+ * both the approval gate and MFA. Called from /auth/oauth-complete, which every
+ * OAuth login is routed through.
+ */
+export async function ensureUserProfile(userId: string): Promise<void> {
+  await sql`
+    INSERT INTO user_profiles (user_id, status)
+    VALUES (
+      ${userId},
+      COALESCE(
+        (SELECT CASE WHEN value = 'true' THEN 'inactive' ELSE 'active' END
+         FROM app_settings WHERE key = 'require_user_approval' LIMIT 1),
+        'active'
+      )
+    )
+    ON CONFLICT (user_id) DO NOTHING
+  `;
+}
+
+/**
  * Read the status for a user. Returns 'active' if no row exists
  * (matches isUserInactive's "no row = active" posture in requireSession).
  */

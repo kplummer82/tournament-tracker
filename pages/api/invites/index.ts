@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { requireSession } from "@/lib/auth/requireSession";
+import { requireSession, isApprovalRequired } from "@/lib/auth/requireSession";
 import { sql } from "@/lib/db";
 import {
   getUserRoles,
@@ -136,7 +136,8 @@ async function createInvite(req: NextApiRequest, res: NextApiResponse) {
   let emailId: string | undefined;
   let warning: string | undefined;
   try {
-    const content = inviteEmail({ inviteUrl, invitedByName, scopeLabel });
+    const requiresApproval = await isApprovalRequired();
+    const content = inviteEmail({ inviteUrl, invitedByName, scopeLabel, requiresApproval });
     const result = await sendEmail({ to: normalizedEmail, ...content });
     emailId = result.id;
   } catch (e: any) {

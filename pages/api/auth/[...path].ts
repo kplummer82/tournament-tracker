@@ -112,8 +112,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Do NOT forward content-length or content-encoding: fetch() already
     // decompresses the body, so forwarding these causes the browser to
     // misinterpret the (already decoded) payload.
+    //
+    // `location` IS forwarded: the OAuth callback (GET /api/auth/callback/<provider>)
+    // completes with a 302 to the callbackURL, and without its Location header the
+    // social sign-in redirect silently breaks. Non-redirect auth responses are
+    // JSON and carry no Location, so this is safe for every other path.
     const forwardHeaders = [
-      "content-type", "date",
+      "content-type", "date", "location",
       "x-neon-ret-request-id", "set-auth-jwt", "set-auth-token"
     ];
     response.headers.forEach((value, key) => {

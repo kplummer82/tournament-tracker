@@ -1,8 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { requireSession } from "@/lib/auth/requireSession";
 import { sql } from "@/lib/db";
-import { assignRole, type AppRole, type ScopeType } from "@/lib/auth/permissions";
-import { scopeRedirectPath } from "@/lib/invites";
+import { type ScopeType } from "@/lib/auth/permissions";
+import { scopeRedirectPath, grantInvite, type GrantableInvite } from "@/lib/invites";
 
 /**
  * POST /api/invites/accept  — Body: { token }
@@ -45,35 +45,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    await assignRole(
-      session.user.id,
-      invite.role as AppRole,
-      invite.scope_type as ScopeType,
-      Number(invite.scope_id),
-      invite.invited_by
-    );
-
-    await sql`
-      UPDATE invites
-      SET status = 'accepted', accepted_at = NOW(), accepted_by = ${session.user.id}
-      WHERE id = ${invite.id} AND status = 'pending'
-    `;
+    await grantInvite(session.user.id, invite as GrantableInvite);
   } catch (e: any) {
     console.error("[invites] accept failed", e);
     return res.status(500).json({ error: e.message || "Failed to accept invite" });
-  }
-
-  // Auto-follow the entity they were just granted access to, so it shows up in
-  // their "My …" lists. scope_type matches user_follows.entity_type 1:1.
-  // Best-effort: a follow failure must not fail the (already-granted) accept.
-  try {
-    await sql`
-      INSERT INTO user_follows (user_id, entity_type, entity_id)
-      VALUES (${session.user.id}, ${invite.scope_type}, ${Number(invite.scope_id)})
-      ON CONFLICT DO NOTHING
-    `;
-  } catch (e) {
-    console.error("[invites] auto-follow failed", e);
   }
 
   const redirect = await scopeRedirectPath(
