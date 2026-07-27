@@ -1,5 +1,7 @@
 // Returns all teams eligible to be added to a given season:
-// teams belonging to the same league as the season that are not already enrolled.
+// any team not already enrolled in this season. teams.league_id is a "home league"
+// label only, not an enrollment gate — a team may play in another league's season
+// (e.g. a travel team). league_id/league_name are returned so the picker can show it.
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 
@@ -17,10 +19,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       SELECT t.teamid AS id, t.name, t.league_id, l.name AS league_name
       FROM teams t
       LEFT JOIN leagues l ON l.id = t.league_id
-      WHERE t.league_id = (
-        SELECT league_id FROM seasons WHERE id = ${seasonId}
-      )
-      AND t.teamid NOT IN (
+      WHERE t.teamid NOT IN (
         SELECT st.team_id FROM season_teams st WHERE st.season_id = ${seasonId}
       )
       ORDER BY t.name ASC

@@ -47,29 +47,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: "teamIds array is required" });
       }
 
-      // Determine the league that owns this season
-      const seasonRows = await sql`
-        SELECT league_id FROM seasons WHERE id = ${seasonId}
-      `;
-      if (!seasonRows.length) return res.status(404).json({ error: "Season not found" });
-      const leagueId = seasonRows[0].league_id;
-
       const ids = teamIds.map((x: any) => Number(x)).filter((n) => Number.isFinite(n));
       const errors: string[] = [];
       let added = 0;
 
       for (const teamId of ids) {
-        // Validate team belongs to this league
+        // A team's league_id is only a "home league" label — enrollment is not gated
+        // on it, so any existing team may play in this season. Just confirm it exists.
         const teamRows = await sql`
-          SELECT teamid, name, league_id FROM teams WHERE teamid = ${teamId}
+          SELECT teamid FROM teams WHERE teamid = ${teamId}
         `;
         if (!teamRows.length) {
           errors.push(`Team ${teamId} not found`);
-          continue;
-        }
-        const team = teamRows[0];
-        if (team.league_id !== leagueId) {
-          errors.push(`Team "${team.name}" is not affiliated with this league`);
           continue;
         }
 

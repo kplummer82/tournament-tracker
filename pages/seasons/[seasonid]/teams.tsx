@@ -38,6 +38,7 @@ function TeamsBody() {
   const [addIds, setAddIds] = useState<Set<number>>(new Set());
   const [adding, setAdding] = useState(false);
   const [addErr, setAddErr] = useState<string | null>(null);
+  const [addFilter, setAddFilter] = useState("");
 
   // Coach assignment
   const [leagueCoaches, setLeagueCoaches] = useState<LeagueCoach[]>([]);
@@ -141,6 +142,7 @@ function TeamsBody() {
     setShowCreate(false);
     setAddIds(new Set());
     setAddErr(null);
+    setAddFilter("");
   };
 
   const openCreate = () => {
@@ -376,12 +378,30 @@ function TeamsBody() {
           )}
           {options.length === 0 ? (
             <p className="text-sm text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-              No eligible teams available. Use <strong>New Team</strong> to create teams for this league.
+              No teams available to add. Every team is already enrolled, or use <strong>New Team</strong> to create one.
             </p>
           ) : (
             <>
+              <input
+                type="text"
+                placeholder="Search teams…"
+                value={addFilter}
+                onChange={(e) => setAddFilter(e.target.value)}
+                className={cn(fieldCls, "w-full mb-2")}
+                style={{ fontFamily: "var(--font-body)" }}
+                autoFocus
+              />
               <div className="space-y-1.5 max-h-48 overflow-y-auto mb-3">
-                {options.map((o) => (
+                {options
+                  .filter((o) => {
+                    if (!addFilter.trim()) return true;
+                    const q = addFilter.toLowerCase();
+                    return (
+                      o.name.toLowerCase().includes(q) ||
+                      (o.league_name?.toLowerCase().includes(q) ?? false)
+                    );
+                  })
+                  .map((o) => (
                   <button
                     key={o.id}
                     type="button"
@@ -395,7 +415,10 @@ function TeamsBody() {
                     style={{ fontFamily: "var(--font-body)" }}
                   >
                     <input type="checkbox" checked={addIds.has(o.id)} readOnly className="accent-primary shrink-0" />
-                    {o.name}
+                    <span className="flex-1">{o.name}</span>
+                    <span className="text-[11px] text-muted-foreground shrink-0" style={{ fontFamily: "var(--font-body)" }}>
+                      {o.league_name ?? "—"}
+                    </span>
                   </button>
                 ))}
               </div>
