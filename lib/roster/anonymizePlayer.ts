@@ -35,6 +35,12 @@ export type AnonymizeInput = {
   deletedByName?: string | null;
   requestedBy?: string | null;
   reason?: string | null;
+  /**
+   * Optional shared id grouping every row anonymized in one bulk request, so a
+   * cross-team deletion is auditable as a single event. Single-team callers
+   * leave it undefined and the log row's request_id stays NULL.
+   */
+  requestId?: string | null;
 };
 
 /**
@@ -53,7 +59,7 @@ export async function anonymizePlayer(
   | { alreadyDeleted: true }
   | { notFound: true }
 > {
-  const { rosterId, teamId, deletedBy, deletedByName, requestedBy, reason } = input;
+  const { rosterId, teamId, deletedBy, deletedByName, requestedBy, reason, requestId } = input;
 
   const updated = await client.query(
     `UPDATE public.team_roster
@@ -82,9 +88,9 @@ export async function anonymizePlayer(
 
   await client.query(
     `INSERT INTO public.player_deletion_log
-       (roster_id, teamid, deleted_by, deleted_by_name, requested_by, reason)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [rosterId, teamId, deletedBy, deletedByName ?? null, requestedBy ?? null, reason ?? null]
+       (roster_id, teamid, deleted_by, deleted_by_name, requested_by, reason, request_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [rosterId, teamId, deletedBy, deletedByName ?? null, requestedBy ?? null, reason ?? null, requestId ?? null]
   );
 
   return { ok: true, player: updated.rows[0] as AnonymizedRoster };

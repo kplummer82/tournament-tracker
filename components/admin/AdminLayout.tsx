@@ -4,12 +4,13 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { cn } from "@/lib/utils";
 
-type AdminTab = "dashboard" | "users" | "roles" | "brackets" | "governing-bodies" | "locations" | "suggestions" | "bats" | "simulations" | "apis";
+type AdminTab = "dashboard" | "users" | "roles" | "players" | "brackets" | "governing-bodies" | "locations" | "suggestions" | "bats" | "simulations" | "apis";
 
 const TAB_CONFIG: { value: AdminTab; label: string; href: string }[] = [
   { value: "dashboard", label: "Dashboard", href: "/admin/dashboard" },
   { value: "users", label: "User Management", href: "/admin/users" },
   { value: "roles", label: "Role Management", href: "/admin/roles" },
+  { value: "players", label: "Players", href: "/admin/players" },
   { value: "brackets", label: "System Brackets", href: "/admin/brackets" },
   { value: "governing-bodies", label: "Governing Bodies", href: "/admin/governing-bodies" },
   { value: "locations", label: "Locations", href: "/admin/locations" },
