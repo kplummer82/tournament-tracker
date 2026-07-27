@@ -9,7 +9,18 @@ import { cn } from "@/lib/utils";
 type CoachRef = { id: number; first_name: string; last_name: string };
 
 // API returns { id, name, league_id, league_name, coaches } (id = teamid)
-type TeamRow = { id: number; name: string; league_id: number | null; league_name: string | null; coaches: CoachRef[] };
+// The add-teams options endpoint additionally returns season/year/division_label
+// to disambiguate teams that share a name.
+type TeamRow = {
+  id: number;
+  name: string;
+  league_id: number | null;
+  league_name: string | null;
+  coaches: CoachRef[];
+  season?: string | null;
+  year?: number | null;
+  division_label?: string | null;
+};
 
 type LeagueCoach = { id: number; first_name: string; last_name: string; phone: string | null; team_count: number };
 
@@ -396,18 +407,31 @@ function TeamsBody() {
                   .filter((o) => {
                     if (!addFilter.trim()) return true;
                     const q = addFilter.toLowerCase();
-                    return (
-                      o.name.toLowerCase().includes(q) ||
-                      (o.league_name?.toLowerCase().includes(q) ?? false)
-                    );
+                    const hay = [
+                      o.name,
+                      o.league_name,
+                      o.division_label,
+                      o.season,
+                      o.year != null ? String(o.year) : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
+                      .toLowerCase();
+                    return hay.includes(q);
                   })
-                  .map((o) => (
+                  .map((o) => {
+                    const meta = [
+                      o.division_label,
+                      [o.season, o.year].filter(Boolean).join(" ") || null,
+                      o.league_name,
+                    ].filter(Boolean).join(" · ");
+                    return (
                   <button
                     key={o.id}
                     type="button"
                     onClick={() => toggleId(o.id)}
                     className={cn(
-                      "w-full text-left px-3 py-2 text-sm border transition-colors duration-100 flex items-center gap-2",
+                      "w-full text-left px-3 py-2 text-sm border transition-colors duration-100 flex items-center gap-3",
                       addIds.has(o.id)
                         ? "border-primary bg-primary/10 text-foreground"
                         : "border-border hover:border-primary/40 hover:bg-elevated text-foreground"
@@ -415,12 +439,17 @@ function TeamsBody() {
                     style={{ fontFamily: "var(--font-body)" }}
                   >
                     <input type="checkbox" checked={addIds.has(o.id)} readOnly className="accent-primary shrink-0" />
-                    <span className="flex-1">{o.name}</span>
-                    <span className="text-[11px] text-muted-foreground shrink-0" style={{ fontFamily: "var(--font-body)" }}>
-                      {o.league_name ?? "—"}
+                    <span className="flex-1 min-w-0">
+                      <span className="block truncate">{o.name}</span>
+                      {meta && (
+                        <span className="block text-[11px] text-muted-foreground truncate" style={{ fontFamily: "var(--font-body)" }}>
+                          {meta}
+                        </span>
+                      )}
                     </span>
                   </button>
-                ))}
+                    );
+                  })}
               </div>
               <button
                 type="button"
