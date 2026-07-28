@@ -72,7 +72,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (result.games.length > 0) {
       await Promise.all(
         result.games.map(g => sql`
-          INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field)
+          INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field, location_id, season_venue_id)
           VALUES (
             ${seasonId},
             ${g.gamedate}::date,
@@ -81,7 +81,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             ${g.away},
             'regular',
             ${g.location || null},
-            ${g.field || null}
+            ${g.field || null},
+            ${g.location_id ?? null},
+            ${g.season_venue_id ?? null}
           )
         `)
       );

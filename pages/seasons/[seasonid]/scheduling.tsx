@@ -1,5 +1,6 @@
 // pages/seasons/[seasonid]/scheduling.tsx
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
+import Link from "next/link";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import {
@@ -29,6 +30,7 @@ import {
 import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
 import type { LocationPickerValue } from "@/components/LocationPicker";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
+import type { VenueDTO } from "@/components/venues/types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,7 @@ interface DraftSlot {
   fieldName: string;
   fieldLocation: string;
   locationId: number | null;
+  seasonVenueId: number | null;
   home: Team | null;
   away: Team | null;
 }
@@ -226,11 +229,15 @@ function SchedulingRules({
   setConfig,
   onSave,
   saving,
+  venues,
+  seasonId,
 }: {
   config: ScheduleConfig;
   setConfig: (c: ScheduleConfig) => void;
   onSave: () => Promise<void>;
   saving: boolean;
+  venues: VenueDTO[] | null;
+  seasonId: number | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [newBlackout, setNewBlackout] = useState('');
@@ -468,13 +475,53 @@ function SchedulingRules({
                                   onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
                                   className="bg-transparent text-xs focus:outline-none w-[100px]" />
                                 <span className="text-muted-foreground/40 select-none">|</span>
-                                <LocationPicker
-                                  compact
-                                  locationId={gs.locationId ?? null}
-                                  location={gs.fieldLocation}
-                                  field={gs.fieldName}
-                                  onChange={(val: LocationPickerValue) => updateSlotOnDay(dow, i, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })}
-                                />
+                                {venues && venues.length > 0 ? (
+                                  <>
+                                    <select
+                                      value={gs.seasonVenueId ?? ''}
+                                      onChange={e => {
+                                        const raw = e.target.value;
+                                        if (!raw) {
+                                          updateSlotOnDay(dow, i, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' });
+                                          return;
+                                        }
+                                        const v = venues.find(x => x.id === Number(raw));
+                                        if (!v) return;
+                                        updateSlotOnDay(dow, i, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
+                                      }}
+                                      className={cn(FIELD_INPUT, "bg-transparent w-36")}
+                                    >
+                                      <option value="">— Venue —</option>
+                                      {venues.map(v => (
+                                        <option key={v.id} value={v.id}>{v.name}</option>
+                                      ))}
+                                    </select>
+                                    {(() => {
+                                      const sv = venues.find(x => x.id === (gs.seasonVenueId ?? -1));
+                                      return (
+                                        <select
+                                          value={gs.fieldName}
+                                          disabled={!sv || sv.fields.length === 0}
+                                          onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                          className={cn(FIELD_INPUT, "bg-transparent w-[120px] disabled:opacity-50")}
+                                        >
+                                          <option value="">{sv && sv.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                                          {sv?.fields.map(f => (
+                                            <option key={f.id} value={f.name}>{f.name}</option>
+                                          ))}
+                                        </select>
+                                      );
+                                    })()}
+                                  </>
+                                ) : (
+                                  <LocationPicker
+                                    compact
+                                    locationId={gs.locationId ?? null}
+                                    location={gs.fieldLocation}
+                                    field={gs.fieldName}
+                                    onChange={(val: LocationPickerValue) => updateSlotOnDay(dow, i, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })}
+                                  />
+                                )}
                                 <button type="button" onClick={() => removeSlotFromDay(dow, i)}><X className="h-3 w-3" /></button>
                               </span>
                             ))}
@@ -501,7 +548,15 @@ function SchedulingRules({
             return (
               <div className="flex items-center justify-between gap-2 pt-1">
                 <span className="text-[10px] text-muted-foreground">
-                  {customCount > 0
+                  {venues != null && venues.length === 0 && seasonId != null ? (
+                    <>
+                      No venues set up for this season —{' '}
+                      <Link className="text-primary underline" href={`/seasons/${seasonId}/venues`}>
+                        set up venues
+                      </Link>{' '}
+                      to pick them per slot.
+                    </>
+                  ) : customCount > 0
                     ? `${customCount} slot${customCount === 1 ? '' : 's'} use${customCount === 1 ? 's' : ''} a custom location — click the search icon on a slot to link it to the official directory.`
                     : ''}
                 </span>
@@ -1201,6 +1256,7 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
         location: s.fieldLocation || undefined,
         field: s.fieldName || undefined,
         location_id: s.locationId || undefined,
+        season_venue_id: s.seasonVenueId || undefined,
       }));
       const res = await fetch(`/api/seasons/${seasonId}/games/bulk`, {
         method: 'POST',
@@ -1972,8 +2028,20 @@ function SchedulingBody() {
   const [playedCount, setPlayedCount] = useState(0);
   const [mode, setMode] = useState<'assign' | 'block'>('assign');
   const [travel, setTravel] = useState<{ drivingMinutes: Record<string, number>; changeoverMinutes: number } | null>(null);
+  // Season venues for slot pickers; null = loading, [] = none configured.
+  const [venues, setVenues] = useState<VenueDTO[] | null>(null);
   const slotsRef = useRef(slots);
   slotsRef.current = slots;
+
+  useEffect(() => {
+    if (!seasonId) return;
+    let cancelled = false;
+    fetch(`/api/seasons/${seasonId}/venues`)
+      .then(r => r.json())
+      .then(d => { if (!cancelled) setVenues(Array.isArray(d.venues) ? d.venues : []); })
+      .catch(() => { if (!cancelled) setVenues([]); });
+    return () => { cancelled = true; };
+  }, [seasonId]);
 
   useEffect(() => {
     if (season?.schedule_config) setConfig(normalizeScheduleConfig(season.schedule_config));
@@ -2014,6 +2082,7 @@ function SchedulingBody() {
                   fieldName,
                   fieldLocation,
                   locationId,
+                  seasonVenueId: g.season_venue_id ?? null,
                   home: teamMap.get(g.home) ?? null,
                   away: teamMap.get(g.away) ?? null,
                 };
@@ -2115,6 +2184,7 @@ function SchedulingBody() {
       fieldName: s.field.name,
       fieldLocation: s.field.location,
       locationId: s.field.locationId ?? null,
+      seasonVenueId: s.field.seasonVenueId ?? null,
       home: null,
       away: null,
     })));
@@ -2187,6 +2257,8 @@ function SchedulingBody() {
           setConfig={setConfig}
           onSave={handleSaveRules}
           saving={saving}
+          venues={venues}
+          seasonId={seasonId}
         />
       )}
 

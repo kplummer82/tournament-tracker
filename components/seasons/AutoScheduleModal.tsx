@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { X, Plus, CalendarDays, ChevronLeft, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ScheduleConfig, DayRule, GameTimeSlot, ScheduleResult } from "@/lib/auto-schedule";
 import { normalizeScheduleConfig } from "@/lib/auto-schedule";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
+import type { VenueDTO } from "@/components/venues/types";
 
 const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -41,6 +43,23 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newBlackout, setNewBlackout] = useState('');
+
+  // Season venues for slot pickers. null = still loading; [] = none configured
+  // (slots then fall back to free-text location/field inputs).
+  const [venues, setVenues] = useState<VenueDTO[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/seasons/${seasonId}/venues`);
+        const json = await res.json();
+        if (!cancelled) setVenues(Array.isArray(json.venues) ? json.venues : []);
+      } catch {
+        if (!cancelled) setVenues([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [seasonId]);
 
   // ── Config helpers ────────────────────────────────────────────────────────
 
@@ -266,8 +285,17 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                 <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-3">
                   Day Rules
                 </h3>
-                {/* Slot location/field are plain inputs here — no picker to carry the notice */}
+                {/* Slots use venue/field selects when season venues exist; free-text otherwise */}
                 <FieldAvailabilityNotice className="mb-3" />
+                {venues != null && venues.length === 0 && (
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    No venues set up for this season.{' '}
+                    <Link className="text-primary underline" href={`/seasons/${seasonId}/venues`}>
+                      Set up venues
+                    </Link>{' '}
+                    to pick them per slot, or type location/field names below.
+                  </p>
+                )}
                 <div className="space-y-2">
                   {([0, 1, 2, 3, 4, 5, 6] as DayRule['dayOfWeek'][]).map(dow => {
                     const enabled = isDayEnabled(dow);
@@ -356,20 +384,67 @@ export default function AutoScheduleModal({ seasonId, initialConfig, onClose, on
                                       className="bg-transparent text-xs focus:outline-none w-[100px]"
                                     />
                                     <span className="text-muted-foreground/40 select-none">|</span>
-                                    <input
-                                      type="text"
-                                      placeholder="Location"
-                                      value={gs.fieldLocation}
-                                      onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
-                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-36"
-                                    />
-                                    <input
-                                      type="text"
-                                      placeholder="Field"
-                                      value={gs.fieldName}
-                                      onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
-                                      className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-[120px]"
-                                    />
+                                    {venues && venues.length > 0 ? (
+                                      <>
+                                        <select
+                                          value={gs.seasonVenueId ?? ''}
+                                          onChange={e => {
+                                            const raw = e.target.value;
+                                            if (!raw) {
+                                              updateSlotOnDay(dow, i, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' });
+                                              return;
+                                            }
+                                            const v = venues.find(x => x.id === Number(raw));
+                                            if (!v) return;
+                                            updateSlotOnDay(dow, i, {
+                                              seasonVenueId: v.id,
+                                              locationId: v.locationId,
+                                              fieldLocation: v.name,
+                                              fieldName: '',
+                                            });
+                                          }}
+                                          className="bg-transparent border border-border px-1 py-0.5 text-xs focus:outline-none focus:border-primary w-36"
+                                        >
+                                          <option value="">— Venue —</option>
+                                          {venues.map(v => (
+                                            <option key={v.id} value={v.id}>{v.name}</option>
+                                          ))}
+                                        </select>
+                                        {(() => {
+                                          const sv = venues.find(x => x.id === (gs.seasonVenueId ?? -1));
+                                          return (
+                                            <select
+                                              value={gs.fieldName}
+                                              disabled={!sv || sv.fields.length === 0}
+                                              onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                              className="bg-transparent border border-border px-1 py-0.5 text-xs focus:outline-none focus:border-primary w-[120px] disabled:opacity-50"
+                                            >
+                                              <option value="">{sv && sv.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                                              {sv?.fields.map(f => (
+                                                <option key={f.id} value={f.name}>{f.name}</option>
+                                              ))}
+                                            </select>
+                                          );
+                                        })()}
+                                      </>
+                                    ) : (
+                                      <>
+                                        <input
+                                          type="text"
+                                          placeholder="Location"
+                                          value={gs.fieldLocation}
+                                          onChange={e => updateSlotOnDay(dow, i, { fieldLocation: e.target.value })}
+                                          className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-36"
+                                        />
+                                        <input
+                                          type="text"
+                                          placeholder="Field"
+                                          value={gs.fieldName}
+                                          onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
+                                          className="bg-transparent border border-border px-1 text-xs focus:outline-none focus:border-primary w-[120px]"
+                                        />
+                                      </>
+                                    )}
                                     <button type="button" onClick={() => removeSlotFromDay(dow, i)}>
                                       <X className="h-3 w-3" />
                                     </button>

@@ -8,8 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import LocationPicker from "@/components/LocationPicker";
-import type { LocationPickerValue } from "@/components/LocationPicker";
+import VenuePicker from "@/components/venues/VenuePicker";
 import TournamentVenuePicker, {
   type TournamentVenuePickerValue,
 } from "@/components/tournaments/TournamentVenuePicker";
@@ -23,6 +22,7 @@ export type BracketGameRecord = {
   field: string | null;
   location_id: number | null;
   tournament_venue_id: number | null;
+  season_venue_id: number | null;
   home: number | null;
   away: number | null;
   home_team: string | null;
@@ -56,6 +56,9 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
   const [tournamentVenueId, setTournamentVenueId] = useState<number | null>(
     game.tournament_venue_id ?? null,
   );
+  const [seasonVenueId, setSeasonVenueId] = useState<number | null>(
+    game.season_venue_id ?? null,
+  );
   const [homescore, setHomescore] = useState(game.homescore != null ? String(game.homescore) : "");
   const [awayscore, setAwayscore] = useState(game.awayscore != null ? String(game.awayscore) : "");
   const [saving, setSaving] = useState(false);
@@ -79,6 +82,7 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
         field: field || null,
         location_id: locationId ?? null,
         tournament_venue_id: tournamentVenueId ?? null,
+        season_venue_id: seasonVenueId ?? null,
       };
       // Only include scores if both teams are assigned
       if (hasBothTeams) {
@@ -171,11 +175,12 @@ export default function BracketGameScheduleModal({ open, onOpenChange, game, sea
                 }}
               />
             ) : (
-              <LocationPicker
-                locationId={locationId}
-                location={location}
-                field={field}
-                onChange={(val: LocationPickerValue) => {
+              <VenuePicker
+                basePath={`/api/seasons/${seasonId}/venues`}
+                setupHref={`/seasons/${seasonId}/venues`}
+                value={{ venueId: seasonVenueId, locationId, location, field }}
+                onChange={(val) => {
+                  setSeasonVenueId(val.venueId);
                   setLocationId(val.locationId);
                   setLocation(val.location);
                   setField(val.field);

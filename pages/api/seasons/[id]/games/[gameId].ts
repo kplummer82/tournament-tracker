@@ -48,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if ("location" in body) sets.push(sql`location = ${body.location || null}`);
       if ("field" in body) sets.push(sql`field = ${body.field || null}`);
       if ("location_id" in body) sets.push(sql`location_id = ${body.location_id ? Number(body.location_id) : null}`);
+      if ("season_venue_id" in body) sets.push(sql`season_venue_id = ${body.season_venue_id ? Number(body.season_venue_id) : null}`);
 
       if (!sets.length) return res.status(400).json({ error: "No fields to update" });
 

@@ -1,14 +1,14 @@
-// components/tournaments/venues/VenueCard.tsx
+// components/venues/VenueCard.tsx
+// Scope-agnostic venue card. `basePath` is the venues API prefix, e.g.
+// `/api/tournaments/123/venues` or `/api/seasons/10/venues`.
 "use client";
 import { useState } from "react";
 import { Plus, X, Pencil, Check, Navigation } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { VenueDTO, VenueFieldDTO } from "@/lib/tournaments/venues";
-
-export type { VenueDTO, VenueFieldDTO };
+import type { VenueDTO } from "@/components/venues/types";
 
 interface Props {
-  tournamentId: number;
+  basePath: string;
   venue: VenueDTO;
   canEdit: boolean;
   onChanged: () => void; // re-fetch venues from parent
@@ -19,7 +19,7 @@ const INPUT =
 const CHIP =
   "inline-flex items-center gap-1 border border-border bg-input px-2 py-0.5 text-xs text-foreground";
 
-export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: Props) {
+export default function VenueCard({ basePath, venue, canEdit, onChanged }: Props) {
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(venue.name);
   const [addressDraft, setAddressDraft] = useState(venue.address ?? "");
@@ -42,7 +42,7 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/venues/${venue.id}`, {
+      const res = await fetch(`${basePath}/${venue.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: nameDraft, address: addressDraft }),
@@ -67,7 +67,7 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/venues/${venue.id}`, {
+      const res = await fetch(`${basePath}/${venue.id}`, {
         method: "DELETE",
       });
       if (!res.ok && res.status !== 204) throw new Error((await res.json()).error || "Delete failed");
@@ -85,14 +85,11 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/tournaments/${tournamentId}/venues/${venue.id}/fields`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: t }),
-        },
-      );
+      const res = await fetch(`${basePath}/${venue.id}/fields`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: t }),
+      });
       if (!res.ok) throw new Error((await res.json()).error || "Add field failed");
       setNewField("");
       onChanged();
@@ -107,10 +104,7 @@ export default function VenueCard({ tournamentId, venue, canEdit, onChanged }: P
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(
-        `/api/tournaments/${tournamentId}/venues/${venue.id}/fields/${fieldId}`,
-        { method: "DELETE" },
-      );
+      const res = await fetch(`${basePath}/${venue.id}/fields/${fieldId}`, { method: "DELETE" });
       if (!res.ok && res.status !== 204) throw new Error((await res.json()).error || "Delete field failed");
       onChanged();
     } catch (e: any) {

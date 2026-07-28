@@ -16,6 +16,7 @@ interface BulkGame {
   location?: string;
   field?: string;
   location_id?: number;
+  season_venue_id?: number;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -67,7 +68,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await Promise.all(
       valid.map(g => sql`
-        INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field, location_id, gamestatusid)
+        INSERT INTO season_games (season_id, gamedate, gametime, home, away, game_type, location, field, location_id, season_venue_id, gamestatusid)
         VALUES (
           ${seasonId},
           ${g.gamedate}::date,
@@ -78,6 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${g.location || null},
           ${g.field || null},
           ${g.location_id || null},
+          ${g.season_venue_id || null},
           1
         )
       `)

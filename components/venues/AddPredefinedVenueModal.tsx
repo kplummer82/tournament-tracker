@@ -1,4 +1,5 @@
-// components/tournaments/venues/AddPredefinedVenueModal.tsx
+// components/venues/AddPredefinedVenueModal.tsx
+// Scope-agnostic. `basePath` is the venues API prefix.
 "use client";
 import { useEffect, useState } from "react";
 import {
@@ -17,14 +18,14 @@ type LocOption = {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  tournamentId: number;
+  basePath: string;
   onCreated: () => void;
 }
 
 const INPUT =
   "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 
-export default function AddPredefinedVenueModal({ open, onOpenChange, tournamentId, onCreated }: Props) {
+export default function AddPredefinedVenueModal({ open, onOpenChange, basePath, onCreated }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<LocOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,7 +63,7 @@ export default function AddPredefinedVenueModal({ open, onOpenChange, tournament
     setSubmitting(locationId);
     setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/venues`, {
+      const res = await fetch(`${basePath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "predefined", locationId }),

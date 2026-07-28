@@ -1,4 +1,6 @@
-// components/tournaments/venues/AddCustomVenueModal.tsx
+// components/venues/AddCustomVenueModal.tsx
+// Scope-agnostic. `basePath` is the venues API prefix; `scopeNoun` tunes the
+// description copy ("tournament" | "season").
 "use client";
 import { useState } from "react";
 import {
@@ -10,7 +12,8 @@ import { cn } from "@/lib/utils";
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  tournamentId: number;
+  basePath: string;
+  scopeNoun?: string;
   onCreated: () => void;
 }
 
@@ -19,7 +22,7 @@ const INPUT =
 const CHIP =
   "inline-flex items-center gap-1 border border-border bg-input px-2 py-0.5 text-xs";
 
-export default function AddCustomVenueModal({ open, onOpenChange, tournamentId, onCreated }: Props) {
+export default function AddCustomVenueModal({ open, onOpenChange, basePath, scopeNoun = "tournament", onCreated }: Props) {
   const [name, setName] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
@@ -58,7 +61,7 @@ export default function AddCustomVenueModal({ open, onOpenChange, tournamentId, 
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/venues`, {
+      const res = await fetch(`${basePath}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -97,7 +100,7 @@ export default function AddCustomVenueModal({ open, onOpenChange, tournamentId, 
             Add Custom Venue
           </DialogTitle>
           <DialogDescription>
-            Lives only on this tournament. Not added to the locations directory.
+            Lives only on this {scopeNoun}. Not added to the locations directory.
           </DialogDescription>
         </DialogHeader>
 

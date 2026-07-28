@@ -6,6 +6,7 @@ export interface GameTimeSlot {
   fieldName: string;
   fieldLocation: string;
   locationId?: number | null;
+  seasonVenueId?: number | null; // season venue this slot's field belongs to
 }
 
 export interface DayRule {
@@ -20,6 +21,7 @@ export interface FieldConfig {
   name: string;
   location: string;
   locationId?: number | null;
+  seasonVenueId?: number | null;
 }
 
 export interface ScheduleConfig {
@@ -147,6 +149,7 @@ export interface GeneratedGame {
   location: string;
   field: string;
   location_id?: number | null;
+  season_venue_id?: number | null;
 }
 
 export interface ScheduleResult {
@@ -218,7 +221,7 @@ export function buildSlots(config: ScheduleConfig): Slot[] {
           slots.push({
             date: dateStr,
             time: gs.time,
-            field: { name: gs.fieldName, location: gs.fieldLocation, locationId: gs.locationId ?? null },
+            field: { name: gs.fieldName, location: gs.fieldLocation, locationId: gs.locationId ?? null, seasonVenueId: gs.seasonVenueId ?? null },
             rule,
           });
         }
@@ -567,6 +570,7 @@ export function generateSchedule(config: ScheduleConfig, teams: Team[]): Schedul
       location: slot.field.location,
       field: slot.field.name,
       location_id: slot.field.locationId ?? null,
+      season_venue_id: slot.field.seasonVenueId ?? null,
     });
 
     if (!teamsPerDate.has(slot.date)) teamsPerDate.set(slot.date, new Map());

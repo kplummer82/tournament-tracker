@@ -6,8 +6,8 @@ import Link from "next/link";
 import { Plus, Pencil, Trash2, Swords, X, ExternalLink, ChevronDown, SlidersHorizontal } from "lucide-react";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
-import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
-import type { LocationPickerValue } from "@/components/LocationPicker";
+import { LocationDisplay } from "@/components/LocationPicker";
+import VenuePicker from "@/components/venues/VenuePicker";
 
 // Games API returns: { id, gamedate, gametime, home (id), home_team (name), away (id), away_team (name), ... }
 type GameRow = {
@@ -25,6 +25,7 @@ type GameRow = {
   location: string | null;
   field: string | null;
   location_id: number | null;
+  season_venue_id: number | null;
   game_type: string;
   bracket_id: number | null;
   bracket_game_id: string | null;
@@ -52,12 +53,13 @@ type GameForm = {
   location: string;
   field: string;
   locationId: number | null;
+  seasonVenueId: number | null;
 };
 
 const BLANK_FORM: GameForm = {
   gamedate: "", gametime: "", home: "", away: "",
   homescore: "", awayscore: "", gamestatusid: "",
-  location: "", field: "", locationId: null,
+  location: "", field: "", locationId: null, seasonVenueId: null,
 };
 
 // Forfeit game status IDs
@@ -92,6 +94,7 @@ function GameFormPanel({
   onSave,
   onCancel,
   isEdit,
+  seasonId,
 }: {
   form: GameForm;
   setForm: React.Dispatch<React.SetStateAction<GameForm>>;
@@ -102,6 +105,7 @@ function GameFormPanel({
   onSave: () => void;
   onCancel: () => void;
   isEdit: boolean;
+  seasonId: number | null;
 }) {
   return (
     <div className="mb-5 p-4 border border-border bg-card space-y-3">
@@ -146,12 +150,19 @@ function GameFormPanel({
           {teams.map((t) => <option key={t.id} value={String(t.id)}>{t.name}</option>)}
         </select>
         <div className="col-span-2">
-          <LocationPicker
-            locationId={form.locationId}
-            location={form.location}
-            field={form.field}
-            onChange={(val: LocationPickerValue) => setForm((p) => ({ ...p, locationId: val.locationId, location: val.location, field: val.field }))}
-          />
+          {seasonId != null && (
+            <VenuePicker
+              basePath={`/api/seasons/${seasonId}/venues`}
+              setupHref={`/seasons/${seasonId}/venues`}
+              value={{
+                venueId: form.seasonVenueId,
+                locationId: form.locationId,
+                location: form.location,
+                field: form.field,
+              }}
+              onChange={(val) => setForm((p) => ({ ...p, seasonVenueId: val.venueId, locationId: val.locationId, location: val.location, field: val.field }))}
+            />
+          )}
         </div>
         <input
           className={INPUT}
@@ -203,6 +214,7 @@ function buildGamePayload(form: GameForm, extra: Record<string, unknown> = {}) {
     location: form.location || null,
     field: form.field || null,
     location_id: form.locationId ?? null,
+    season_venue_id: form.seasonVenueId ?? null,
     ...extra,
   };
 }
@@ -357,6 +369,7 @@ function ScheduleBody() {
       location: g.location ?? "",
       field: g.field ?? "",
       locationId: g.location_id ?? null,
+      seasonVenueId: g.season_venue_id ?? null,
     });
     setEditErr(null);
   };
@@ -420,6 +433,7 @@ function ScheduleBody() {
                   onSave={handleEdit}
                   onCancel={() => { setEditId(null); setEditErr(null); }}
                   isEdit
+                  seasonId={seasonId}
                 />
               </td>
             </tr>
@@ -786,6 +800,7 @@ function ScheduleBody() {
           onSave={handleAdd}
           onCancel={() => { setShowAdd(false); setAddErr(null); }}
           isEdit={false}
+          seasonId={seasonId}
         />
       )}
 
@@ -953,6 +968,7 @@ function ScheduleBody() {
                       onSave={handleEdit}
                       onCancel={() => { setEditId(null); setEditErr(null); }}
                       isEdit
+                      seasonId={seasonId}
                     />
                   )}
                 </div>

@@ -42,9 +42,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sg.game_type,
           sg.gamestatusid,
           gs.gamestatus AS gamestatus_label,
-          sg.location,
+          -- Venue display: a linked venue's name wins over the stored text label
+          -- so auto-scheduled games (which set only season_venue_id) still render.
+          COALESCE(l.name, sv.custom_name, sg.location) AS location,
           sg.field,
           sg.location_id,
+          sg.season_venue_id,
           sg.bracket_id,
           sg.bracket_game_id,
           sb.name AS bracket_name
@@ -53,6 +56,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         LEFT JOIN teams at ON at.teamid = sg.away
         LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
         LEFT JOIN season_brackets sb ON sb.id = sg.bracket_id
+        LEFT JOIN season_venues sv ON sv.id = sg.season_venue_id
+        LEFT JOIN locations l ON l.id = sv.location_id
         WHERE sg.season_id = ${seasonId}
           ${typeFilter}
           ${bracketFilter}
@@ -69,7 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         home, away, gamedate, gametime,
         homescore = null, awayscore = null,
         gamestatusid, game_type = "regular",
-        location = null, field = null, location_id = null,
+        location = null, field = null, location_id = null, season_venue_id = null,
         bracket_id = null, bracket_game_id = null,
       } = req.body ?? {};
 
@@ -83,7 +88,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         INSERT INTO season_games (
           season_id, gamedate, gametime, home, away,
           homescore, awayscore, game_type, gamestatusid,
-          location, field, location_id, bracket_id, bracket_game_id
+          location, field, location_id, season_venue_id, bracket_id, bracket_game_id
         )
         VALUES (
           ${seasonId},
@@ -98,6 +103,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ${location || null},
           ${field || null},
           ${location_id ? Number(location_id) : null},
+          ${season_venue_id ? Number(season_venue_id) : null},
           ${bracket_id ? Number(bracket_id) : null},
           ${bracket_game_id || null}
         )
@@ -114,7 +120,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const {
         id, home, away, gamedate, gametime,
         homescore = null, awayscore = null, gamestatusid,
-        location, field, location_id,
+        location, field, location_id, season_venue_id,
       } = req.body ?? {};
 
       if (!id) return res.status(400).json({ error: "id is required" });
@@ -133,7 +139,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           gamestatusid = ${gamestatusid != null && gamestatusid !== "" ? Number(gamestatusid) : null},
           location    = ${location !== undefined ? (location || null) : null},
           field       = ${field !== undefined ? (field || null) : null},
-          location_id = ${location_id !== undefined ? (location_id ? Number(location_id) : null) : null}
+          location_id = ${location_id !== undefined ? (location_id ? Number(location_id) : null) : null},
+          season_venue_id = ${season_venue_id !== undefined ? (season_venue_id ? Number(season_venue_id) : null) : null}
         WHERE id = ${Number(id)} AND season_id = ${seasonId}
         RETURNING id
       `;

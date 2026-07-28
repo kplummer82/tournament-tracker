@@ -3,11 +3,12 @@ import { useRouter } from "next/router";
 import { useEffect, useMemo } from "react";
 import { cn } from "@/lib/utils";
 
-export type SeasonTabKey = "overview" | "teams" | "schedule" | "standings" | "playoffs" | "tiebreakers" | "scenarios" | "scheduling";
+export type SeasonTabKey = "overview" | "teams" | "venues" | "schedule" | "standings" | "playoffs" | "tiebreakers" | "scenarios" | "scheduling";
 
 const items: { key: SeasonTabKey; label: string; path: (id: number) => string }[] = [
   { key: "overview",    label: "Overview",    path: (id) => `/seasons/${id}/overview` },
   { key: "teams",       label: "Teams",       path: (id) => `/seasons/${id}/teams` },
+  { key: "venues",      label: "Venues",      path: (id) => `/seasons/${id}/venues` },
   { key: "schedule",    label: "Results",     path: (id) => `/seasons/${id}/schedule` },
   { key: "standings",   label: "Standings",   path: (id) => `/seasons/${id}/standings` },
   { key: "playoffs",    label: "Playoffs",    path: (id) => `/seasons/${id}/playoffs` },
