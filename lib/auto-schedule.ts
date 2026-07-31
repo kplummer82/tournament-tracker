@@ -24,6 +24,24 @@ export interface FieldConfig {
   seasonVenueId?: number | null;
 }
 
+/**
+ * A manually-authored scheduling slot (used by the "manual" scheduling mode).
+ * Unlike auto slots — which are generated from recurring dayRules — each manual
+ * slot is an individually-created date/time/venue with optional team assignments.
+ * Team assignments are stored as ids so the config stays a plain serializable blob.
+ */
+export interface ManualSlot {
+  id: string;                    // stable id generated on create (for React keys + edits)
+  date: string;                  // "YYYY-MM-DD"
+  time: string;                  // "HH:MM"
+  fieldName: string;
+  fieldLocation: string;
+  locationId: number | null;
+  seasonVenueId: number | null;
+  homeId: number | null;
+  awayId: number | null;
+}
+
 export interface ScheduleConfig {
   firstGameDate: string;    // "YYYY-MM-DD"
   lastGameDate: string;     // "YYYY-MM-DD"
@@ -48,6 +66,11 @@ export interface ScheduleConfig {
   // by weekday, but a block is about one specific calendar slot, so blocks live here
   // keyed by a regeneration-stable slot key (see slotBlockKey).
   blockedSlots?: Record<string, number[]>;
+  // Which scheduling workspace the season uses. 'auto' (default) = rules-based
+  // generator; 'manual' = individually-authored slots (see manualSlots).
+  schedulingMode?: 'auto' | 'manual';
+  // Manually-authored slot library (only used when schedulingMode === 'manual').
+  manualSlots?: ManualSlot[];
 }
 
 /**
@@ -124,7 +147,36 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
         ? Number(config.gameDurationMinutes)
         : undefined,
     blockedSlots: normalizeBlockedSlots(config.blockedSlots),
+    schedulingMode: config.schedulingMode === 'manual' ? 'manual' : 'auto',
+    manualSlots: normalizeManualSlots(config.manualSlots),
   };
+}
+
+/** Clean a manualSlots array: coerce fields, drop entries missing a usable id. */
+function normalizeManualSlots(raw: unknown): ManualSlot[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ManualSlot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const s = item as Record<string, unknown>;
+    const id = typeof s.id === 'string' && s.id ? s.id : null;
+    const date = typeof s.date === 'string' ? s.date : '';
+    if (!id || !date) continue;
+    const toId = (v: unknown): number | null =>
+      v != null && Number.isFinite(Number(v)) ? Number(v) : null;
+    out.push({
+      id,
+      date,
+      time: typeof s.time === 'string' ? s.time : '',
+      fieldName: typeof s.fieldName === 'string' ? s.fieldName : '',
+      fieldLocation: typeof s.fieldLocation === 'string' ? s.fieldLocation : '',
+      locationId: toId(s.locationId),
+      seasonVenueId: toId(s.seasonVenueId),
+      homeId: toId(s.homeId),
+      awayId: toId(s.awayId),
+    });
+  }
+  return out;
 }
 
 /** Clean a blockedSlots map: dedupe + drop non-finite ids, drop empty entries. */
