@@ -9,6 +9,8 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  Pencil,
+  Plus,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -53,6 +55,20 @@ type Suggestion = {
 };
 
 type Detail = { suggestion: Suggestion; current: Snapshot | null; stale: boolean };
+
+// Editable form for approving a new-location suggestion "with edits". All
+// values are strings while editing; they're coerced back to the payload shape
+// when sending. `fields` is the working list of field names.
+type NewEditForm = {
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  latitude: string;
+  longitude: string;
+  fields: string[];
+};
 
 type Conflict =
   | { code: "stale" }
@@ -145,6 +161,8 @@ export default function AdminSuggestionsClient() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [details, setDetails] = useState<Record<number, Detail>>({});
   const [note, setNote] = useState("");
+  const [editForm, setEditForm] = useState<NewEditForm | null>(null);
+  const [newFieldText, setNewFieldText] = useState("");
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [actioning, setActioning] = useState<"approve" | "reject" | "reanalyze" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -196,6 +214,8 @@ export default function AdminSuggestionsClient() {
     setConflict(null);
     setActionError(null);
     setNote("");
+    setEditForm(null);
+    setNewFieldText("");
     if (expandedId === id) {
       setExpandedId(null);
       return;
@@ -203,6 +223,55 @@ export default function AdminSuggestionsClient() {
     setExpandedId(id);
     fetchDetail(id);
   };
+
+  // Open the editable form for a new-location suggestion, pre-filled with the
+  // submitter's proposed values.
+  const startEditNew = (s: Suggestion) => {
+    const p = s.payload ?? {};
+    setEditForm({
+      name: p.name ?? "",
+      address: p.address ?? "",
+      city: p.city ?? "",
+      state: p.state ?? "",
+      zip: p.zip ?? "",
+      latitude: p.latitude != null ? String(p.latitude) : "",
+      longitude: p.longitude != null ? String(p.longitude) : "",
+      fields: Array.isArray(p.fields) ? p.fields.map((f: unknown) => String(f)) : [],
+    });
+    setNewFieldText("");
+    setConflict(null);
+    setActionError(null);
+  };
+
+  const setEditField = (key: keyof Omit<NewEditForm, "fields">, value: string) =>
+    setEditForm((prev) => (prev ? { ...prev, [key]: value } : prev));
+
+  const addEditFieldName = () => {
+    const name = newFieldText.trim();
+    if (!name) return;
+    setEditForm((prev) =>
+      prev && !prev.fields.some((f) => f.toLowerCase() === name.toLowerCase())
+        ? { ...prev, fields: [...prev.fields, name] }
+        : prev
+    );
+    setNewFieldText("");
+  };
+
+  const removeEditFieldName = (name: string) =>
+    setEditForm((prev) => (prev ? { ...prev, fields: prev.fields.filter((f) => f !== name) } : prev));
+
+  // Coerce the string-based edit form into the new-payload shape the approve
+  // endpoint expects (empty text → null, numeric coords, trimmed fields).
+  const buildEdits = (f: NewEditForm) => ({
+    name: f.name.trim(),
+    address: f.address.trim() || null,
+    city: f.city.trim() || null,
+    state: f.state.trim() || null,
+    zip: f.zip.trim() || null,
+    latitude: f.latitude.trim() ? Number(f.latitude) : null,
+    longitude: f.longitude.trim() ? Number(f.longitude) : null,
+    fields: f.fields.map((x) => x.trim()).filter(Boolean),
+  });
 
   const startAiPolling = (id: number) => {
     if (pollRef.current) clearInterval(pollRef.current);
@@ -218,7 +287,12 @@ export default function AdminSuggestionsClient() {
     }, 2500);
   };
 
-  const act = async (id: number, action: "approve" | "reject", force = false) => {
+  const act = async (
+    id: number,
+    action: "approve" | "reject",
+    force = false,
+    edits: ReturnType<typeof buildEdits> | null = null
+  ) => {
     setActioning(action);
     setActionError(null);
     try {
@@ -226,7 +300,11 @@ export default function AdminSuggestionsClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(force ? { note: note || undefined, force: true } : { note: note || undefined }),
+        body: JSON.stringify({
+          note: note || undefined,
+          ...(force ? { force: true } : {}),
+          ...(edits ? { edits } : {}),
+        }),
       });
       if (res.status === 409) {
         const data = await res.json().catch(() => ({}));
@@ -245,6 +323,7 @@ export default function AdminSuggestionsClient() {
       setConflict(null);
       setExpandedId(null);
       setNote("");
+      setEditForm(null);
       await fetchList(statusFilter);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : "Action failed");
@@ -338,6 +417,83 @@ export default function AdminSuggestionsClient() {
             <span>{p.fields.join(", ")}</span>
           </div>
         ) : null}
+      </div>
+    );
+  };
+
+  // Editable form shown when the admin chooses to approve a new-location
+  // suggestion with changes. Mirrors the read-only proposal fields plus an
+  // editable field-name list.
+  const renderNewEditor = (f: NewEditForm) => {
+    const textInput = (
+      key: keyof Omit<NewEditForm, "fields">,
+      label: string,
+      placeholder = ""
+    ) => (
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        <input
+          value={f[key]}
+          onChange={(e) => setEditField(key, e.target.value)}
+          placeholder={placeholder}
+          className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm"
+        />
+      </label>
+    );
+    return (
+      <div className="space-y-3 rounded-md border border-primary/30 bg-primary/5 p-3">
+        <div className="text-xs font-medium text-muted-foreground">Editing before approval</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-2xl">
+          <div className="sm:col-span-2">{textInput("name", "Name")}</div>
+          <div className="sm:col-span-2">{textInput("address", "Address")}</div>
+          {textInput("city", "City")}
+          {textInput("state", "State")}
+          {textInput("zip", "ZIP")}
+          <div className="hidden sm:block" />
+          {textInput("latitude", "Latitude")}
+          {textInput("longitude", "Longitude")}
+        </div>
+        <div className="space-y-1.5">
+          <span className="text-xs text-muted-foreground">Fields</span>
+          <div className="flex flex-wrap gap-1.5">
+            {f.fields.length === 0 && (
+              <span className="text-xs text-muted-foreground italic">No fields</span>
+            )}
+            {f.fields.map((name) => (
+              <span
+                key={name}
+                className="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
+              >
+                {name}
+                <button
+                  type="button"
+                  onClick={() => removeEditFieldName(name)}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${name}`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-1.5 max-w-xs">
+            <input
+              value={newFieldText}
+              onChange={(e) => setNewFieldText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addEditFieldName();
+                }
+              }}
+              placeholder="Add a field…"
+              className="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm"
+            />
+            <Button size="sm" variant="outline" type="button" onClick={addEditFieldName}>
+              <Plus className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
       </div>
     );
   };
@@ -478,6 +634,10 @@ export default function AdminSuggestionsClient() {
             const isPending = s.status === "pending";
             const targetDeleted =
               (s.suggestion_type === "edit" || s.suggestion_type === "removal") && s.location_id == null;
+            // Approve-with-edits state (only for expanded new-location suggestions).
+            const editing = expanded && s.suggestion_type === "new" && editForm != null;
+            const edits = editing ? buildEdits(editForm!) : null;
+            const editInvalid = editing && !edits!.name;
             return (
               <div key={s.id} className="border border-border rounded-lg bg-card">
                 <button
@@ -526,7 +686,8 @@ export default function AdminSuggestionsClient() {
                     )}
 
                     {s.suggestion_type === "edit" && renderEditDiff(s, detail?.current ?? null)}
-                    {s.suggestion_type === "new" && renderNewProposal(s)}
+                    {s.suggestion_type === "new" &&
+                      (editing ? renderNewEditor(editForm!) : renderNewProposal(s))}
                     {s.suggestion_type === "removal" && renderRemoval(s)}
 
                     {s.reason && (
@@ -586,12 +747,15 @@ export default function AdminSuggestionsClient() {
                           rows={2}
                           className="w-full max-w-xl rounded-md border border-border bg-background px-3 py-2 text-sm"
                         />
+                        {editInvalid && (
+                          <div className="text-xs text-destructive">A name is required.</div>
+                        )}
                         <div className="flex flex-wrap gap-2">
                           {conflict && conflict.code !== "field_name_conflict" && conflict.code !== "target_deleted" ? (
                             <Button
                               size="sm"
-                              onClick={() => act(s.id, "approve", true)}
-                              disabled={actioning !== null}
+                              onClick={() => act(s.id, "approve", true, edits)}
+                              disabled={actioning !== null || editInvalid}
                             >
                               {actioning === "approve" ? (
                                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
@@ -603,17 +767,41 @@ export default function AdminSuggestionsClient() {
                           ) : (
                             <Button
                               size="sm"
-                              onClick={() => act(s.id, "approve")}
-                              disabled={actioning !== null || targetDeleted}
+                              onClick={() => act(s.id, "approve", false, edits)}
+                              disabled={actioning !== null || targetDeleted || editInvalid}
                             >
                               {actioning === "approve" ? (
                                 <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                               ) : (
                                 <Check className="w-4 h-4 mr-1" />
                               )}
-                              Approve &amp; apply
+                              {editing ? "Approve with edits" : "Approve & apply"}
                             </Button>
                           )}
+                          {s.suggestion_type === "new" &&
+                            (editing ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  setEditForm(null);
+                                  setNewFieldText("");
+                                }}
+                                disabled={actioning !== null}
+                              >
+                                Cancel edits
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => startEditNew(s)}
+                                disabled={actioning !== null}
+                              >
+                                <Pencil className="w-3.5 h-3.5 mr-1" />
+                                Edit before approving
+                              </Button>
+                            ))}
                           <Button
                             size="sm"
                             variant="outline"

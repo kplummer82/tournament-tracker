@@ -1,7 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql, pool } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
-import { isSnapshotStale, parsePayload, type LocationSnapshot } from "@/lib/suggestions/types";
+import {
+  isSnapshotStale,
+  newPayloadSchema,
+  parsePayload,
+  type LocationSnapshot,
+  type NewPayload,
+} from "@/lib/suggestions/types";
 import { fetchLocationSnapshot, parseSuggestionId } from "@/lib/suggestions/server";
 import {
   applyEditSuggestion,
@@ -51,6 +57,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(422).json({ error: `Stored payload is invalid: ${parsed.error}` });
     }
 
+    // The admin may approve a new-location suggestion "with edits": the client
+    // sends a full replacement payload that overrides the submitter's proposed
+    // values. It flows through the same dedup check, geocoding, and apply as an
+    // unedited approval. Edits are only honored for new-location suggestions.
+    let newPayload: NewPayload = parsed.type === "new" ? parsed.payload : ({} as NewPayload);
+    if (parsed.type === "new" && req.body?.edits != null) {
+      const editParsed = newPayloadSchema.safeParse(req.body.edits);
+      if (!editParsed.success) {
+        const first = editParsed.error.issues[0];
+        return res.status(422).json({
+          error: `Edited values are invalid: ${first ? `${first.path.join(".") || "payload"}: ${first.message}` : "invalid"}`,
+        });
+      }
+      newPayload = editParsed.data;
+    }
+
     // ---- Conflict checks (before any mutation) ----
     let current: LocationSnapshot | null = null;
     if (parsed.type === "edit" || parsed.type === "removal") {
@@ -67,12 +89,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (parsed.type === "new" && !force) {
+      const proposedCity = newPayload.city ?? null;
       const matches = await sql`
         SELECT id, name, city, state
         FROM locations
-        WHERE LOWER(name) = LOWER(${parsed.payload.name})
-          AND (city IS NULL OR ${parsed.payload.city ?? null} IS NULL
-               OR LOWER(city) = LOWER(${parsed.payload.city ?? null}))
+        WHERE LOWER(name) = LOWER(${newPayload.name})
+          AND (city IS NULL OR ${proposedCity}::text IS NULL
+               OR LOWER(city) = LOWER(${proposedCity}::text))
         LIMIT 5
       `;
       if (matches.length) {
@@ -85,7 +108,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       parsed.type === "edit"
         ? await resolveEditCoords(parsed.payload, current!)
         : parsed.type === "new"
-          ? await resolveNewCoords(parsed.payload)
+          ? await resolveNewCoords(newPayload)
           : null;
 
     // ---- Apply + status flip, atomically ----
@@ -116,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           coords!
         );
       } else if (parsed.type === "new") {
-        location = await applyNewSuggestion(client, parsed.payload, coords!);
+        location = await applyNewSuggestion(client, newPayload, coords!);
       } else {
         await applyRemovalSuggestion(client, suggestion.location_id, suggestionId);
       }
