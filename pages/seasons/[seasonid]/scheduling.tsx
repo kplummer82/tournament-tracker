@@ -20,8 +20,11 @@ import {
   Plus, X, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
   Wand2, CalendarCheck, Download, Ban,
   MapPin, Clock, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw,
+  Trash2, BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/hooks/useMediaQuery";
+import { Sheet, SheetContent, SheetHeader, SheetBody, SheetFooter, SheetTitle } from "@/components/ui/sheet";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot, Matchup, ManualSlot } from "@/lib/auto-schedule";
 import { buildSlots, normalizeScheduleConfig, buildMatchups, generateBalancedGames, weekMonday, slotBlockKey } from "@/lib/auto-schedule";
 import { findSeasonSlotOverlaps, findSeasonTravelConflicts } from "@/lib/seasons/scheduleConflicts";
@@ -2263,6 +2266,28 @@ function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active
   );
 }
 
+// ── Mobile editor field controls (dark-consistent; native <select> still opens the
+//    iOS wheel — appearance-none only removes the default light system chrome). ──
+const MOBILE_CTRL = "w-[58%] max-w-[240px] shrink-0";
+const MOBILE_INPUT = "w-full rounded-lg border border-border bg-background text-foreground h-11 px-3 text-sm focus:outline-none focus:border-primary";
+
+function MobileSelect({ value, onChange, disabled, children }: {
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <select value={value} onChange={onChange} disabled={disabled}
+        className={cn(MOBILE_INPUT, "appearance-none pr-9 disabled:opacity-50")}>
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+    </div>
+  );
+}
+
 function ManualSlotBoard({
   seasonId, teams, venues, initialSlots, config, canEdit, onPersist,
 }: {
@@ -2291,6 +2316,15 @@ function ManualSlotBoard({
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishSuccess, setPublishSuccess] = useState<number | null>(null);
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
+
+  // Mobile: render a tap-based layout instead of the drag board. `mounted` guards
+  // against useIsMobile's SSR-false initial value (avoids a hydration mismatch).
+  const isMobile = useIsMobile();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  // Which slot is open in the mobile editor sheet, and whether the fairness sheet is open.
+  const [editorSlotId, setEditorSlotId] = useState<string | null>(null);
+  const [fairnessOpen, setFairnessOpen] = useState(false);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams]);
@@ -2409,12 +2443,14 @@ function ManualSlotBoard({
     setPublishSuccess(null);
   }
 
-  function addEmptySlot() {
+  function addEmptySlot(): string {
+    const id = genSlotId();
     setSlots(prev => [...prev, {
-      id: genSlotId(), date: '', time: '', fieldName: '', fieldLocation: '',
+      id, date: '', time: '', fieldName: '', fieldLocation: '',
       locationId: null, seasonVenueId: null, homeId: null, awayId: null,
     }]);
     setPublishSuccess(null);
+    return id;
   }
 
   function patchSlot(id: string, patch: Partial<ManualSlot>) {
@@ -2569,6 +2605,280 @@ function ManualSlotBoard({
 
   // ── Quick-add venue/field picker (mirrors the auto rules-panel picker) ─────────
   const selectedVenue = venues?.find(v => v.id === (quickAdd.seasonVenueId ?? -1)) ?? null;
+
+  // Shared publish-confirm dialog (reused by both the desktop and mobile layouts).
+  const publishConfirmDialog = (
+    <AlertDialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Publish Schedule?</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              <p>
+                This writes your <strong>{completeCount} filled slot{completeCount !== 1 ? 's' : ''}</strong> to
+                the season as games with status <strong>Scheduled</strong>, replacing any existing
+                unplayed regular games for this season.
+              </p>
+              <p className="text-muted-foreground">
+                Played games (Final, Forfeit, etc.) are not affected, and slots that already match a
+                played game are skipped to avoid duplicates.
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { setShowPublishConfirm(false); handlePublish(); }}>
+            Publish {completeCount} Game{completeCount !== 1 ? 's' : ''}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
+  // ── Mobile: a clean, tap-based layout (no drag) ────────────────────────────────
+  if (!mounted) {
+    return <div className="py-16 text-center text-sm text-muted-foreground" style={{ fontFamily: 'var(--font-body)' }}>Loading…</div>;
+  }
+  if (isMobile) {
+    const editorSlot = editorSlotId ? (slots.find(s => s.id === editorSlotId) ?? null) : null;
+    const editorVenue = editorSlot ? (venues?.find(v => v.id === (editorSlot.seasonVenueId ?? -1)) ?? null) : null;
+    const dateLabel = (date: string) => date
+      ? `${DAY_FULL[new Date(date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
+      : '';
+    const ROW = "flex items-center justify-between gap-3";
+
+    return (
+      <div style={{ fontFamily: 'var(--font-body)' }} className="pb-28">
+        {/* Header: summary + fairness */}
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <div className="text-sm">
+            <span className="font-semibold text-foreground">{completeCount}</span>
+            <span className="text-muted-foreground"> / {slots.length} game{slots.length !== 1 ? 's' : ''} ready</span>
+          </div>
+          <button type="button" onClick={() => setFairnessOpen(true)}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-border rounded-full text-muted-foreground active:bg-muted/50">
+            <BarChart3 className="h-3.5 w-3.5" /> Fairness
+          </button>
+        </div>
+
+        {playedGames.length > 0 && (
+          <label className="flex items-center gap-2 text-[12px] text-muted-foreground mb-3 cursor-pointer">
+            <input type="checkbox" checked={includeCommitted} onChange={e => setIncludeCommitted(e.target.checked)} className="accent-primary h-4 w-4" />
+            Include committed games ({playedGames.length})
+          </label>
+        )}
+
+        {publishError && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> {publishError}
+          </div>
+        )}
+        {publishSuccess != null && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded text-xs font-medium text-green-700 dark:text-green-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> Published — {publishSuccess} game{publishSuccess !== 1 ? 's' : ''} written.
+          </div>
+        )}
+
+        {canEdit && (
+          <button type="button" onClick={() => { const id = addEmptySlot(); setEditorSlotId(id); }}
+            className="w-full flex items-center justify-center gap-2 mb-4 py-3 rounded-lg bg-primary text-primary-foreground font-semibold text-sm active:opacity-90">
+            <Plus className="h-4 w-4" /> Add game
+          </button>
+        )}
+
+        {/* Slot list */}
+        {slots.length === 0 && !(includeCommitted && committedCards.length > 0) ? (
+          <div className="py-12 px-4 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+            No games yet. Tap &ldquo;Add game&rdquo; to create one, then set the teams, date, time and venue.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sortedSlots.map(slot => {
+              const complete = !!(slot.home && slot.away);
+              return (
+                <button key={slot.id} type="button" onClick={() => setEditorSlotId(slot.id)}
+                  className="w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-background active:bg-muted/40">
+                  <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", complete ? "bg-primary" : "bg-amber-500")} aria-hidden />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] font-medium truncate">
+                      {slot.home?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
+                      <span className="text-muted-foreground font-normal"> vs </span>
+                      {slot.away?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
+                    </div>
+                    <div className="text-[12px] text-muted-foreground truncate">
+                      {slot.date || slot.time ? `${dateLabel(slot.date) || 'No date'}${slot.time ? ' · ' + fmt12h(slot.time) : ''}` : 'Add date & time'}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground/80 truncate">
+                      {(slot.fieldName || slot.fieldLocation)
+                        ? <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />
+                        : 'No venue'}
+                    </div>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Committed games (read-only) */}
+        {includeCommitted && committedCards.length > 0 && (
+          <div className="mt-5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1.5">
+              <CalendarCheck className="h-3.5 w-3.5" /> Committed games ({committedCards.length})
+            </div>
+            <div className="space-y-2">
+              {committedCards.map((g, i) => (
+                <div key={`committed-${i}`} className="p-3 rounded-lg border border-border/60 bg-muted/20">
+                  <div className="text-[13px] font-medium truncate">{g.homeName} <span className="text-muted-foreground font-normal">vs</span> {g.awayName}</div>
+                  <div className="text-[12px] text-muted-foreground truncate">
+                    {(g.date ? dateLabel(g.date) : '—')}{g.time ? ' · ' + fmt12h(g.time) : ''}
+                    <span className="ml-2 text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted border border-border">{g.statusLabel}</span>
+                  </div>
+                  {(g.field || g.location) && <LocationDisplay locationId={g.locationId} location={g.location} field={g.field} className="text-[11px] text-muted-foreground/80 truncate" />}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sticky action bar */}
+        {canEdit && slots.length > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-2">
+            <button type="button" onClick={handleSaveDraft} disabled={saving || !dirty}
+              className="flex-1 py-2.5 rounded-lg border border-border text-sm font-semibold text-muted-foreground disabled:opacity-40 active:bg-muted/50">
+              {saving ? 'Saving…' : dirty ? 'Save draft' : 'Saved'}
+            </button>
+            <button type="button" onClick={() => setShowPublishConfirm(true)} disabled={publishing || completeCount === 0}
+              className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-50 active:opacity-90">
+              {publishing ? 'Publishing…' : `Publish ${completeCount}`}
+            </button>
+          </div>
+        )}
+
+        {/* Editor sheet */}
+        <Sheet open={!!editorSlot} onOpenChange={(o) => { if (!o) setEditorSlotId(null); }}>
+          {editorSlot && (
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Edit game</SheetTitle>
+              </SheetHeader>
+              <SheetBody className="space-y-3.5">
+                <div className={ROW}>
+                  <span className="text-sm font-medium">Date</span>
+                  <div className={MOBILE_CTRL}>
+                    <input type="date" value={editorSlot.date}
+                      onChange={e => patchSlot(editorSlot.id, { date: e.target.value })} className={MOBILE_INPUT} />
+                  </div>
+                </div>
+                <div className={ROW}>
+                  <span className="text-sm font-medium">Time</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect value={editorSlot.time} onChange={e => patchSlot(editorSlot.id, { time: e.target.value })}>
+                      <option value="">— Time —</option>
+                      {TIME_OPTIONS.map(t => <option key={t} value={t}>{fmt12h(t)}</option>)}
+                    </MobileSelect>
+                  </div>
+                </div>
+
+                {venues && venues.length > 0 ? (
+                  <>
+                    <div className={ROW}>
+                      <span className="text-sm font-medium">Venue</span>
+                      <div className={MOBILE_CTRL}>
+                        <MobileSelect value={editorSlot.seasonVenueId ?? ''}
+                          onChange={e => {
+                            const raw = e.target.value;
+                            if (!raw) { patchSlot(editorSlot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' }); return; }
+                            const v = venues.find(x => x.id === Number(raw));
+                            if (v) patchSlot(editorSlot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
+                          }}>
+                          <option value="">— Venue —</option>
+                          {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                        </MobileSelect>
+                      </div>
+                    </div>
+                    <div className={ROW}>
+                      <span className="text-sm font-medium">Field</span>
+                      <div className={MOBILE_CTRL}>
+                        <MobileSelect value={editorSlot.fieldName} disabled={!editorVenue || editorVenue.fields.length === 0}
+                          onChange={e => patchSlot(editorSlot.id, { fieldName: e.target.value })}>
+                          <option value="">{editorVenue && editorVenue.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                          {editorVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                        </MobileSelect>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="space-y-1.5">
+                    <span className="text-sm font-medium">Location</span>
+                    <LocationPicker compact locationId={editorSlot.locationId} location={editorSlot.fieldLocation} field={editorSlot.fieldName}
+                      onChange={(val: LocationPickerValue) => patchSlot(editorSlot.id, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })} />
+                  </div>
+                )}
+
+                <div className={ROW}>
+                  <span className="text-sm font-medium">Home</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect value={editorSlot.homeId ?? ''} onChange={e => patchSlot(editorSlot.id, { homeId: e.target.value ? Number(e.target.value) : null })}>
+                      <option value="">— Home —</option>
+                      {teams.filter(t => t.id !== editorSlot.awayId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </MobileSelect>
+                  </div>
+                </div>
+                <div className={ROW}>
+                  <span className="text-sm font-medium">Away</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect value={editorSlot.awayId ?? ''} onChange={e => patchSlot(editorSlot.id, { awayId: e.target.value ? Number(e.target.value) : null })}>
+                      <option value="">— Away —</option>
+                      {teams.filter(t => t.id !== editorSlot.homeId).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </MobileSelect>
+                  </div>
+                </div>
+
+                {editorSlot.homeId != null && editorSlot.awayId != null && (
+                  <button type="button" onClick={() => swapTeams(editorSlot.id)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm font-semibold text-muted-foreground active:bg-muted/50">
+                    <RefreshCw className="h-4 w-4" /> Swap home &amp; away
+                  </button>
+                )}
+
+                {canEdit && (
+                  <button type="button" onClick={() => { removeSlot(editorSlot.id); setEditorSlotId(null); }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-destructive/40 text-sm font-semibold text-destructive active:bg-destructive/10">
+                    <Trash2 className="h-4 w-4" /> Delete game
+                  </button>
+                )}
+              </SheetBody>
+              <SheetFooter>
+                <button type="button" onClick={() => setEditorSlotId(null)}
+                  className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold active:opacity-90">
+                  Done
+                </button>
+              </SheetFooter>
+            </SheetContent>
+          )}
+        </Sheet>
+
+        {/* Fairness sheet */}
+        <Sheet open={fairnessOpen} onOpenChange={setFairnessOpen}>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Live Fairness</SheetTitle>
+            </SheetHeader>
+            <SheetBody>
+              <div className="overflow-x-auto">
+                <ScheduleReport slots={fairnessSlots} teams={teams} config={config} />
+              </div>
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
+
+        {publishConfirmDialog}
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: 'var(--font-body)' }}>
