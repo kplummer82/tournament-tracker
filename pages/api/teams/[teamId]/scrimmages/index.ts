@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 
 function normalizeTime(t: unknown): string | null {
   if (typeof t !== "string" || !t.trim()) return null;
@@ -39,6 +40,10 @@ export default async function handler(
 
   /* ── POST ────────────────────────────────────────────────────── */
   if (req.method === "POST") {
+    // Only a manager/admin of this team may create its scrimmages (IDOR guard).
+    const session = await requireTeamAccess(req, res, teamId);
+    if (!session) return;
+
     const {
       gamedate,
       gametime,

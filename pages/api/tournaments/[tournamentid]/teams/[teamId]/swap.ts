@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
+import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 function parseId(val: string | string[] | undefined): number | null {
   const raw = Array.isArray(val) ? val[0] : val;
@@ -21,6 +22,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    // Only a tournament admin (or system admin) may swap teams in a bracket (IDOR guard).
+    const session = await requireTournamentAccess(req, res, tournamentId);
+    if (!session) return;
+
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
     const newTeamId = parseId(body.newTeamId);
 

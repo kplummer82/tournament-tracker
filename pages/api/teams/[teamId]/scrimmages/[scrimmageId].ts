@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 
 function normalizeTime(t: unknown): string | null {
   if (typeof t !== "string" || !t.trim()) return null;
@@ -19,6 +20,10 @@ export default async function handler(
 
   /* ── PATCH ───────────────────────────────────────────────────── */
   if (req.method === "PATCH") {
+    // Only a manager/admin of this team may edit its scrimmages (IDOR guard).
+    const session = await requireTeamAccess(req, res, teamId);
+    if (!session) return;
+
     const {
       gamedate,
       gametime,
@@ -76,6 +81,10 @@ export default async function handler(
 
   /* ── DELETE ──────────────────────────────────────────────────── */
   if (req.method === "DELETE") {
+    // Only a manager/admin of this team may delete its scrimmages (IDOR guard).
+    const session = await requireTeamAccess(req, res, teamId);
+    if (!session) return;
+
     try {
       const existing = await sql`
         SELECT listing_id FROM scrimmages

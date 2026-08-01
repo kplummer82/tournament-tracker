@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 
 function parseParams(req: NextApiRequest) {
   const source = String(req.query.source);
@@ -45,6 +46,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PUT") {
+      // Only a manager/admin of this team may write its defensive lineup (IDOR guard).
+      const session = await requireTeamAccess(req, res, teamId);
+      if (!session) return;
+
       const { lineup } = req.body ?? {};
       if (!Array.isArray(lineup)) {
         return res.status(400).json({ error: "lineup array is required" });

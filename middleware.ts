@@ -9,7 +9,9 @@ const PUBLIC_PAGES = new Set(["/login", "/sign-up", "/", "/learn"]);
 const PUBLIC_PAGE_PREFIXES = ["/invite/", "/learn/"];
 // /api/invites/peek is a pre-login token lookup (no secrets beyond the invite
 // the recipient already holds). The other /api/invites/* routes stay gated.
-const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/invites/peek"];
+// /api/health is an unauthenticated uptime probe (no secrets, DB-reachability
+// only) so external monitors can reach it without a session.
+const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/invites/peek", "/api/health"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

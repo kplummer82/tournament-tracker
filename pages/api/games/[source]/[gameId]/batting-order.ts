@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { requireTeamAccess } from "@/lib/auth/requireSession";
 
 function parseParams(req: NextApiRequest) {
   const source = String(req.query.source);
@@ -42,6 +43,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === "PUT") {
+      // Only a manager/admin of this team may write its batting order (IDOR guard).
+      const session = await requireTeamAccess(req, res, teamId);
+      if (!session) return;
+
       const { order } = req.body ?? {};
       if (!Array.isArray(order)) {
         return res.status(400).json({ error: "order array is required" });
