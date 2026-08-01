@@ -21,13 +21,24 @@ import {
   CalendarDays,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   Wand2,
   CheckCircle2,
   Trash2,
   Info,
   Ban,
+  RefreshCw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useIsMobile } from "@/lib/hooks/useMediaQuery";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetBody,
+  SheetFooter,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   normalizeTournamentScheduleConfig,
   assignDraftSlots,
@@ -69,6 +80,12 @@ const FIELD =
   "border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:border-primary";
 const SECTION_H =
   "text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2";
+
+// Mobile control styling (mirrors the season scheduler's mobile editor).
+const MOBILE_INPUT =
+  "w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary";
+const MOBILE_ROW = "flex items-center justify-between gap-3";
+const MOBILE_CTRL = "w-[62%] shrink-0";
 
 const BLANK_CONFIG: TournamentScheduleConfig = {
   firstGameDate: "",
@@ -275,8 +292,41 @@ function SlotPosition({
 
 // ─── Body ───────────────────────────────────────────────────────────────────
 
+// Styled native select for the mobile editor — native picker for good touch UX.
+function MobileSelect({
+  value,
+  onChange,
+  disabled,
+  children,
+}: {
+  value: string | number;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={onChange}
+        disabled={disabled}
+        className={cn(MOBILE_INPUT, "appearance-none pr-9 disabled:opacity-50")}
+      >
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+    </div>
+  );
+}
+
 function SchedulingBody() {
   const { tid, t, canEdit, refreshSetup, loading } = useTournament();
+  const isMobile = useIsMobile();
+  // `mounted` guards against useIsMobile's SSR-false initial value (avoids a
+  // hydration mismatch: server renders desktop, client may be mobile).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const [editorSlotId, setEditorSlotId] = useState<string | null>(null);
 
   const [config, setConfig] = useState<TournamentScheduleConfig>(BLANK_CONFIG);
   const [venues, setVenues] = useState<Venue[]>([]);
@@ -820,7 +870,393 @@ function SchedulingBody() {
 
   const scoreBlocked = (existing?.scored ?? 0) > 0;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // ── Mobile helpers ──────────────────────────────────────────────────────────
+  // Assign (or clear) a team into a slot position — the tap-editor equivalent of
+  // the desktop drag assignment. Lives in workspace state (setSlots), not config.
+  const assignPosition = useCallback(
+    (slotId: string, position: "home" | "away", teamId: number | null) => {
+      setSlots((prev) =>
+        prev.map((s) => {
+          if (s.id !== slotId) return s;
+          if (teamId == null) return { ...s, [position]: null };
+          const team = teams.find((tm) => tm.id === teamId) ?? null;
+          const other = position === "home" ? s.away : s.home;
+          if (other?.id === teamId) return s; // never the same team on both sides
+          return { ...s, [position]: team };
+        }),
+      );
+    },
+    [teams],
+  );
+  const swapPositions = useCallback((slotId: string) => {
+    setSlots((prev) =>
+      prev.map((s) => (s.id === slotId ? { ...s, home: s.away, away: s.home } : s)),
+    );
+  }, []);
+  // Append a slot to a date and open its editor. The new id is deterministic
+  // (`${date}__${nextIdx}`), matching buildDraftSlots, so we can select it now.
+  const addSlotAndEdit = useCallback(
+    (date: string) => {
+      const rule = config.dateRules.find((r) => r.date === date);
+      const nextIdx = rule ? rule.slots.length : 0;
+      addSlot(date);
+      setEditorSlotId(`${date}__${nextIdx}`);
+    },
+    [config.dateRules, addSlot],
+  );
+
+  // ── Mobile render ─────────────────────────────────────────────────────────
+  // Tap-based layout for phones: date-grouped cards + a slide-up editor. Date
+  // range / rules are set on desktop; here operators fill slots and publish.
+  if (mounted && isMobile) {
+    const availableDates =
+      config.firstGameDate && config.lastGameDate
+        ? datesInRange(config.firstGameDate, config.lastGameDate, config.blackoutDates)
+        : [];
+    const slotsByDate = new Map<string, DraftSlot[]>();
+    for (const s of slots) {
+      const arr = slotsByDate.get(s.date) ?? [];
+      arr.push(s);
+      slotsByDate.set(s.date, arr);
+    }
+    const editorSlot = editorSlotId ? slots.find((s) => s.id === editorSlotId) ?? null : null;
+    const editorParsed = editorSlot ? parseSlotId(editorSlot.id) : null;
+    const editorVenue = editorSlot
+      ? venues.find((v) => v.id === (editorSlot.tournamentVenueId ?? -1)) ?? null
+      : null;
+    const warnCount = overlaps.length + travelConflicts.length + blockViolations.length;
+
+    return (
+      <div style={{ fontFamily: "var(--font-body)" }} className="pb-28">
+        <div className="flex items-center gap-2 mb-1">
+          <CalendarDays className="h-4 w-4 text-primary" />
+          <h1 className="text-sm font-semibold uppercase tracking-wide">Schedule Pool Play</h1>
+        </div>
+
+        {!canEdit && (
+          <div className="p-3 my-3 bg-muted border border-border text-xs text-muted-foreground">
+            You don&apos;t have edit access to this tournament.
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 mt-3 mb-3">
+          <div className="text-sm">
+            <span className="font-semibold text-foreground">{assignedCount}</span>
+            <span className="text-muted-foreground">
+              {" "}
+              / {slots.length} game{slots.length !== 1 ? "s" : ""} ready
+            </span>
+          </div>
+          {canEdit && slots.length > 0 && (
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-border rounded-full text-muted-foreground active:bg-muted/50"
+            >
+              <Wand2 className="h-3.5 w-3.5" /> Auto-fill
+            </button>
+          )}
+        </div>
+
+        {warnCount > 0 && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded text-xs text-amber-700 dark:text-amber-400">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {warnCount} scheduling {warnCount === 1 ? "conflict" : "conflicts"} (overlap / travel /
+            block) — review on a larger screen.
+          </div>
+        )}
+        {scoreBlocked && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-muted border border-border rounded text-xs text-muted-foreground">
+            <Info className="h-4 w-4 shrink-0" /> Some pool games already have scores — publish from a
+            larger screen to avoid overwriting.
+          </div>
+        )}
+        {commitError && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-destructive/10 border border-destructive/30 rounded text-xs text-destructive">
+            <AlertTriangle className="h-4 w-4 shrink-0" /> {commitError}
+          </div>
+        )}
+        {commitSuccess && (
+          <div className="flex items-center gap-2 mb-3 px-3 py-2 bg-green-500/10 border border-green-500/30 rounded text-xs font-medium text-green-700 dark:text-green-400">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> Published to the pool schedule.
+          </div>
+        )}
+
+        {availableDates.length === 0 ? (
+          <div className="py-12 px-4 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg">
+            No dates set up yet. Set the tournament&apos;s date range and time slots on a larger
+            screen, then come back here to assign teams and publish.
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {availableDates.map((date) => {
+              const dateSlots = slotsByDate.get(date) ?? [];
+              return (
+                <div key={date}>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                    {fmtDateLong(date)}
+                  </div>
+                  <div className="space-y-2">
+                    {dateSlots.map((slot) => {
+                      const complete = !!(slot.home && slot.away);
+                      return (
+                        <button
+                          key={slot.id}
+                          type="button"
+                          onClick={() => setEditorSlotId(slot.id)}
+                          className="w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-background active:bg-muted/40"
+                        >
+                          <span
+                            className={cn(
+                              "h-2.5 w-2.5 rounded-full shrink-0",
+                              complete ? "bg-primary" : "bg-amber-500",
+                            )}
+                            aria-hidden
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-medium truncate">
+                              {slot.home?.name ?? (
+                                <span className="text-muted-foreground font-normal">Add team</span>
+                              )}
+                              <span className="text-muted-foreground font-normal"> vs </span>
+                              {slot.away?.name ?? (
+                                <span className="text-muted-foreground font-normal">Add team</span>
+                              )}
+                            </div>
+                            <div className="text-[12px] text-muted-foreground truncate">
+                              {fmt12h(slot.time)}
+                              {slot.poolGroup ? ` · Pool ${slot.poolGroup}` : ""}
+                            </div>
+                            <div className="text-[11px] text-muted-foreground/80 truncate">
+                              {slot.tournamentVenueId != null
+                                ? `${venueName(slot.tournamentVenueId)}${slot.field ? " · " + slot.field : ""}`
+                                : "No venue"}
+                            </div>
+                          </div>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                        </button>
+                      );
+                    })}
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => addSlotAndEdit(date)}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-dashed border-border text-sm font-semibold text-muted-foreground active:bg-muted/50"
+                      >
+                        <Plus className="h-4 w-4" /> Add game
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {canEdit && slots.length > 0 && (
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              className="flex-1 py-2.5 rounded-lg border border-border text-sm font-semibold text-muted-foreground active:bg-muted/50"
+            >
+              Auto-fill
+            </button>
+            <button
+              type="button"
+              onClick={handleCommit}
+              disabled={committing || assignedCount === 0 || scoreBlocked}
+              className="flex-1 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-50 active:opacity-90"
+            >
+              {committing ? "Publishing…" : `Publish ${assignedCount}`}
+            </button>
+          </div>
+        )}
+
+        <Sheet
+          open={!!editorSlot}
+          onOpenChange={(o) => {
+            if (!o) setEditorSlotId(null);
+          }}
+        >
+          {editorSlot && editorParsed && (
+            <SheetContent>
+              <SheetHeader>
+                <SheetTitle>Edit game — {fmtDateLong(editorSlot.date)}</SheetTitle>
+              </SheetHeader>
+              <SheetBody className="space-y-3.5">
+                <div className={MOBILE_ROW}>
+                  <span className="text-sm font-medium">Time</span>
+                  <div className={MOBILE_CTRL}>
+                    <input
+                      type="time"
+                      value={editorSlot.time}
+                      onChange={(e) =>
+                        updateSlot(editorParsed.date, editorParsed.idx, { time: e.target.value })
+                      }
+                      className={MOBILE_INPUT}
+                    />
+                  </div>
+                </div>
+
+                <div className={MOBILE_ROW}>
+                  <span className="text-sm font-medium">Venue</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect
+                      value={editorSlot.tournamentVenueId ?? ""}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        updateSlot(editorParsed.date, editorParsed.idx, {
+                          tournamentVenueId: raw ? Number(raw) : null,
+                          field: "",
+                        });
+                      }}
+                    >
+                      <option value="">— Venue —</option>
+                      {venues.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.name}
+                        </option>
+                      ))}
+                    </MobileSelect>
+                  </div>
+                </div>
+                <div className={MOBILE_ROW}>
+                  <span className="text-sm font-medium">Field</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect
+                      value={editorSlot.field}
+                      disabled={!editorVenue || editorVenue.fields.length === 0}
+                      onChange={(e) =>
+                        updateSlot(editorParsed.date, editorParsed.idx, { field: e.target.value })
+                      }
+                    >
+                      <option value="">
+                        {editorVenue && editorVenue.fields.length === 0
+                          ? "— No fields —"
+                          : "— Field —"}
+                      </option>
+                      {editorVenue?.fields.map((f) => (
+                        <option key={f.id} value={f.name}>
+                          {f.name}
+                        </option>
+                      ))}
+                    </MobileSelect>
+                  </div>
+                </div>
+
+                {groups.length > 0 && (
+                  <div className={MOBILE_ROW}>
+                    <span className="text-sm font-medium">Pool</span>
+                    <div className={MOBILE_CTRL}>
+                      <MobileSelect
+                        value={editorSlot.poolGroup ?? ""}
+                        onChange={(e) =>
+                          updateSlot(editorParsed.date, editorParsed.idx, {
+                            poolGroup: e.target.value || null,
+                          })
+                        }
+                      >
+                        <option value="">— Any pool —</option>
+                        {groups.map((g) => (
+                          <option key={g} value={g}>
+                            Pool {g}
+                          </option>
+                        ))}
+                      </MobileSelect>
+                    </div>
+                  </div>
+                )}
+
+                <div className={MOBILE_ROW}>
+                  <span className="text-sm font-medium">Home</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect
+                      value={editorSlot.home?.id ?? ""}
+                      onChange={(e) =>
+                        assignPosition(
+                          editorSlot.id,
+                          "home",
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">— Home —</option>
+                      {teams
+                        .filter((tm) => tm.id !== editorSlot.away?.id)
+                        .map((tm) => (
+                          <option key={tm.id} value={tm.id}>
+                            {tm.name}
+                          </option>
+                        ))}
+                    </MobileSelect>
+                  </div>
+                </div>
+                <div className={MOBILE_ROW}>
+                  <span className="text-sm font-medium">Away</span>
+                  <div className={MOBILE_CTRL}>
+                    <MobileSelect
+                      value={editorSlot.away?.id ?? ""}
+                      onChange={(e) =>
+                        assignPosition(
+                          editorSlot.id,
+                          "away",
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
+                    >
+                      <option value="">— Away —</option>
+                      {teams
+                        .filter((tm) => tm.id !== editorSlot.home?.id)
+                        .map((tm) => (
+                          <option key={tm.id} value={tm.id}>
+                            {tm.name}
+                          </option>
+                        ))}
+                    </MobileSelect>
+                  </div>
+                </div>
+
+                {editorSlot.home && editorSlot.away && (
+                  <button
+                    type="button"
+                    onClick={() => swapPositions(editorSlot.id)}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-border text-sm font-semibold text-muted-foreground active:bg-muted/50"
+                  >
+                    <RefreshCw className="h-4 w-4" /> Swap home &amp; away
+                  </button>
+                )}
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      removeSlot(editorParsed.date, editorParsed.idx);
+                      setEditorSlotId(null);
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-destructive/40 text-sm font-semibold text-destructive active:bg-destructive/10"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete game
+                  </button>
+                )}
+              </SheetBody>
+              <SheetFooter>
+                <button
+                  type="button"
+                  onClick={() => setEditorSlotId(null)}
+                  className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold active:opacity-90"
+                >
+                  Done
+                </button>
+              </SheetFooter>
+            </SheetContent>
+          )}
+        </Sheet>
+      </div>
+    );
+  }
+
+  // ── Render (desktop) ──────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: "var(--font-body)" }}>
       <div className="flex items-center gap-2 mb-1">
