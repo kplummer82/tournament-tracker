@@ -21,6 +21,9 @@ function SheetClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
   return <DialogPrimitive.Close data-slot="sheet-close" {...props} />;
 }
 
+// How far (px) the sheet must be dragged down before release dismisses it.
+const SWIPE_DISMISS_THRESHOLD = 100;
+
 function SheetContent({
   className,
   children,
@@ -29,6 +32,31 @@ function SheetContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  // Swipe-to-dismiss. Radix Dialog has no drag gesture, so the grab handle would
+  // otherwise be a lie. Handlers live only on the handle region, so dragging
+  // never conflicts with scrolling the sheet body. On release past the
+  // threshold we click a hidden Close so Radix runs its normal exit animation.
+  const closeRef = React.useRef<HTMLButtonElement>(null);
+  const dragStartY = React.useRef<number | null>(null);
+  const [dragY, setDragY] = React.useState(0);
+  const [dragging, setDragging] = React.useState(false);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    dragStartY.current = e.touches[0].clientY;
+    setDragging(true);
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (dragStartY.current == null) return;
+    const dy = e.touches[0].clientY - dragStartY.current;
+    setDragY(dy > 0 ? dy : 0); // downward only
+  };
+  const onTouchEnd = () => {
+    if (dragY > SWIPE_DISMISS_THRESHOLD) closeRef.current?.click();
+    setDragY(0);
+    setDragging(false);
+    dragStartY.current = null;
+  };
+
   return (
     <DialogPrimitive.Portal data-slot="sheet-portal">
       <DialogPrimitive.Overlay
@@ -41,6 +69,10 @@ function SheetContent({
       />
       <DialogPrimitive.Content
         data-slot="sheet-content"
+        style={{
+          transform: dragY ? `translateY(${dragY}px)` : undefined,
+          transition: dragging ? "none" : "transform 0.2s ease-out",
+        }}
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-2xl",
           // dvh (dynamic viewport height) — NOT vh — so the sheet never extends
@@ -55,18 +87,31 @@ function SheetContent({
         )}
         {...props}
       >
-        {/* Grab handle */}
-        <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-muted-foreground/30" aria-hidden />
+        {/* Grab handle — draggable region (touch-action:none so it drags, not scrolls) */}
+        <div
+          className="mx-auto flex w-full shrink-0 cursor-grab justify-center pt-2 pb-1"
+          style={{ touchAction: "none" }}
+          onTouchStart={onTouchStart}
+          onTouchMove={onTouchMove}
+          onTouchEnd={onTouchEnd}
+          aria-hidden
+        >
+          <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+        </div>
         {children}
-        {showCloseButton && (
-          <DialogPrimitive.Close
-            data-slot="sheet-close"
-            className="absolute right-4 top-3 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring [&_svg]:size-4"
-          >
-            <XIcon />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
+        {/* Always rendered (visually hidden when showCloseButton is false) so
+            swipe-to-dismiss has a Close to trigger. */}
+        <DialogPrimitive.Close
+          ref={closeRef}
+          data-slot="sheet-close"
+          className={cn(
+            "absolute right-4 top-3 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring [&_svg]:size-4",
+            !showCloseButton && "sr-only"
+          )}
+        >
+          <XIcon />
+          <span className="sr-only">Close</span>
+        </DialogPrimitive.Close>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );
