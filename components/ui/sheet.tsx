@@ -43,7 +43,10 @@ function SheetContent({
         data-slot="sheet-content"
         className={cn(
           "fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-2xl",
-          "flex max-h-[92vh] flex-col rounded-t-2xl border-t border-border bg-card shadow-lg outline-none",
+          // dvh (dynamic viewport height) — NOT vh — so the sheet never extends
+          // behind iOS Safari's top chrome, which would hide the grab handle +
+          // close button. vh counts the area under the browser bars; dvh doesn't.
+          "flex max-h-[92dvh] flex-col rounded-t-2xl border-t border-border bg-card shadow-lg outline-none",
           "pb-[max(1rem,env(safe-area-inset-bottom))]",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",

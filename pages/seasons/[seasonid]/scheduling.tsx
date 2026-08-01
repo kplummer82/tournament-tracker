@@ -2872,6 +2872,12 @@ function ManualSlotBoard({
                 <ScheduleReport slots={fairnessSlots} teams={teams} config={config} />
               </div>
             </SheetBody>
+            <SheetFooter>
+              <button type="button" onClick={() => setFairnessOpen(false)}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold active:opacity-90">
+                Close
+              </button>
+            </SheetFooter>
           </SheetContent>
         </Sheet>
 
