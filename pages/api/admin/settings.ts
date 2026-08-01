@@ -2,11 +2,12 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth/requireSession";
 
-const SETTINGS_KEYS = ["max_simulations", "require_user_approval", "mapbox_enabled", "itunes_enabled"] as const;
+const SETTINGS_KEYS = ["max_simulations", "scenario_daily_run_limit", "require_user_approval", "mapbox_enabled", "itunes_enabled"] as const;
 type SettingsKey = (typeof SETTINGS_KEYS)[number];
 
 const DEFAULTS: Record<SettingsKey, string> = {
   max_simulations: "10000",
+  scenario_daily_run_limit: "20",
   require_user_approval: "false",
   mapbox_enabled: "false",
   itunes_enabled: "true",
@@ -30,6 +31,7 @@ async function upsertBool(key: SettingsKey, raw: unknown) {
 async function readAll() {
   return {
     max_simulations: parseInt(await getSetting("max_simulations"), 10),
+    scenario_daily_run_limit: parseInt(await getSetting("scenario_daily_run_limit"), 10),
     require_user_approval: (await getSetting("require_user_approval")) === "true",
     mapbox_enabled: (await getSetting("mapbox_enabled")) === "true",
     itunes_enabled: (await getSetting("itunes_enabled")) !== "false",
@@ -56,6 +58,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         await sql`
           INSERT INTO app_settings (key, value, updated_at)
           VALUES ('max_simulations', ${String(val)}, NOW())
+          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+        `;
+      }
+
+      if (body.scenario_daily_run_limit !== undefined) {
+        const val = parseInt(body.scenario_daily_run_limit, 10);
+        if (!Number.isFinite(val) || val < 1 || val > 10_000) {
+          return res.status(400).json({ error: "scenario_daily_run_limit must be between 1 and 10,000" });
+        }
+        await sql`
+          INSERT INTO app_settings (key, value, updated_at)
+          VALUES ('scenario_daily_run_limit', ${String(val)}, NOW())
           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
         `;
       }

@@ -1,6 +1,8 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { waitUntil } from "@vercel/functions";
 import { sql } from "@/lib/db";
+import { requireSession } from "@/lib/auth/requireSession";
+import { reserveScenarioRun } from "@/lib/scenarios/runLimit";
 import { runScenarioAnalysis, runFirstRoundMatchupAnalysis, runMostLikelySeedAnalysis, runMostLikelyMatchupAnalysis } from "@/lib/scenarios/engine";
 
 function parseIds(req: NextApiRequest): { seasonId: number; scenarioId: number } | null {
@@ -23,6 +25,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const { seasonId, scenarioId } = ids;
 
   try {
+    // Scenarios are open to any logged-in user, but each run costs compute — cap
+    // non-admins to a configurable daily limit (admins uncapped).
+    const session = await requireSession(req, res);
+    if (!session) return;
+    const gate = await reserveScenarioRun(session.user.id, session.user.role === "admin");
+    if (!gate.allowed) {
+      return res.status(429).json({
+        error: `Daily scenario limit reached (${gate.limit} per day). Try again later.`,
+        code: "rate_limited",
+        limit: gate.limit,
+      });
+    }
+
     // Fetch the scenario
     const rows = await sql`
       SELECT * FROM scenario_questions
