@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [master, ldqa]
+  pull_request:
+
+# Gate: typecheck (ignoreBuildErrors is off) + ESLint + compile, the same checks
+# Vercel runs on deploy — caught here before a bad commit reaches a deploy.
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      # Dummy connection string so lib/db.ts / neon() construct at build time.
+      # `next build` runs no queries, so no real database is contacted.
+      DATABASE_URL: "postgres://ci:ci@localhost:5432/ci"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
