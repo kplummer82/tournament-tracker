@@ -15,6 +15,12 @@ import { generateInviteToken, intentForRole } from "@/lib/invites";
 import { sendEmail } from "@/lib/email/client";
 import { inviteEmail } from "@/lib/email/templates";
 
+// Per-user cap on invite sends in a rolling 24h window. Each invite POST sends a
+// Resend email, so this throttles spam / enumeration and protects sender
+// reputation. Generous enough for legitimate bulk onboarding (a league admin
+// inviting a roster); admins are uncapped.
+const INVITE_DAILY_LIMIT = 100;
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === "GET") return listInvites(req, res);
   if (req.method === "POST") return createInvite(req, res);
@@ -101,6 +107,26 @@ async function createInvite(req: NextApiRequest, res: NextApiResponse) {
     if (!allowed) {
       res.status(403).json({ error: "Forbidden: you don't have permission to grant this role" });
       return;
+    }
+
+    // Rolling-24h send cap (non-admins). Counts invites this user created; each
+    // one triggers an email.
+    try {
+      const countRows = await sql`
+        SELECT COUNT(*)::int AS c FROM invites
+        WHERE invited_by = ${session.user.id}
+          AND created_at > NOW() - INTERVAL '24 hours'
+      `;
+      if ((countRows[0]?.c ?? 0) >= INVITE_DAILY_LIMIT) {
+        res.status(429).json({
+          error: `Daily invite limit reached (${INVITE_DAILY_LIMIT} per day). Try again later.`,
+          code: "rate_limited",
+        });
+        return;
+      }
+    } catch (e) {
+      // A counting failure shouldn't hard-block legitimate invites — log and continue.
+      console.error("[invites] rate-limit count failed", e);
     }
   }
 
