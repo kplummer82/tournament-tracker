@@ -96,7 +96,7 @@ async function patchGame(req: NextApiRequest, res: NextApiResponse, tournamentid
     }
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to update game" });
+    return res.status(500).json({ error: "Failed to update game" });
   }
 }
 

@@ -54,7 +54,7 @@ export default async function handler(
 
       return res.status(200).json({ offers: offersWithThread });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[marketplace offers] GET error", err);
       return res.status(500).json({ error: msg });
     }
@@ -192,7 +192,7 @@ export default async function handler(
       if (err instanceof Error && err.message.includes("unique")) {
         return res.status(409).json({ error: "Your team has already offered on this listing" });
       }
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[marketplace offers] POST error", err);
       return res.status(500).json({ error: msg });
     }

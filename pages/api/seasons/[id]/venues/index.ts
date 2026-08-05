@@ -42,7 +42,7 @@ async function getVenues(req: NextApiRequest, res: NextApiResponse, seasonId: nu
   } catch (e: any) {
     await client.query("ROLLBACK");
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to load venues" });
+    return res.status(500).json({ error: "Failed to load venues" });
   } finally {
     client.release();
   }
@@ -171,7 +171,7 @@ async function createVenue(req: NextApiRequest, res: NextApiResponse, seasonId: 
   } catch (e: any) {
     await client.query("ROLLBACK");
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to create venue" });
+    return res.status(500).json({ error: "Failed to create venue" });
   } finally {
     client.release();
   }

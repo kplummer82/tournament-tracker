@@ -47,7 +47,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       return res.status(200).json(updated[0]);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Server error";
+      const message = "Server error";
       console.error("[tournament team PATCH]", err);
       return res.status(500).json({ error: message });
     }
@@ -89,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         bracketAssignmentsDeleted: bracketResult?.length || 0,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Server error";
+      const message = "Server error";
       console.error("[tournament team DELETE]", err);
       return res.status(500).json({ error: message });
     }

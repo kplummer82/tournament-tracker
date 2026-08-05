@@ -125,6 +125,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           WHERE id = ${scenarioId}
         `;
       } catch (err: unknown) {
+        // Stored in scenario_questions.error_message and shown to the user as
+        // why their analysis failed — keep the real reason (not an HTTP leak).
         const msg = err instanceof Error ? err.message : "Analysis failed";
         console.error("[scenario run]", err);
         await sql`
@@ -135,7 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     })());
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[scenario run API]", err);
     return res.status(500).json({ error: message });
   }

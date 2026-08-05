@@ -65,7 +65,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ error: "Method Not Allowed" });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[tournament brackets API]", err);
     return res.status(500).json({ error: message });
   }

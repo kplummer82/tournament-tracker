@@ -185,7 +185,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(200).json({ ok: true });
       } catch (e: unknown) {
         console.error("PUT poolgames error:", e);
-        return res.status(500).json({ error: e instanceof Error ? e.message : "Failed to update game" });
+        return res.status(500).json({ error: "Failed to update game" });
       } finally {
         client.release();
       }

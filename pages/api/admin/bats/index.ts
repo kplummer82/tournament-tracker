@@ -49,6 +49,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(409).json({ error: "A bat with that name already exists for that sport" });
     }
     console.error("[admin/bats] error", err);
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

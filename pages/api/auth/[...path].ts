@@ -167,7 +167,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.end();
   } catch (err) {
     console.error("[auth proxy]", path, err);
-    const message = err instanceof Error ? err.message : "Internal Server Error";
+    const message = "Internal Server Error";
     return res.status(500).json({ error: message });
   }
 }

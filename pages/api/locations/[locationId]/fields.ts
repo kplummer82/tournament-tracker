@@ -71,6 +71,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (err.code === "23503") {
       return res.status(404).json({ error: "Location not found" });
     }
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

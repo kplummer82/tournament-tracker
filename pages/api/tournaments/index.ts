@@ -81,7 +81,7 @@ async function getTournaments(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).json({ rows, total: c[0]?.total ?? 0 });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to load tournaments" });
+    res.status(500).json({ error: "Failed to load tournaments" });
   } finally {
     client.release();
   }
@@ -320,7 +320,7 @@ async function createTournament(req: NextApiRequest, res: NextApiResponse) {
   } catch (e: any) {
     await client.query("ROLLBACK");
     console.error(e);
-    res.status(400).json({ error: e.message || "Failed to create tournament" });
+    res.status(400).json({ error: "Failed to create tournament" });
   } finally {
     client.release();
   }

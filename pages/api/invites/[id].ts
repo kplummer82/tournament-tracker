@@ -54,6 +54,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true });
   } catch (e: any) {
     console.error("[invites] revoke failed", e);
-    return res.status(500).json({ error: e.message || "Failed to revoke invite" });
+    return res.status(500).json({ error: "Failed to revoke invite" });
   }
 }

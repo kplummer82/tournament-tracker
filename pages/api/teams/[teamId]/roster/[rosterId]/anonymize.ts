@@ -64,7 +64,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, player: result.player });
   } catch (err: unknown) {
     await client.query("ROLLBACK").catch(() => {});
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[roster anonymize]", err);
     return res.status(500).json({ error: message });
   } finally {

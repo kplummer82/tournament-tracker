@@ -80,7 +80,7 @@ export default async function handler(
 
     return res.status(200).json({ listings });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Server error";
+    const msg = "Server error";
     console.error("[my-listings] GET error", err);
     return res.status(500).json({ error: msg });
   }

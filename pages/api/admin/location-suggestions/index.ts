@@ -81,6 +81,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ suggestions, counts });
   } catch (err: any) {
     console.error("[admin/location-suggestions] error", err);
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

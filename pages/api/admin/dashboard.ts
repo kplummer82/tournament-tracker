@@ -222,7 +222,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (err: unknown) {
     console.error("[admin dashboard]", err);
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     return res.status(500).json({ error: message });
   }
 }

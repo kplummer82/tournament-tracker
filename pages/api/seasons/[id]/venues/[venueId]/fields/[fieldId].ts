@@ -76,7 +76,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).end("Method Not Allowed");
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to update field" });
+    return res.status(500).json({ error: "Failed to update field" });
   } finally {
     client.release();
   }

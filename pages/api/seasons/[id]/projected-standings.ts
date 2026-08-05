@@ -170,7 +170,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       completedGamesCount: completedGames.length,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[projected-standings]", err);
     return res.status(500).json({ error: message });
   }

@@ -30,6 +30,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ following: rows.length > 0 });
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e.message || "Internal error" });
+    return res.status(500).json({ error: "Internal error" });
   }
 }

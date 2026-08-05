@@ -57,7 +57,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to add field" });
+    return res.status(500).json({ error: "Failed to add field" });
   } finally {
     client.release();
   }

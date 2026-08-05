@@ -290,6 +290,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).end("Method Not Allowed");
   } catch (err: any) {
     console.error("[leagues] error", err);
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

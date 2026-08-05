@@ -29,7 +29,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!rows?.length) return res.status(404).json({ error: "Roster entry not found." });
       return res.status(200).json(rows[0]);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Server error";
+      const message = "Server error";
       console.error("[roster GET]", err);
       return res.status(500).json({ error: message });
     }
@@ -48,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!rows?.length) return res.status(404).json({ error: "Roster entry not found." });
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Server error";
+      const message = "Server error";
       console.error("[roster DELETE]", err);
       return res.status(500).json({ error: message });
     }
@@ -169,7 +169,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       return res.status(200).json(updated[0]);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Server error";
+      const message = "Server error";
       console.error("[roster PATCH]", err);
       return res.status(500).json({ error: message });
     }

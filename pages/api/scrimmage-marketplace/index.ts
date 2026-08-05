@@ -276,7 +276,7 @@ export default async function handler(
         total: parseInt(countRows[0]?.total ?? "0", 10),
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmage-marketplace] GET error", err);
       return res.status(500).json({ error: msg });
     }
@@ -398,7 +398,7 @@ export default async function handler(
 
       return res.status(201).json({ id: newId });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmage-marketplace] POST error", err);
       return res.status(500).json({ error: msg });
     }

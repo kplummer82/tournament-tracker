@@ -65,6 +65,6 @@ async function deleteRole(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).json({ success: true });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to revoke role" });
+    res.status(500).json({ error: "Failed to revoke role" });
   }
 }

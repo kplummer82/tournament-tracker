@@ -81,7 +81,7 @@ async function listRoles(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).json({ roles: enriched });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to list roles" });
+    res.status(500).json({ error: "Failed to list roles" });
   }
 }
 
@@ -149,7 +149,7 @@ async function createRole(req: NextApiRequest, res: NextApiResponse) {
     res.status(201).json({ role: { ...result, entity_name: entityName } });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to assign role" });
+    res.status(500).json({ error: "Failed to assign role" });
   }
 }
 

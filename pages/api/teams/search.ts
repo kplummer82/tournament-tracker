@@ -139,7 +139,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({
         error: "Internal Server Error",
         code: err.code,
-        message: err.message,
+        message: "Server error",
         detail: err.detail,
         hint: err.hint,
       });

@@ -24,6 +24,6 @@ export default async function handler(_req: NextApiRequest, res: NextApiResponse
     });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to load lookups" });
+    res.status(500).json({ error: "Failed to load lookups" });
   }
 }

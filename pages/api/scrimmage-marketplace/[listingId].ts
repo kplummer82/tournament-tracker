@@ -132,7 +132,7 @@ export default async function handler(
         managedTeamIds: managedTeamIds ?? undefined,
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmage-marketplace] GET detail error", err);
       return res.status(500).json({ error: msg });
     }
@@ -225,7 +225,7 @@ export default async function handler(
 
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmage-marketplace] PATCH error", err);
       return res.status(500).json({ error: msg });
     }
@@ -257,7 +257,7 @@ export default async function handler(
 
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmage-marketplace] DELETE error", err);
       return res.status(500).json({ error: msg });
     }

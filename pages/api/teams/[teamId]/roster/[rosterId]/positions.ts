@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ positions: rows as PositionEntry[] });
     } catch (err) {
       console.error("[positions GET]", err);
-      return res.status(500).json({ error: err instanceof Error ? err.message : "Server error" });
+      return res.status(500).json({ error: "Server error" });
     }
   }
 
@@ -75,7 +75,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ positions: rows as PositionEntry[] });
     } catch (err) {
       console.error("[positions PUT]", err);
-      return res.status(500).json({ error: err instanceof Error ? err.message : "Server error" });
+      return res.status(500).json({ error: "Server error" });
     }
   }
 

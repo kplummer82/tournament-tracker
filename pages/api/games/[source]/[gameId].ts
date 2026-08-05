@@ -177,6 +177,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ game });
   } catch (err: unknown) {
     console.error("[games/[source]/[gameId]] error", err);
-    return res.status(500).json({ error: err instanceof Error ? err.message : "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

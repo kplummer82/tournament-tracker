@@ -28,7 +28,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       maxDate: max_date ?? null,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[season date-range API]", err);
     return res.status(500).json({ error: message });
   }

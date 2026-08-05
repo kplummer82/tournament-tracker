@@ -32,7 +32,7 @@ export default async function handler(
       `;
       return res.status(200).json({ scrimmages: rows });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmages] GET error", err);
       return res.status(500).json({ error: msg });
     }
@@ -89,7 +89,7 @@ export default async function handler(
       `;
       return res.status(201).json({ scrimmage: rows[0] });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmages] POST error", err);
       return res.status(500).json({ error: msg });
     }

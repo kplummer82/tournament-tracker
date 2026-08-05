@@ -73,7 +73,7 @@ export default async function handler(
       if (!rows.length) return res.status(404).json({ error: "Scrimmage not found" });
       return res.status(200).json({ scrimmage: rows[0] });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmages/id] PATCH error", err);
       return res.status(500).json({ error: msg });
     }
@@ -103,7 +103,7 @@ export default async function handler(
       `;
       return res.status(200).json({ ok: true });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Server error";
+      const msg = "Server error";
       console.error("[scrimmages/id] DELETE error", err);
       return res.status(500).json({ error: msg });
     }

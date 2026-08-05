@@ -34,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (e: any) {
     console.error(e);
-    res.status(500).json({ error: e.message || "Failed to fetch roles" });
+    res.status(500).json({ error: "Failed to fetch roles" });
   }
 }
 

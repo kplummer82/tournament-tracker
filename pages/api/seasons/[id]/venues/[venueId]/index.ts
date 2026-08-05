@@ -100,7 +100,7 @@ async function patchVenue(req: NextApiRequest, res: NextApiResponse, seasonId: n
   } catch (e: any) {
     await client.query("ROLLBACK");
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to update venue" });
+    return res.status(500).json({ error: "Failed to update venue" });
   } finally {
     client.release();
   }
@@ -120,7 +120,7 @@ async function deleteVenue(req: NextApiRequest, res: NextApiResponse, seasonId: 
     return res.status(204).end();
   } catch (e: any) {
     console.error(e);
-    return res.status(500).json({ error: e.message || "Failed to delete venue" });
+    return res.status(500).json({ error: "Failed to delete venue" });
   } finally {
     client.release();
   }

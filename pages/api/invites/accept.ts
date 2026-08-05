@@ -48,7 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     await grantInvite(session.user.id, invite as GrantableInvite);
   } catch (e: any) {
     console.error("[invites] accept failed", e);
-    return res.status(500).json({ error: e.message || "Failed to accept invite" });
+    return res.status(500).json({ error: "Failed to accept invite" });
   }
 
   const redirect = await scopeRedirectPath(

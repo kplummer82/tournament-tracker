@@ -38,7 +38,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const standings = [...rows].sort((a, b) => a.rank_final - b.rank_final);
     return res.status(200).json({ standings, coinToss: { groups } });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Server error";
+    const message = "Server error";
     console.error("[season standings API]", err);
     return res.status(500).json({ error: message });
   }

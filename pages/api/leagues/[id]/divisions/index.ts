@@ -57,6 +57,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (err.code === "23505") {
       return res.status(409).json({ error: "A division with this name already exists in the league" });
     }
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }

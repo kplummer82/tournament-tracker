@@ -35,7 +35,7 @@ export default async function handler(
     await sql`UPDATE scrimmages SET field = ${field} WHERE id = ${scrimmageId}`;
     return res.status(200).json({ ok: true, field });
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Server error";
+    const msg = "Server error";
     console.error("[scrimmages/field] PATCH error", err);
     return res.status(500).json({ error: msg });
   }

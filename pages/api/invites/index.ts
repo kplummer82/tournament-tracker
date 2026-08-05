@@ -52,7 +52,7 @@ async function listInvites(req: NextApiRequest, res: NextApiResponse) {
     res.status(200).json({ invites: rows });
   } catch (e: any) {
     console.error("[invites] list failed", e);
-    res.status(500).json({ error: e.message || "Failed to list invites" });
+    res.status(500).json({ error: "Failed to list invites" });
   }
 }
 
@@ -147,7 +147,7 @@ async function createInvite(req: NextApiRequest, res: NextApiResponse) {
     invite = rows[0];
   } catch (e: any) {
     console.error("[invites] insert failed", e);
-    res.status(500).json({ error: e.message || "Failed to create invite" });
+    res.status(500).json({ error: "Failed to create invite" });
     return;
   }
 

@@ -36,6 +36,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(202).json({ ok: true, ai_status: "running" });
   } catch (err: any) {
     console.error("[admin/location-suggestions/reanalyze] error", err);
-    return res.status(500).json({ error: err.message ?? "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 }
