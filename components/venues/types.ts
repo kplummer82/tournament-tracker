@@ -2,6 +2,9 @@
 // Canonical DTO shared by tournament- and season-scoped venue UI. Structurally
 // identical to the VenueDTO returned by lib/tournaments/venues.ts and
 // lib/seasons/venues.ts.
+/** Placeholder field name used when a game's exact field isn't decided yet. */
+export const TBD_FIELD = "TBD";
+
 export type VenueFieldDTO = {
   id: number;
   name: string;

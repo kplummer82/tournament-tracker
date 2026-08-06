@@ -36,6 +36,7 @@ import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
 import type { LocationPickerValue } from "@/components/LocationPicker";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 import type { VenueDTO } from "@/components/venues/types";
+import { TBD_FIELD } from "@/components/venues/types";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -107,6 +108,15 @@ function emptyDayRule(dow: DayRule['dayOfWeek']): DayRule {
 
 const BTN = "inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] border transition-colors";
 const FIELD_INPUT = "border border-border bg-background px-2 py-1 text-xs focus:outline-none focus:border-primary";
+
+/**
+ * Every scheduled slot must name a venue; the field within that venue stays optional.
+ * A slot has a venue when a season venue is picked, or — when the season has no
+ * venues configured — when a location was typed into the fallback picker.
+ */
+function hasVenue(s: { seasonVenueId?: number | null; fieldLocation?: string | null }): boolean {
+  return s.seasonVenueId != null || !!(s.fieldLocation ?? '').trim();
+}
 
 // ─── Team chip (draggable) ──────────────────────────────────────────────────────
 
@@ -475,7 +485,11 @@ function SchedulingRules({
                           <span className="text-[10px] text-muted-foreground block mb-1.5">Game Slots</span>
                           <div className="flex items-center gap-2 flex-wrap">
                             {rule.gameSlots.map((gs, i) => (
-                              <span key={i} className="inline-flex items-center gap-1.5 border border-border bg-muted px-2 py-0.5 text-xs">
+                              <span key={i} className={cn(
+                                "inline-flex items-center gap-1.5 border bg-muted px-2 py-0.5 text-xs",
+                                hasVenue(gs) ? "border-border" : "border-destructive/60"
+                              )}
+                                title={hasVenue(gs) ? undefined : 'This slot needs a venue'}>
                                 <input type="time" value={gs.time}
                                   onChange={e => updateSlotOnDay(dow, i, { time: e.target.value })}
                                   className="bg-transparent text-xs focus:outline-none w-[100px]" />
@@ -496,7 +510,7 @@ function SchedulingRules({
                                       }}
                                       className={cn(FIELD_INPUT, "bg-transparent w-36")}
                                     >
-                                      <option value="">— Venue —</option>
+                                      <option value="">— Venue (required) —</option>
                                       {venues.map(v => (
                                         <option key={v.id} value={v.id}>{v.name}</option>
                                       ))}
@@ -510,7 +524,7 @@ function SchedulingRules({
                                           onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
                                           className={cn(FIELD_INPUT, "bg-transparent w-[120px] disabled:opacity-50")}
                                         >
-                                          <option value="">{sv && sv.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                                          <option value="">{sv && sv.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
                                           {sv?.fields.map(f => (
                                             <option key={f.id} value={f.name}>{f.name}</option>
                                           ))}
@@ -550,7 +564,18 @@ function SchedulingRules({
               (n, r) => n + r.gameSlots.filter(gs => gs.fieldLocation && gs.locationId == null).length,
               0
             );
+            const missingVenueCount = config.dayRules.reduce(
+              (n, r) => n + r.gameSlots.filter(gs => !hasVenue(gs)).length,
+              0
+            );
             return (
+              <div className="space-y-2">
+              {missingVenueCount > 0 && (
+                <div className="flex items-center gap-2 p-2 bg-destructive/10 border border-destructive/30 text-destructive text-[11px]">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {missingVenueCount} game slot{missingVenueCount === 1 ? '' : 's'} still need{missingVenueCount === 1 ? 's' : ''} a venue. Every slot must have one before you can generate — the field is optional.
+                </div>
+              )}
               <div className="flex items-center justify-between gap-2 pt-1">
                 <span className="text-[10px] text-muted-foreground">
                   {venues != null && venues.length === 0 && seasonId != null ? (
@@ -569,6 +594,7 @@ function SchedulingRules({
                   className={cn(BTN, "border-border text-muted-foreground hover:border-foreground hover:text-foreground disabled:opacity-50")}>
                   {saving ? 'Saving…' : 'Save Rules'}
                 </button>
+              </div>
               </div>
             );
           })()}
@@ -1249,6 +1275,15 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
   async function handleCommit() {
     const complete = slots.filter(s => s.home && s.away);
     if (complete.length === 0) return;
+    // Venue is required on every game (field stays optional). Slots generated before
+    // that rule existed can still be venue-less, so re-check here as well.
+    const missingVenue = complete.filter(s => !hasVenue(s)).length;
+    if (missingVenue > 0) {
+      setCommitError(
+        `${missingVenue} game${missingVenue === 1 ? '' : 's'} ${missingVenue === 1 ? 'has' : 'have'} no venue. Set a venue on every slot in Scheduling Rules and regenerate before committing.`
+      );
+      return;
+    }
     setCommitting(true);
     setCommitError(null);
     setCommitSuccess(false);
@@ -1259,7 +1294,8 @@ const SchedulerWorkspace = forwardRef<WorkspaceHandle, {
         home: s.home!.id,
         away: s.away!.id,
         location: s.fieldLocation || undefined,
-        field: s.fieldName || undefined,
+        // Slots may leave the field blank; a committed game always carries one.
+        field: s.fieldName || TBD_FIELD,
         location_id: s.locationId || undefined,
         season_venue_id: s.seasonVenueId || undefined,
       }));
@@ -2227,7 +2263,7 @@ function CalendarPalette() {
 }
 
 /** A per-slot droppable config zone (date / time / venuefield) with click-to-edit. */
-function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active, canEdit, onEdit, onClear }: {
+function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active, canEdit, onEdit, onClear, required }: {
   slotId: string;
   zone: 'date' | 'time' | 'venuefield';
   icon: React.ReactNode;
@@ -2238,6 +2274,8 @@ function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active
   canEdit: boolean;
   onEdit: () => void;
   onClear: () => void;
+  /** Flag the zone when empty — it blocks publishing. */
+  required?: boolean;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `${slotId}__${zone}`, data: { slotId, zone } });
   return (
@@ -2245,6 +2283,7 @@ function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active
       className={cn(
         "group/zone flex w-full items-center gap-1.5 h-8 px-2 rounded border text-xs transition-colors min-w-0",
         filled ? "border-border bg-background text-foreground" : "border-dashed border-border/60 text-muted-foreground",
+        required && !filled && "border-destructive/60 text-destructive",
         active && !filled && "border-primary/50 text-primary/70",
         isOver && "border-primary bg-primary/10 text-primary ring-1 ring-primary"
       )}>
@@ -2426,7 +2465,7 @@ function ManualSlotBoard({
 
   // ── Slot mutations ──────────────────────────────────────────────────────────
   function addSlot() {
-    if (!quickAdd.date || !quickAdd.time) return;
+    if (!quickAdd.date || !quickAdd.time || !hasVenue(quickAdd)) return;
     setSlots(prev => [...prev, {
       id: genSlotId(),
       date: quickAdd.date,
@@ -2533,6 +2572,15 @@ function ManualSlotBoard({
 
   async function handlePublish() {
     const complete = slots.filter(s => s.homeId != null && s.awayId != null);
+    // Venue is required on every published game; the field within it is optional.
+    const missingVenue = complete.filter(s => !hasVenue(s)).length;
+    if (missingVenue > 0) {
+      setPublishError(
+        `${missingVenue} game${missingVenue === 1 ? '' : 's'} ${missingVenue === 1 ? 'has' : 'have'} no venue. Set a venue on every filled slot before publishing — the field is optional.`
+      );
+      setPublishSuccess(null);
+      return;
+    }
     setPublishing(true);
     setPublishError(null);
     setPublishSuccess(null);
@@ -2551,7 +2599,8 @@ function ManualSlotBoard({
         home: s.homeId!,
         away: s.awayId!,
         location: s.fieldLocation || undefined,
-        field: s.fieldName || undefined,
+        // Slots may leave the field blank; a published game always carries one.
+        field: s.fieldName || TBD_FIELD,
         location_id: s.locationId || undefined,
         season_venue_id: s.seasonVenueId || undefined,
       }));
@@ -2709,10 +2758,10 @@ function ManualSlotBoard({
                     <div className="text-[12px] text-muted-foreground truncate">
                       {slot.date || slot.time ? `${dateLabel(slot.date) || 'No date'}${slot.time ? ' · ' + fmt12h(slot.time) : ''}` : 'Add date & time'}
                     </div>
-                    <div className="text-[11px] text-muted-foreground/80 truncate">
+                    <div className={cn("text-[11px] truncate", hasVenue(slot) ? "text-muted-foreground/80" : "text-destructive")}>
                       {(slot.fieldName || slot.fieldLocation)
                         ? <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />
-                        : 'No venue'}
+                        : 'Venue required'}
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -2785,7 +2834,7 @@ function ManualSlotBoard({
                 {venues && venues.length > 0 ? (
                   <>
                     <div className={ROW}>
-                      <span className="text-sm font-medium">Venue</span>
+                      <span className="text-sm font-medium">Venue <span className="text-destructive">*</span></span>
                       <div className={MOBILE_CTRL}>
                         <MobileSelect value={editorSlot.seasonVenueId ?? ''}
                           onChange={e => {
@@ -2794,17 +2843,17 @@ function ManualSlotBoard({
                             const v = venues.find(x => x.id === Number(raw));
                             if (v) patchSlot(editorSlot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
                           }}>
-                          <option value="">— Venue —</option>
+                          <option value="">— Venue (required) —</option>
                           {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                         </MobileSelect>
                       </div>
                     </div>
                     <div className={ROW}>
-                      <span className="text-sm font-medium">Field</span>
+                      <span className="text-sm font-medium">Field <span className="text-muted-foreground font-normal">(optional)</span></span>
                       <div className={MOBILE_CTRL}>
                         <MobileSelect value={editorSlot.fieldName} disabled={!editorVenue || editorVenue.fields.length === 0}
                           onChange={e => patchSlot(editorSlot.id, { fieldName: e.target.value })}>
-                          <option value="">{editorVenue && editorVenue.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                          <option value="">{editorVenue && editorVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
                           {editorVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                         </MobileSelect>
                       </div>
@@ -2907,7 +2956,7 @@ function ManualSlotBoard({
             {venues && venues.length > 0 ? (
               <>
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Venue</span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Venue <span className="text-destructive">*</span></span>
                   <select
                     value={quickAdd.seasonVenueId ?? ''}
                     onChange={e => {
@@ -2924,14 +2973,14 @@ function ManualSlotBoard({
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Field</span>
+                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Field <span className="normal-case tracking-normal">(optional)</span></span>
                   <select
                     value={quickAdd.fieldName}
                     disabled={!selectedVenue || selectedVenue.fields.length === 0}
                     onChange={e => setQuickAdd(qa => ({ ...qa, fieldName: e.target.value }))}
                     className={cn(FIELD_INPUT, "w-[130px] disabled:opacity-50")}
                   >
-                    <option value="">{selectedVenue && selectedVenue.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                    <option value="">{selectedVenue && selectedVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
                     {selectedVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                   </select>
                 </label>
@@ -2948,7 +2997,8 @@ function ManualSlotBoard({
                 />
               </label>
             )}
-            <button type="button" onClick={addSlot} disabled={!quickAdd.date || !quickAdd.time}
+            <button type="button" onClick={addSlot} disabled={!quickAdd.date || !quickAdd.time || !hasVenue(quickAdd)}
+              title={hasVenue(quickAdd) ? undefined : 'Pick a venue first — the field is optional'}
               className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}>
               <Plus className="h-3.5 w-3.5" /> Add Slot
             </button>
@@ -2960,6 +3010,7 @@ function ManualSlotBoard({
           </div>
           <p className="text-[10px] text-muted-foreground">
             Type a slot above, or add an empty one and drag a venue, date and time in from the palette below.
+            Every slot needs a venue before it can be published; the field is optional.
           </p>
           {venues != null && venues.length === 0 && (
             <p className="text-[10px] text-muted-foreground">
@@ -3140,13 +3191,13 @@ function ManualSlotBoard({
                                       if (v) patchSlot(slot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
                                     }}
                                     className={cn(FIELD_INPUT, "w-36 h-8")}>
-                                    <option value="">— Venue —</option>
+                                    <option value="">— Venue (required) —</option>
                                     {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                   </select>
                                   <select value={slot.fieldName} disabled={!slotVenue || slotVenue.fields.length === 0}
                                     onChange={e => patchSlot(slot.id, { fieldName: e.target.value })}
                                     className={cn(FIELD_INPUT, "w-[120px] h-8 disabled:opacity-50")}>
-                                    <option value="">{slotVenue && slotVenue.fields.length === 0 ? '— No fields —' : '— Field —'}</option>
+                                    <option value="">{slotVenue && slotVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
                                     {slotVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                                   </select>
                                 </>
@@ -3159,7 +3210,8 @@ function ManualSlotBoard({
                             </div>
                           ) : (
                             <ConfigZone slotId={slot.id} zone="venuefield" icon={<MapPin className="h-3.5 w-3.5" />}
-                              placeholder="Drop venue · field" filled={!!(slot.fieldName || slot.fieldLocation)}
+                              placeholder="Drop venue (required)" required={!hasVenue(slot)}
+                              filled={!!(slot.fieldName || slot.fieldLocation)}
                               valueNode={<LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />}
                               active={activeDrag?.type === 'venuefield'} canEdit={canEdit}
                               onEdit={() => setEditingZone(`${slot.id}:venuefield`)}
@@ -3311,6 +3363,7 @@ function SchedulingBody() {
   const [autoFillFeedback, setAutoFillFeedback] = useState<{
     restDays: number; backToBack: number; roundCompletion: number; weekdayLimit: number;
   } | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
   const [showCommitConfirm, setShowCommitConfirm] = useState(false);
   const [committedSlotSnapshot, setCommittedSlotSnapshot] = useState<string | null>(null);
   const [dirtyAfterCommit, setDirtyAfterCommit] = useState(false);
@@ -3487,6 +3540,19 @@ function SchedulingBody() {
   }, [slots, committedSlotSnapshot]);
 
   function handleGenerateSlots() {
+    // A venue is required on every game slot (the field within it is optional),
+    // so a generated schedule never produces games with nowhere to play.
+    const missingVenue = config.dayRules.reduce(
+      (n, r) => n + r.gameSlots.filter(gs => !hasVenue(gs)).length,
+      0
+    );
+    if (missingVenue > 0) {
+      setGenerateError(
+        `${missingVenue} game slot${missingVenue === 1 ? '' : 's'} in Scheduling Rules ${missingVenue === 1 ? 'has' : 'have'} no venue. Pick a venue for every slot — the field is optional — then generate.`
+      );
+      return;
+    }
+    setGenerateError(null);
     const rawSlots = buildSlots(config);
     setSlots(rawSlots.map((s, i) => ({
       id: `${s.date}__${s.time}__${s.field.name || String(i)}`,
@@ -3763,6 +3829,13 @@ function SchedulingBody() {
               </li>
             )}
           </ul>
+        </div>
+      )}
+
+      {generateError && (
+        <div className="flex items-center gap-2 my-2 px-3 py-2 text-[11px] bg-destructive/10 border border-destructive/30 text-destructive">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>{generateError}</span>
         </div>
       )}
 

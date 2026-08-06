@@ -161,6 +161,7 @@ function GameFormPanel({
                 field: form.field,
               }}
               onChange={(val) => setForm((p) => ({ ...p, seasonVenueId: val.venueId, locationId: val.locationId, location: val.location, field: val.field }))}
+              requireField
             />
           )}
         </div>
@@ -330,6 +331,9 @@ function ScheduleBody() {
     if (!form.away) return "Select away team";
     if (form.home === form.away) return "Home and away teams must be different";
     if (!form.gamedate) return "Date is required";
+    // Venue is required; so is a field, but TBD is a valid answer for the field.
+    if (form.seasonVenueId == null && !form.location.trim()) return "Venue is required";
+    if (!form.field.trim()) return "Field is required — pick TBD if it isn't decided yet";
     return null;
   };
 

@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { VenueDTO } from "@/components/venues/types";
+import { TBD_FIELD } from "@/components/venues/types";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
 
 export interface VenuePickerValue {
@@ -20,12 +21,17 @@ interface Props {
   setupHref: string;  // e.g. /seasons/10/venues
   value: VenuePickerValue;
   onChange: (v: VenuePickerValue) => void;
+  /**
+   * Games must always name a field, so picking a venue pre-selects TBD rather
+   * than leaving the field blank. Callers still validate before saving.
+   */
+  requireField?: boolean;
 }
 
 const SELECT =
   "w-full border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
 
-export default function VenuePicker({ basePath, setupHref, value, onChange }: Props) {
+export default function VenuePicker({ basePath, setupHref, value, onChange, requireField = false }: Props) {
   const [venues, setVenues] = useState<VenueDTO[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -79,7 +85,7 @@ export default function VenuePicker({ basePath, setupHref, value, onChange }: Pr
             venueId: v.id,
             locationId: v.locationId,
             location: v.name,
-            field: "",
+            field: requireField ? TBD_FIELD : "",
           });
         }}
       >
@@ -92,16 +98,22 @@ export default function VenuePicker({ basePath, setupHref, value, onChange }: Pr
       </select>
       <select
         className={SELECT}
-        disabled={!selected || selected.fields.length === 0}
+        // Legacy rows carry a free-text location with no venue row — still let
+        // those pick a field (TBD at minimum) rather than dead-ending.
+        disabled={!selected && !value.location}
         value={value.field}
         onChange={(e) => onChange({ ...value, field: e.target.value })}
       >
-        <option value="">{selected && selected.fields.length === 0 ? "— No fields —" : "— Select field —"}</option>
-        {selected?.fields.map((f) => (
-          <option key={f.id} value={f.name}>
-            {f.name}
-          </option>
-        ))}
+        <option value="">— Select field —</option>
+        {/* Always available so a game can be set before the field is known. */}
+        <option value={TBD_FIELD}>TBD</option>
+        {selected?.fields
+          .filter((f) => f.name !== TBD_FIELD)
+          .map((f) => (
+            <option key={f.id} value={f.name}>
+              {f.name}
+            </option>
+          ))}
       </select>
       {error && <p className="col-span-2 text-xs text-destructive">{error}</p>}
       <FieldAvailabilityNotice className="col-span-2" />
