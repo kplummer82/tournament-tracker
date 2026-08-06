@@ -37,6 +37,24 @@ export async function loginAs(page: Page, userKey: TestUserKey): Promise<void> {
 }
 
 /**
+ * Log in via the Better Auth API instead of driving the UI form. More robust
+ * than loginAs for API-only specs: it sets the session cookie directly in the
+ * browser context (page.request shares the context cookie jar), avoiding the
+ * login page's client-side redirect race. Then primes the page on the app
+ * origin so in-page fetch() calls send the session cookie.
+ */
+export async function apiLogin(page: Page, userKey: TestUserKey): Promise<void> {
+  const user = TEST_USERS[userKey];
+  const res = await page.request.post("/api/auth/sign-in/email", {
+    data: { email: user.email, password: user.password },
+  });
+  if (!res.ok()) {
+    throw new Error(`API login failed for ${userKey}: HTTP ${res.status()}`);
+  }
+  await page.goto("/");
+}
+
+/**
  * Make an authenticated API request using the page's cookies.
  */
 export async function authedFetch(

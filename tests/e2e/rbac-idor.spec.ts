@@ -1,5 +1,5 @@
 import { test, expect, type Page, type BrowserContext } from "@playwright/test";
-import { loginAs, authedFetch } from "./helpers/auth";
+import { apiLogin, authedFetch } from "./helpers/auth";
 import {
   createTeamViaApi,
   deleteTeamViaApi,
@@ -30,6 +30,10 @@ const data: { adminTeamId: number | null; adminTournamentId: number | null; user
   userTeamId: null,
 };
 
+// Serial: the suite shares fixtures created once in beforeAll, and avoids
+// concurrent auth sign-ins tripping Better Auth's per-IP rate limit.
+test.describe.configure({ mode: "serial" });
+
 test.describe("RBAC: IDOR guards on lineup / scrimmage / swap", () => {
   let adminPage: Page;
   let userPage: Page;
@@ -41,8 +45,8 @@ test.describe("RBAC: IDOR guards on lineup / scrimmage / swap", () => {
     userContext = await browser.newContext();
     adminPage = await adminContext.newPage();
     userPage = await userContext.newPage();
-    await loginAs(adminPage, "admin");
-    await loginAs(userPage, "regularUser");
+    await apiLogin(adminPage, "admin");
+    await apiLogin(userPage, "regularUser");
 
     // Admin owns these; regularUser must NOT be able to touch them.
     data.adminTeamId = await createTeamViaApi(adminPage, `IDOR Admin Team ${unique}`);

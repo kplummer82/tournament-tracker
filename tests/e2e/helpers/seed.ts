@@ -103,6 +103,7 @@ export async function createTournamentViaApi(
     name,
     year,
     divisionid: 1, // assumes a default division exists
+    sportid: 1,
     statusid: 1,
     visibilityid: 1,
   });
