@@ -520,12 +520,13 @@ function SchedulingRules({
                                       return (
                                         <select
                                           value={gs.fieldName}
-                                          disabled={!sv || sv.fields.length === 0}
+                                          disabled={!sv}
                                           onChange={e => updateSlotOnDay(dow, i, { fieldName: e.target.value })}
                                           className={cn(FIELD_INPUT, "bg-transparent w-[120px] disabled:opacity-50")}
                                         >
-                                          <option value="">{sv && sv.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
-                                          {sv?.fields.map(f => (
+                                          <option value="">— Field (optional) —</option>
+                                          <option value={TBD_FIELD}>TBD</option>
+                                          {sv?.fields.filter(f => f.name !== TBD_FIELD).map(f => (
                                             <option key={f.id} value={f.name}>{f.name}</option>
                                           ))}
                                         </select>
@@ -2151,9 +2152,13 @@ function VenueFieldChip({ seasonVenueId, venueName, locationId, fieldName }: {
     id: `vf-${seasonVenueId}-${fieldName || '_'}`,
     data: { type: 'venuefield', seasonVenueId, venueName, locationId, fieldName },
   });
+  // The TBD chip books the venue without committing to a field — dashed so it
+  // reads as a placeholder next to the real fields.
+  const isTbd = fieldName === TBD_FIELD;
   return (
     <div ref={setNodeRef} {...attributes} {...listeners}
-      className={cn(CHIP, isDragging && "opacity-0")}
+      title={isTbd ? `${venueName} — field to be determined` : undefined}
+      className={cn(CHIP, isTbd && "border-dashed text-muted-foreground", isDragging && "opacity-0")}
       style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}>
       <MapPin className="h-3 w-3 shrink-0 text-primary/70" />
       <span className="truncate max-w-[120px]">{fieldName || venueName}</span>
@@ -2209,11 +2214,14 @@ function VenueFieldPalette({ venues, seasonId }: { venues: VenueDTO[]; seasonId:
         <div key={v.id}>
           <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-1 truncate">{v.name}</div>
           <div className="flex flex-wrap gap-1">
-            {v.fields.length > 0
-              ? v.fields.map(f => (
-                  <VenueFieldChip key={f.id} seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName={f.name} />
-                ))
-              : <VenueFieldChip seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName="" />}
+            {v.fields
+              .filter(f => f.name !== TBD_FIELD)
+              .map(f => (
+                <VenueFieldChip key={f.id} seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName={f.name} />
+              ))}
+            {/* Every venue gets a TBD chip so the venue can be booked before the
+                field is known — same drag workflow, no separate venue-only path. */}
+            <VenueFieldChip seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName={TBD_FIELD} />
           </div>
         </div>
       ))}
@@ -2851,10 +2859,11 @@ function ManualSlotBoard({
                     <div className={ROW}>
                       <span className="text-sm font-medium">Field <span className="text-muted-foreground font-normal">(optional)</span></span>
                       <div className={MOBILE_CTRL}>
-                        <MobileSelect value={editorSlot.fieldName} disabled={!editorVenue || editorVenue.fields.length === 0}
+                        <MobileSelect value={editorSlot.fieldName} disabled={!editorVenue}
                           onChange={e => patchSlot(editorSlot.id, { fieldName: e.target.value })}>
-                          <option value="">{editorVenue && editorVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
-                          {editorVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                          <option value="">— Field (optional) —</option>
+                          <option value={TBD_FIELD}>TBD</option>
+                          {editorVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                         </MobileSelect>
                       </div>
                     </div>
@@ -2976,12 +2985,13 @@ function ManualSlotBoard({
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Field <span className="normal-case tracking-normal">(optional)</span></span>
                   <select
                     value={quickAdd.fieldName}
-                    disabled={!selectedVenue || selectedVenue.fields.length === 0}
+                    disabled={!selectedVenue}
                     onChange={e => setQuickAdd(qa => ({ ...qa, fieldName: e.target.value }))}
                     className={cn(FIELD_INPUT, "w-[130px] disabled:opacity-50")}
                   >
-                    <option value="">{selectedVenue && selectedVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
-                    {selectedVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                    <option value="">— Field (optional) —</option>
+                    <option value={TBD_FIELD}>TBD</option>
+                    {selectedVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                   </select>
                 </label>
               </>
@@ -3194,11 +3204,12 @@ function ManualSlotBoard({
                                     <option value="">— Venue (required) —</option>
                                     {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                                   </select>
-                                  <select value={slot.fieldName} disabled={!slotVenue || slotVenue.fields.length === 0}
+                                  <select value={slot.fieldName} disabled={!slotVenue}
                                     onChange={e => patchSlot(slot.id, { fieldName: e.target.value })}
                                     className={cn(FIELD_INPUT, "w-[120px] h-8 disabled:opacity-50")}>
-                                    <option value="">{slotVenue && slotVenue.fields.length === 0 ? '— No fields —' : '— Field (optional) —'}</option>
-                                    {slotVenue?.fields.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                                    <option value="">— Field (optional) —</option>
+                                    <option value={TBD_FIELD}>TBD</option>
+                                    {slotVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
                                   </select>
                                 </>
                               ) : (
@@ -3299,7 +3310,11 @@ function ManualSlotBoard({
           {activeDrag?.type === 'team' && <DraggingChip team={activeDrag.team} />}
           {activeDrag?.type === 'venuefield' && (
             <div className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] border border-primary bg-primary text-primary-foreground shadow-lg">
-              <MapPin className="h-3 w-3" /> {activeDrag.fieldName || activeDrag.venueName}
+              <MapPin className="h-3 w-3" />{' '}
+              {/* "TBD" alone is ambiguous mid-drag — name the venue it belongs to. */}
+              {activeDrag.fieldName === TBD_FIELD
+                ? `${activeDrag.venueName} · TBD`
+                : (activeDrag.fieldName || activeDrag.venueName)}
             </div>
           )}
           {activeDrag?.type === 'date' && (
