@@ -30,6 +30,10 @@ const data: { adminTeamId: number | null; adminTournamentId: number | null; user
   userTeamId: null,
 };
 
+// Don't load the saved storageState (tests/auth-state.json) — this spec signs in
+// fresh via apiLogin in its own contexts, and the file isn't present in CI.
+test.use({ storageState: { cookies: [], origins: [] } });
+
 // Serial: the suite shares fixtures created once in beforeAll, and avoids
 // concurrent auth sign-ins tripping Better Auth's per-IP rate limit.
 test.describe.configure({ mode: "serial" });
