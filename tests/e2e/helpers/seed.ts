@@ -121,3 +121,31 @@ export async function deleteTournamentViaApi(
 ): Promise<void> {
   await authedFetch(page, "DELETE", `/api/tournaments/${tournamentId}`);
 }
+
+/**
+ * Create an independent (unaffiliated) team via API. The creator is
+ * auto-assigned team_manager. Returns the new team id.
+ */
+export async function createTeamViaApi(
+  page: Page,
+  name: string,
+  year: number = 2026
+): Promise<number> {
+  const { status, data } = await authedFetch(page, "POST", "/api/teams", {
+    name,
+    season: "Spring",
+    year,
+    divisionId: 1, // assumes a default division exists (same assumption as tournaments)
+  });
+  if (status !== 201 && status !== 200) {
+    throw new Error(`Failed to create team: ${data.error || status}`);
+  }
+  return data.id;
+}
+
+/**
+ * Delete a team via API (best-effort cleanup).
+ */
+export async function deleteTeamViaApi(page: Page, teamId: number): Promise<void> {
+  await authedFetch(page, "DELETE", `/api/teams/${teamId}`);
+}
