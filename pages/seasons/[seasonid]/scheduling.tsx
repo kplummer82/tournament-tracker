@@ -20,7 +20,7 @@ import {
   Plus, X, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
   Wand2, CalendarCheck, Download, Ban,
   MapPin, Clock, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw,
-  Trash2, BarChart3,
+  Trash2, BarChart3, Pin, PinOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsMobile } from "@/lib/hooks/useMediaQuery";
@@ -2066,6 +2066,22 @@ function gameKey(date: string, home: number | null, away: number | null): string
   return `${date}|${home ?? ''}|${away ?? ''}`;
 }
 
+/**
+ * Date then time ascending; slots missing either sort last. Compared with `<`/`>`
+ * rather than localeCompare + a high-ASCII sentinel: ICU collation sorts symbols
+ * before digits, so `'~'.localeCompare('2026-01-01')` is -1, not 1 — the old
+ * sentinel pushed undated slots to the top instead of the bottom.
+ */
+function compareSlotOrder(
+  a: { date: string; time: string },
+  b: { date: string; time: string },
+): number {
+  if (!a.date !== !b.date) return a.date ? -1 : 1;
+  if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+  if (!a.time !== !b.time) return a.time ? -1 : 1;
+  return a.time < b.time ? -1 : a.time > b.time ? 1 : 0;
+}
+
 /** An already-committed season game (played/final) shown for context in the board. */
 interface CommittedGame {
   date: string;
@@ -2354,6 +2370,11 @@ function ManualSlotBoard({
   const [trayOpen, setTrayOpen] = useState(true);
   // Which slot zone has its inline (click-to-edit) control open: `${slotId}:${zone}`.
   const [editingZone, setEditingZone] = useState<string | null>(null);
+  // Slots held in the "Working on" tray at the top of the board while the admin
+  // fills them in, so dropping a date doesn't re-sort the card out from under them.
+  // Order = pin order, newest first. Ephemeral: never written to schedule_config.
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const trayRef = useRef<HTMLDivElement | null>(null);
   // Include already-committed season games in the counter + fairness panel.
   const [includeCommitted, setIncludeCommitted] = useState(false);
 
@@ -2380,6 +2401,7 @@ function ManualSlotBoard({
   useEffect(() => {
     setSlots(initialSlots);
     setSavedSnapshot(JSON.stringify(initialSlots));
+    setPinnedIds([]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seasonId]);
 
@@ -2471,11 +2493,32 @@ function ManualSlotBoard({
   const completeCount = slots.filter(s => s.homeId != null && s.awayId != null).length;
   const partialCount = slots.filter(s => (s.homeId != null || s.awayId != null) && !(s.homeId != null && s.awayId != null)).length;
 
+  // ── Pin ("Working on" tray) ─────────────────────────────────────────────────
+  /** Bring the tray into view so pinning from deep in the list is visible. */
+  function revealTray() {
+    requestAnimationFrame(() => trayRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+  }
+
+  function pinSlot(id: string) {
+    setPinnedIds(prev => (prev.includes(id) ? prev : [id, ...prev]));
+    revealTray();
+  }
+
+  function togglePin(id: string) {
+    if (pinnedIds.includes(id)) setPinnedIds(prev => prev.filter(p => p !== id));
+    else pinSlot(id);
+  }
+
+  function unpinAll() {
+    setPinnedIds([]);
+  }
+
   // ── Slot mutations ──────────────────────────────────────────────────────────
   function addSlot() {
     if (!quickAdd.date || !quickAdd.time || !hasVenue(quickAdd)) return;
+    const id = genSlotId();
     setSlots(prev => [...prev, {
-      id: genSlotId(),
+      id,
       date: quickAdd.date,
       time: quickAdd.time,
       fieldName: quickAdd.fieldName,
@@ -2487,6 +2530,7 @@ function ManualSlotBoard({
     }]);
     // Keep venue/time for rapid entry; clear the date so the admin picks the next one.
     setQuickAdd(qa => ({ ...qa, date: '' }));
+    pinSlot(id);
     setPublishSuccess(null);
   }
 
@@ -2496,6 +2540,7 @@ function ManualSlotBoard({
       id, date: '', time: '', fieldName: '', fieldLocation: '',
       locationId: null, seasonVenueId: null, homeId: null, awayId: null,
     }]);
+    pinSlot(id);
     setPublishSuccess(null);
     return id;
   }
@@ -2507,6 +2552,7 @@ function ManualSlotBoard({
 
   function removeSlot(id: string) {
     setSlots(prev => prev.filter(s => s.id !== id));
+    setPinnedIds(prev => prev.filter(p => p !== id));
     setPublishSuccess(null);
   }
 
@@ -2580,6 +2626,16 @@ function ManualSlotBoard({
 
   async function handlePublish() {
     const complete = slots.filter(s => s.homeId != null && s.awayId != null);
+    // A slot can carry teams before it has a date/time — publishing one would write
+    // an empty gamedate, so block it the same way a missing venue is blocked.
+    const missingWhen = complete.filter(s => !s.date || !s.time).length;
+    if (missingWhen > 0) {
+      setPublishError(
+        `${missingWhen} game${missingWhen === 1 ? '' : 's'} ${missingWhen === 1 ? 'is' : 'are'} missing a date or time. Set both on every filled slot before publishing.`
+      );
+      setPublishSuccess(null);
+      return;
+    }
     // Venue is required on every published game; the field within it is optional.
     const missingVenue = complete.filter(s => !hasVenue(s)).length;
     if (missingVenue > 0) {
@@ -2628,6 +2684,8 @@ function ManualSlotBoard({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Publish failed');
+      // Everything on the board is committed now — nothing is "in progress".
+      setPinnedIds([]);
       setPublishSuccess(games.length);
     } catch (e: any) {
       setPublishError(e.message);
@@ -2637,14 +2695,18 @@ function ManualSlotBoard({
   }
 
   // ── Grouping for render ───────────────────────────────────────────────────────
-  // Flat list ordered by date then time; undated/untimed slots sort last so a
-  // freshly-added empty slot stays visible at the bottom while you fill it in.
-  const sortedSlots = useMemo(
-    () => [...draftSlots].sort(
-      (a, b) => (a.date || '~').localeCompare(b.date || '~') || (a.time || '~').localeCompare(b.time || '~')
-    ),
-    [draftSlots]
-  );
+  // Two groups: the pinned "Working on" tray (pin order, newest first — never
+  // re-sorts, so dropping a date can't slide the card you're editing away), then
+  // everything else by date/time with undated/untimed slots last.
+  const pinnedSlots = useMemo(() => {
+    const byId = new Map(draftSlots.map(s => [s.id, s]));
+    return pinnedIds.map(id => byId.get(id)).filter((s): s is DraftSlot => !!s);
+  }, [draftSlots, pinnedIds]);
+
+  const sortedSlots = useMemo(() => {
+    const pinned = new Set(pinnedIds);
+    return draftSlots.filter(s => !pinned.has(s.id)).sort(compareSlotOrder);
+  }, [draftSlots, pinnedIds]);
 
   // Already-committed games to show (read-only) when the toggle is on, deduped
   // against the draft so a slot that matches a committed game isn't shown twice.
@@ -2657,7 +2719,7 @@ function ManualSlotBoard({
         homeName: g.home != null ? (teamMap.get(g.home)?.name ?? `Team ${g.home}`) : '—',
         awayName: g.away != null ? (teamMap.get(g.away)?.name ?? `Team ${g.away}`) : '—',
       }))
-      .sort((a, b) => (a.date || '~').localeCompare(b.date || '~') || (a.time || '~').localeCompare(b.time || '~'));
+      .sort(compareSlotOrder);
   }, [playedGames, draftSlots, teamMap]);
 
   // ── Quick-add venue/field picker (mirrors the auto rules-panel picker) ─────────
@@ -2705,6 +2767,35 @@ function ManualSlotBoard({
       : '';
     const ROW = "flex items-center justify-between gap-3";
 
+    const renderRow = (slot: DraftSlot, pinned: boolean) => {
+      const complete = !!(slot.home && slot.away);
+      return (
+        <button key={slot.id} type="button" onClick={() => setEditorSlotId(slot.id)}
+          className={cn(
+            "w-full text-left flex items-center gap-3 p-3 rounded-lg border bg-background active:bg-muted/40",
+            pinned ? "border-primary/40 ring-1 ring-primary/20" : "border-border"
+          )}>
+          <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", complete ? "bg-primary" : "bg-amber-500")} aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-medium truncate">
+              {slot.home?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
+              <span className="text-muted-foreground font-normal"> vs </span>
+              {slot.away?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
+            </div>
+            <div className="text-[12px] text-muted-foreground truncate">
+              {slot.date || slot.time ? `${dateLabel(slot.date) || 'No date'}${slot.time ? ' · ' + fmt12h(slot.time) : ''}` : 'Add date & time'}
+            </div>
+            <div className={cn("text-[11px] truncate", hasVenue(slot) ? "text-muted-foreground/80" : "text-destructive")}>
+              {(slot.fieldName || slot.fieldLocation)
+                ? <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />
+                : 'Venue required'}
+            </div>
+          </div>
+          <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+        </button>
+      );
+    };
+
     return (
       <div style={{ fontFamily: 'var(--font-body)' }} className="pb-28">
         {/* Header: summary + fairness */}
@@ -2750,32 +2841,34 @@ function ManualSlotBoard({
             No games yet. Tap &ldquo;Add game&rdquo; to create one, then set the teams, date, time and venue.
           </div>
         ) : (
-          <div className="space-y-2">
-            {sortedSlots.map(slot => {
-              const complete = !!(slot.home && slot.away);
-              return (
-                <button key={slot.id} type="button" onClick={() => setEditorSlotId(slot.id)}
-                  className="w-full text-left flex items-center gap-3 p-3 rounded-lg border border-border bg-background active:bg-muted/40">
-                  <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", complete ? "bg-primary" : "bg-amber-500")} aria-hidden />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium truncate">
-                      {slot.home?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
-                      <span className="text-muted-foreground font-normal"> vs </span>
-                      {slot.away?.name ?? <span className="text-muted-foreground font-normal">Add team</span>}
-                    </div>
-                    <div className="text-[12px] text-muted-foreground truncate">
-                      {slot.date || slot.time ? `${dateLabel(slot.date) || 'No date'}${slot.time ? ' · ' + fmt12h(slot.time) : ''}` : 'Add date & time'}
-                    </div>
-                    <div className={cn("text-[11px] truncate", hasVenue(slot) ? "text-muted-foreground/80" : "text-destructive")}>
-                      {(slot.fieldName || slot.fieldLocation)
-                        ? <LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />
-                        : 'Venue required'}
-                    </div>
+          <div className="space-y-4">
+            {/* Working on — pinned games, in pin order, never re-sorted. */}
+            {pinnedSlots.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-primary flex items-center gap-1.5">
+                    <Pin className="h-3.5 w-3.5" /> Working on ({pinnedSlots.length})
+                  </span>
+                  {canEdit && (
+                    <button type="button" onClick={unpinAll}
+                      className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground active:text-primary">
+                      Place all in schedule
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-2">{pinnedSlots.map(slot => renderRow(slot, true))}</div>
+              </div>
+            )}
+            {sortedSlots.length > 0 && (
+              <div>
+                {pinnedSlots.length > 0 && (
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                    Schedule ({sortedSlots.length})
                   </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </button>
-              );
-            })}
+                )}
+                <div className="space-y-2">{sortedSlots.map(slot => renderRow(slot, false))}</div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2903,6 +2996,20 @@ function ManualSlotBoard({
                 )}
 
                 {canEdit && (
+                  <button type="button" onClick={() => togglePin(editorSlot.id)}
+                    className={cn(
+                      "w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border text-sm font-semibold active:bg-muted/50",
+                      pinnedIds.includes(editorSlot.id)
+                        ? "border-primary/40 text-primary"
+                        : "border-border text-muted-foreground"
+                    )}>
+                    {pinnedIds.includes(editorSlot.id)
+                      ? <><PinOff className="h-4 w-4" /> Place in schedule</>
+                      : <><Pin className="h-4 w-4" /> Keep at top</>}
+                  </button>
+                )}
+
+                {canEdit && (
                   <button type="button" onClick={() => { removeSlot(editorSlot.id); setEditorSlotId(null); }}
                     className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg border border-destructive/40 text-sm font-semibold text-destructive active:bg-destructive/10">
                     <Trash2 className="h-4 w-4" /> Delete game
@@ -2940,6 +3047,138 @@ function ManualSlotBoard({
         </Sheet>
 
         {publishConfirmDialog}
+      </div>
+    );
+  }
+
+  // ── Desktop slot card ─────────────────────────────────────────────────────────
+  // A closure rather than a component so the "Working on" tray and the schedule
+  // list render identical cards without drilling editingZone/activeDrag/venues/
+  // canEdit and the six slot mutations through props.
+  function renderSlotCard(slot: DraftSlot, pinned: boolean) {
+    const dEditing = editingZone === `${slot.id}:date`;
+    const tEditing = editingZone === `${slot.id}:time`;
+    const vEditing = editingZone === `${slot.id}:venuefield`;
+    const slotVenue = venues?.find(v => v.id === (slot.seasonVenueId ?? -1)) ?? null;
+    const dateLabel = slot.date
+      ? `${DAY_FULL[new Date(slot.date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(slot.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
+      : '';
+    return (
+      <div key={slot.id} className={cn(
+        "border rounded p-2.5 space-y-2 bg-background",
+        pinned ? "border-primary/40 ring-1 ring-primary/20" : "border-border"
+      )}>
+        {/* Config zones: date · time · venue/field */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Date */}
+          <div className="w-[150px]">
+            {dEditing ? (
+              <input type="date" autoFocus value={slot.date}
+                onChange={e => patchSlot(slot.id, { date: e.target.value })}
+                onBlur={() => setEditingZone(null)}
+                className={cn(FIELD_INPUT, "w-full h-8")} />
+            ) : (
+              <ConfigZone slotId={slot.id} zone="date" icon={<CalendarDays className="h-3.5 w-3.5" />}
+                placeholder="Drop date" filled={!!slot.date} valueNode={dateLabel}
+                active={activeDrag?.type === 'date'} canEdit={canEdit}
+                onEdit={() => setEditingZone(`${slot.id}:date`)} onClear={() => patchSlot(slot.id, { date: '' })} />
+            )}
+          </div>
+          {/* Time */}
+          <div className="w-[130px]">
+            {tEditing ? (
+              <select autoFocus value={slot.time}
+                onChange={e => { patchSlot(slot.id, { time: e.target.value }); setEditingZone(null); }}
+                onBlur={() => setEditingZone(null)}
+                className={cn(FIELD_INPUT, "w-full h-8")}>
+                <option value="">— Time —</option>
+                {TIME_OPTIONS.map(t => <option key={t} value={t}>{fmt12h(t)}</option>)}
+              </select>
+            ) : (
+              <ConfigZone slotId={slot.id} zone="time" icon={<Clock className="h-3.5 w-3.5" />}
+                placeholder="Drop time" filled={!!slot.time} valueNode={slot.time ? fmt12h(slot.time) : ''}
+                active={activeDrag?.type === 'time'} canEdit={canEdit}
+                onEdit={() => setEditingZone(`${slot.id}:time`)} onClear={() => patchSlot(slot.id, { time: '' })} />
+            )}
+          </div>
+          {/* Venue · Field */}
+          <div className="flex-1 min-w-[180px]">
+            {vEditing ? (
+              <div className="flex items-center gap-1">
+                {venues && venues.length > 0 ? (
+                  <>
+                    <select autoFocus value={slot.seasonVenueId ?? ''}
+                      onChange={e => {
+                        const raw = e.target.value;
+                        if (!raw) { patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' }); return; }
+                        const v = venues.find(x => x.id === Number(raw));
+                        if (v) patchSlot(slot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
+                      }}
+                      className={cn(FIELD_INPUT, "w-36 h-8")}>
+                      <option value="">— Venue (required) —</option>
+                      {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                    <select value={slot.fieldName} disabled={!slotVenue}
+                      onChange={e => patchSlot(slot.id, { fieldName: e.target.value })}
+                      className={cn(FIELD_INPUT, "w-[120px] h-8 disabled:opacity-50")}>
+                      <option value="">— Field (optional) —</option>
+                      <option value={TBD_FIELD}>TBD</option>
+                      {slotVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <LocationPicker compact locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName}
+                    onChange={(val: LocationPickerValue) => patchSlot(slot.id, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })} />
+                )}
+                <button type="button" onClick={() => setEditingZone(null)} title="Done"
+                  className="text-muted-foreground hover:text-primary p-1 shrink-0"><CheckCircle2 className="h-4 w-4" /></button>
+              </div>
+            ) : (
+              <ConfigZone slotId={slot.id} zone="venuefield" icon={<MapPin className="h-3.5 w-3.5" />}
+                placeholder="Drop venue (required)" required={!hasVenue(slot)}
+                filled={!!(slot.fieldName || slot.fieldLocation)}
+                valueNode={<LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />}
+                active={activeDrag?.type === 'venuefield'} canEdit={canEdit}
+                onEdit={() => setEditingZone(`${slot.id}:venuefield`)}
+                onClear={() => patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' })} />
+            )}
+          </div>
+          {canEdit && (
+            <>
+              <button type="button" onClick={() => togglePin(slot.id)}
+                className={cn("shrink-0", pinned ? "text-primary" : "text-muted-foreground hover:text-primary")}
+                title={pinned ? 'Place in schedule (sorts by date)' : 'Keep at top while you fill it in'}>
+                {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+              </button>
+              <button type="button" onClick={() => removeSlot(slot.id)}
+                className="text-muted-foreground hover:text-destructive shrink-0" title="Delete slot">
+                <X className="h-4 w-4" />
+              </button>
+            </>
+          )}
+        </div>
+        {/* Teams */}
+        {slot.home && slot.away && (
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md mb-0.5">
+            <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-primary">Home</span>
+            <span className="w-6" />
+            <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground text-right">Away</span>
+          </div>
+        )}
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md">
+          <SlotPosition slotId={slot.id} position="home" team={slot.home}
+            onClear={() => clearPosition(slot.id, 'home')} />
+          {canEdit && slot.home && slot.away ? (
+            <button type="button" onClick={() => swapTeams(slot.id)} title="Swap home and away"
+              className="flex items-center justify-center h-6 w-6 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          ) : (
+            <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
+          )}
+          <SlotPosition slotId={slot.id} position="away" team={slot.away}
+            onClear={() => clearPosition(slot.id, 'away')} />
+        </div>
       </div>
     );
   }
@@ -3020,7 +3259,8 @@ function ManualSlotBoard({
           </div>
           <p className="text-[10px] text-muted-foreground">
             Type a slot above, or add an empty one and drag a venue, date and time in from the palette below.
-            Every slot needs a venue before it can be published; the field is optional.
+            New slots stay pinned under <strong>Working on</strong> so they don&apos;t move while you fill them in —
+            place them in the schedule when you&apos;re done. Every slot needs a venue before it can be published; the field is optional.
           </p>
           {venues != null && venues.length === 0 && (
             <p className="text-[10px] text-muted-foreground">
@@ -3142,125 +3382,36 @@ function ManualSlotBoard({
                 <p className="text-xs text-muted-foreground mt-1">Add an empty slot, then drag a venue, date and time in — or type one with Add Slot.</p>
               </div>
             )}
-            {slots.length > 0 && (
-              <div className="space-y-2.5">
-                {sortedSlots.map(slot => {
-                  const dEditing = editingZone === `${slot.id}:date`;
-                  const tEditing = editingZone === `${slot.id}:time`;
-                  const vEditing = editingZone === `${slot.id}:venuefield`;
-                  const slotVenue = venues?.find(v => v.id === (slot.seasonVenueId ?? -1)) ?? null;
-                  const dateLabel = slot.date
-                    ? `${DAY_FULL[new Date(slot.date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(slot.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
-                    : '';
-                  return (
-                    <div key={slot.id} className="border border-border rounded p-2.5 space-y-2 bg-background">
-                      {/* Config zones: date · time · venue/field */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {/* Date */}
-                        <div className="w-[150px]">
-                          {dEditing ? (
-                            <input type="date" autoFocus value={slot.date}
-                              onChange={e => patchSlot(slot.id, { date: e.target.value })}
-                              onBlur={() => setEditingZone(null)}
-                              className={cn(FIELD_INPUT, "w-full h-8")} />
-                          ) : (
-                            <ConfigZone slotId={slot.id} zone="date" icon={<CalendarDays className="h-3.5 w-3.5" />}
-                              placeholder="Drop date" filled={!!slot.date} valueNode={dateLabel}
-                              active={activeDrag?.type === 'date'} canEdit={canEdit}
-                              onEdit={() => setEditingZone(`${slot.id}:date`)} onClear={() => patchSlot(slot.id, { date: '' })} />
-                          )}
-                        </div>
-                        {/* Time */}
-                        <div className="w-[130px]">
-                          {tEditing ? (
-                            <select autoFocus value={slot.time}
-                              onChange={e => { patchSlot(slot.id, { time: e.target.value }); setEditingZone(null); }}
-                              onBlur={() => setEditingZone(null)}
-                              className={cn(FIELD_INPUT, "w-full h-8")}>
-                              <option value="">— Time —</option>
-                              {TIME_OPTIONS.map(t => <option key={t} value={t}>{fmt12h(t)}</option>)}
-                            </select>
-                          ) : (
-                            <ConfigZone slotId={slot.id} zone="time" icon={<Clock className="h-3.5 w-3.5" />}
-                              placeholder="Drop time" filled={!!slot.time} valueNode={slot.time ? fmt12h(slot.time) : ''}
-                              active={activeDrag?.type === 'time'} canEdit={canEdit}
-                              onEdit={() => setEditingZone(`${slot.id}:time`)} onClear={() => patchSlot(slot.id, { time: '' })} />
-                          )}
-                        </div>
-                        {/* Venue · Field */}
-                        <div className="flex-1 min-w-[180px]">
-                          {vEditing ? (
-                            <div className="flex items-center gap-1">
-                              {venues && venues.length > 0 ? (
-                                <>
-                                  <select autoFocus value={slot.seasonVenueId ?? ''}
-                                    onChange={e => {
-                                      const raw = e.target.value;
-                                      if (!raw) { patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' }); return; }
-                                      const v = venues.find(x => x.id === Number(raw));
-                                      if (v) patchSlot(slot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
-                                    }}
-                                    className={cn(FIELD_INPUT, "w-36 h-8")}>
-                                    <option value="">— Venue (required) —</option>
-                                    {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                                  </select>
-                                  <select value={slot.fieldName} disabled={!slotVenue}
-                                    onChange={e => patchSlot(slot.id, { fieldName: e.target.value })}
-                                    className={cn(FIELD_INPUT, "w-[120px] h-8 disabled:opacity-50")}>
-                                    <option value="">— Field (optional) —</option>
-                                    <option value={TBD_FIELD}>TBD</option>
-                                    {slotVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
-                                  </select>
-                                </>
-                              ) : (
-                                <LocationPicker compact locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName}
-                                  onChange={(val: LocationPickerValue) => patchSlot(slot.id, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })} />
-                              )}
-                              <button type="button" onClick={() => setEditingZone(null)} title="Done"
-                                className="text-muted-foreground hover:text-primary p-1 shrink-0"><CheckCircle2 className="h-4 w-4" /></button>
-                            </div>
-                          ) : (
-                            <ConfigZone slotId={slot.id} zone="venuefield" icon={<MapPin className="h-3.5 w-3.5" />}
-                              placeholder="Drop venue (required)" required={!hasVenue(slot)}
-                              filled={!!(slot.fieldName || slot.fieldLocation)}
-                              valueNode={<LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />}
-                              active={activeDrag?.type === 'venuefield'} canEdit={canEdit}
-                              onEdit={() => setEditingZone(`${slot.id}:venuefield`)}
-                              onClear={() => patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' })} />
-                          )}
-                        </div>
-                        {canEdit && (
-                          <button type="button" onClick={() => removeSlot(slot.id)}
-                            className="text-muted-foreground hover:text-destructive shrink-0" title="Delete slot">
-                            <X className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                      {/* Teams */}
-                      {slot.home && slot.away && (
-                        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md mb-0.5">
-                          <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-primary">Home</span>
-                          <span className="w-6" />
-                          <span className="text-[9px] font-semibold uppercase tracking-[0.1em] text-muted-foreground text-right">Away</span>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md">
-                        <SlotPosition slotId={slot.id} position="home" team={slot.home}
-                          onClear={() => clearPosition(slot.id, 'home')} />
-                        {canEdit && slot.home && slot.away ? (
-                          <button type="button" onClick={() => swapTeams(slot.id)} title="Swap home and away"
-                            className="flex items-center justify-center h-6 w-6 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
-                            <RefreshCw className="h-3 w-3" />
-                          </button>
-                        ) : (
-                          <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
-                        )}
-                        <SlotPosition slotId={slot.id} position="away" team={slot.away}
-                          onClear={() => clearPosition(slot.id, 'away')} />
-                      </div>
-                    </div>
-                  );
-                })}
+            {/* Working on — pinned slots, in pin order, never re-sorted. */}
+            {pinnedSlots.length > 0 && (
+              <div ref={trayRef} className="border border-primary/30 rounded p-2.5 bg-primary/[0.03]">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-primary flex items-center gap-1.5">
+                    <Pin className="h-3.5 w-3.5" /> Working on ({pinnedSlots.length})
+                  </span>
+                  {canEdit && (
+                    <button type="button" onClick={unpinAll}
+                      className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-primary">
+                      Place all in schedule
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-2.5">
+                  {pinnedSlots.map(slot => renderSlotCard(slot, true))}
+                </div>
+              </div>
+            )}
+            {sortedSlots.length > 0 && (
+              <div>
+                {/* Header only while the tray is up — no extra chrome otherwise. */}
+                {pinnedSlots.length > 0 && (
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                    Schedule ({sortedSlots.length})
+                  </div>
+                )}
+                <div className="space-y-2.5">
+                  {sortedSlots.map(slot => renderSlotCard(slot, false))}
+                </div>
               </div>
             )}
 

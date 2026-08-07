@@ -152,7 +152,12 @@ export function normalizeScheduleConfig(raw: unknown): ScheduleConfig {
   };
 }
 
-/** Clean a manualSlots array: coerce fields, drop entries missing a usable id. */
+/**
+ * Clean a manualSlots array: coerce fields, drop entries missing a usable id.
+ * A blank date is kept — the manual board lets an admin add an empty slot and
+ * fill it in over several sessions, so dropping dateless slots here would
+ * silently destroy in-progress work on save/reload. Publish enforces the date.
+ */
 function normalizeManualSlots(raw: unknown): ManualSlot[] {
   if (!Array.isArray(raw)) return [];
   const out: ManualSlot[] = [];
@@ -161,7 +166,7 @@ function normalizeManualSlots(raw: unknown): ManualSlot[] {
     const s = item as Record<string, unknown>;
     const id = typeof s.id === 'string' && s.id ? s.id : null;
     const date = typeof s.date === 'string' ? s.date : '';
-    if (!id || !date) continue;
+    if (!id) continue;
     const toId = (v: unknown): number | null =>
       v != null && Number.isFinite(Number(v)) ? Number(v) : null;
     out.push({
