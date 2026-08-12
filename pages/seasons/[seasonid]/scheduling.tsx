@@ -11,7 +11,6 @@ import {
   useSensors,
   useDraggable,
   useDroppable,
-  pointerWithin,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -19,10 +18,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Plus, X, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2,
   Wand2, CalendarCheck, Download, Ban,
-  MapPin, Clock, CalendarDays, Pencil, ChevronLeft, ChevronRight, RefreshCw,
+  MapPin, Clock, CalendarDays, ChevronRight, RefreshCw,
   Trash2, BarChart3, Pin, PinOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DAY_FULL, fmt12h, TIME_OPTIONS } from "@/lib/scheduling/timeGrid";
 import { useIsMobile } from "@/lib/hooks/useMediaQuery";
 import { Sheet, SheetContent, SheetHeader, SheetBody, SheetFooter, SheetTitle } from "@/components/ui/sheet";
 import type { ScheduleConfig, DayRule, Team, GameTimeSlot, Matchup, ManualSlot } from "@/lib/auto-schedule";
@@ -35,6 +35,8 @@ import {
 import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
 import type { LocationPickerValue } from "@/components/LocationPicker";
 import FieldAvailabilityNotice from "@/components/FieldAvailabilityNotice";
+import ManualGameWizard from "@/components/seasons/ManualGameWizard";
+import type { GameDraft, WizardMode, WizardStep } from "@/components/seasons/ManualGameWizard";
 import type { VenueDTO } from "@/components/venues/types";
 import { TBD_FIELD } from "@/components/venues/types";
 
@@ -51,16 +53,6 @@ interface DraftSlot {
   seasonVenueId: number | null;
   home: Team | null;
   away: Team | null;
-}
-
-const DAY_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-function fmt12h(time: string): string {
-  const [hStr, mStr] = time.split(':');
-  const h = parseInt(hStr, 10);
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${mStr} ${suffix}`;
 }
 
 function fmtDateTS(date: string): string {
@@ -2050,7 +2042,8 @@ function ScheduleReport({ slots, teams, config }: {
 //
 // Unlike the auto scheduler above — which generates slots from recurring dayRules and
 // greedily auto-fills them — this workspace lets an admin hand-author each slot
-// (arbitrary date/time/venue) and drag teams into them, with live fairness feedback.
+// (arbitrary date/time/venue) one click at a time through a step-by-step dialog,
+// with live fairness feedback.
 // Slots live in seasons.schedule_config.manualSlots (JSON draft); "Publish" writes the
 // complete ones to season_games via /games/bulk.
 
@@ -2095,235 +2088,78 @@ interface CommittedGame {
   statusLabel: string;
 }
 
-interface QuickAddDraft {
-  date: string;
-  time: string;
-  seasonVenueId: number | null;
-  locationId: number | null;
-  fieldLocation: string;
-  fieldName: string;
-}
 
-const BLANK_QUICK_ADD: QuickAddDraft = {
-  date: '', time: '10:00', seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '',
-};
-
-// ── Draggable palette sources for the minimal-typing board ──────────────────────
-
-/** 6:00 AM → 10:00 PM in 15-minute steps ("HH:MM" 24h). */
-const TIME_OPTIONS: string[] = (() => {
-  const out: string[] = [];
-  for (let mins = 6 * 60; mins <= 22 * 60; mins += 15) {
-    out.push(`${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`);
-  }
-  return out;
-})();
-
-/** TIME_OPTIONS grouped by hour, with a "6 AM" style label. */
-const HOUR_GROUPS: { hour: number; label: string; times: string[] }[] = (() => {
-  const byHour = new Map<number, string[]>();
-  for (const t of TIME_OPTIONS) {
-    const h = parseInt(t.slice(0, 2), 10);
-    (byHour.get(h) ?? byHour.set(h, []).get(h)!).push(t);
-  }
-  return [...byHour.entries()].map(([hour, times]) => ({
-    hour,
-    label: `${hour % 12 || 12} ${hour >= 12 ? 'PM' : 'AM'}`,
-    times,
-  }));
-})();
-
-/** Weeks (7 cells each) of ISO dates for month m (0-based) of year y; null = padding. */
-function buildMonthGrid(y: number, m: number): (string | null)[][] {
-  const startDow = new Date(Date.UTC(y, m, 1)).getUTCDay();
-  const daysInMonth = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-  const cells: (string | null)[] = [];
-  for (let i = 0; i < startDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) {
-    cells.push(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
-  }
-  while (cells.length % 7 !== 0) cells.push(null);
-  const weeks: (string | null)[][] = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
-  return weeks;
-}
-
-function shiftMonth(c: { y: number; m: number }, delta: number): { y: number; m: number } {
-  const d = new Date(Date.UTC(c.y, c.m + delta, 1));
-  return { y: d.getUTCFullYear(), m: d.getUTCMonth() };
-}
-
-const CHIP = "inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] border cursor-grab active:cursor-grabbing select-none transition-colors bg-background border-border hover:border-primary hover:text-primary";
-
-type ActiveDrag =
-  | { type: 'team'; team: Team }
-  | { type: 'venuefield'; venueName: string; fieldName: string }
-  | { type: 'date'; date: string }
-  | { type: 'time'; time: string };
-
-function VenueFieldChip({ seasonVenueId, venueName, locationId, fieldName }: {
-  seasonVenueId: number; venueName: string; locationId: number | null; fieldName: string;
-}) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `vf-${seasonVenueId}-${fieldName || '_'}`,
-    data: { type: 'venuefield', seasonVenueId, venueName, locationId, fieldName },
-  });
-  // The TBD chip books the venue without committing to a field — dashed so it
-  // reads as a placeholder next to the real fields.
-  const isTbd = fieldName === TBD_FIELD;
-  return (
-    <div ref={setNodeRef} {...attributes} {...listeners}
-      title={isTbd ? `${venueName} — field to be determined` : undefined}
-      className={cn(CHIP, isTbd && "border-dashed text-muted-foreground", isDragging && "opacity-0")}
-      style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}>
-      <MapPin className="h-3 w-3 shrink-0 text-primary/70" />
-      <span className="truncate max-w-[120px]">{fieldName || venueName}</span>
-    </div>
-  );
-}
-
-function TimeChip({ time }: { time: string }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `time-${time}`,
-    data: { type: 'time', time },
-  });
-  return (
-    <div ref={setNodeRef} {...attributes} {...listeners}
-      className={cn(CHIP, "tabular-nums px-1.5", isDragging && "opacity-0")}
-      style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}>
-      {fmt12h(time)}
-    </div>
-  );
-}
-
-function DateCell({ iso, day, isToday }: { iso: string; day: number; isToday: boolean }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `date-${iso}`,
-    data: { type: 'date', date: iso },
-  });
-  return (
-    <div ref={setNodeRef} {...attributes} {...listeners}
-      className={cn(
-        "h-7 w-7 flex items-center justify-center rounded text-[11px] tabular-nums cursor-grab active:cursor-grabbing select-none border border-transparent hover:border-primary hover:text-primary transition-colors",
-        isToday && "font-bold text-primary",
-        isDragging && "opacity-0"
-      )}
-      style={{ transform: CSS.Transform.toString(transform), touchAction: 'none' }}>
-      {day}
-    </div>
-  );
-}
-
-function VenueFieldPalette({ venues, seasonId }: { venues: VenueDTO[]; seasonId: number }) {
-  if (venues.length === 0) {
-    return (
-      <p className="text-[11px] text-muted-foreground leading-snug">
-        No venues yet.{' '}
-        <Link className="text-primary underline" href={`/seasons/${seasonId}/venues`}>Set up venues</Link>{' '}
-        to drag them in, or use a slot&rsquo;s edit button to type a location.
-      </p>
-    );
-  }
-  return (
-    <div className="space-y-2 max-h-[230px] overflow-y-auto pr-1">
-      {venues.map(v => (
-        <div key={v.id}>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-1 truncate">{v.name}</div>
-          <div className="flex flex-wrap gap-1">
-            {v.fields
-              .filter(f => f.name !== TBD_FIELD)
-              .map(f => (
-                <VenueFieldChip key={f.id} seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName={f.name} />
-              ))}
-            {/* Every venue gets a TBD chip so the venue can be booked before the
-                field is known — same drag workflow, no separate venue-only path. */}
-            <VenueFieldChip seasonVenueId={v.id} venueName={v.name} locationId={v.locationId} fieldName={TBD_FIELD} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TimePalette() {
-  return (
-    <div className="max-h-[230px] overflow-y-auto pr-1 space-y-1.5">
-      {HOUR_GROUPS.map(g => (
-        <div key={g.hour}>
-          <div className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-0.5">{g.label}</div>
-          <div className="flex flex-wrap gap-1">
-            {g.times.map(t => <TimeChip key={t} time={t} />)}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CalendarPalette() {
-  const [cur, setCur] = useState(() => { const d = new Date(); return { y: d.getUTCFullYear(), m: d.getUTCMonth() }; });
-  const weeks = useMemo(() => buildMonthGrid(cur.y, cur.m), [cur]);
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const monthLabel = new Date(Date.UTC(cur.y, cur.m, 1)).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-  return (
-    <div className="select-none">
-      <div className="flex items-center justify-between mb-1.5">
-        <button type="button" onClick={() => setCur(c => shiftMonth(c, -1))}
-          className="text-muted-foreground hover:text-primary p-0.5"><ChevronLeft className="h-4 w-4" /></button>
-        <span className="text-[11px] font-semibold">{monthLabel}</span>
-        <button type="button" onClick={() => setCur(c => shiftMonth(c, 1))}
-          className="text-muted-foreground hover:text-primary p-0.5"><ChevronRight className="h-4 w-4" /></button>
-      </div>
-      <div className="grid grid-cols-7 gap-0.5 justify-items-center">
-        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-          <span key={i} className="h-5 w-7 flex items-center justify-center text-[9px] font-semibold text-muted-foreground/60">{d}</span>
-        ))}
-        {weeks.flat().map((cell, i) => cell
-          ? <DateCell key={cell} iso={cell} day={parseInt(cell.slice(8, 10), 10)} isToday={cell === todayIso} />
-          : <span key={`blank-${i}`} className="h-7 w-7" />)}
-      </div>
-    </div>
-  );
-}
-
-/** A per-slot droppable config zone (date / time / venuefield) with click-to-edit. */
-function ConfigZone({ slotId, zone, icon, placeholder, filled, valueNode, active, canEdit, onEdit, onClear, required }: {
-  slotId: string;
-  zone: 'date' | 'time' | 'venuefield';
+/**
+ * A click-to-edit config field (date / time / venue·field) on a manual slot card.
+ * The whole field opens the wizard on that one step; the clear button is an
+ * absolutely-positioned sibling rather than a nested <button> (nesting is invalid
+ * HTML and confuses the accessibility tree).
+ */
+function SlotField({ icon, placeholder, value, filled, required, canEdit, onEdit, onClear, className }: {
   icon: React.ReactNode;
   placeholder: string;
+  value: React.ReactNode;
   filled: boolean;
-  valueNode: React.ReactNode;
-  active: boolean;
+  /** Flag the field when empty — it blocks publishing. */
+  required?: boolean;
   canEdit: boolean;
   onEdit: () => void;
   onClear: () => void;
-  /** Flag the zone when empty — it blocks publishing. */
-  required?: boolean;
+  className?: string;
 }) {
-  const { isOver, setNodeRef } = useDroppable({ id: `${slotId}__${zone}`, data: { slotId, zone } });
   return (
-    <div ref={setNodeRef}
-      className={cn(
-        "group/zone flex w-full items-center gap-1.5 h-8 px-2 rounded border text-xs transition-colors min-w-0",
-        filled ? "border-border bg-background text-foreground" : "border-dashed border-border/60 text-muted-foreground",
-        required && !filled && "border-destructive/60 text-destructive",
-        active && !filled && "border-primary/50 text-primary/70",
-        isOver && "border-primary bg-primary/10 text-primary ring-1 ring-primary"
-      )}>
-      <span className="shrink-0 text-muted-foreground/80">{icon}</span>
-      <span className="min-w-0 flex-1 truncate">{filled ? valueNode : placeholder}</span>
-      {canEdit && (
-        <span className="flex items-center gap-0.5 shrink-0">
-          <button type="button" onClick={onEdit} title="Edit"
-            className="text-muted-foreground hover:text-primary opacity-0 group-hover/zone:opacity-100 focus:opacity-100">
-            <Pencil className="h-3 w-3" />
-          </button>
-          {filled && (
-            <button type="button" onClick={onClear} title="Clear"
-              className="text-muted-foreground hover:text-destructive"><X className="h-3 w-3" /></button>
-          )}
+    <div className={cn("relative group/zone min-w-0", className)}>
+      <button type="button" onClick={onEdit} disabled={!canEdit}
+        aria-label={filled ? undefined : placeholder}
+        className={cn(
+          "flex w-full items-center gap-1.5 h-8 pl-2 pr-7 rounded border text-xs text-left transition-colors min-w-0",
+          filled ? "border-border bg-background text-foreground" : "border-dashed border-border/60 text-muted-foreground",
+          required && !filled && "border-destructive/60 text-destructive",
+          canEdit ? "hover:border-primary hover:text-primary" : "cursor-default"
+        )}>
+        <span className="shrink-0 text-muted-foreground/80">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{filled ? value : placeholder}</span>
+      </button>
+      {canEdit && filled && (
+        <button type="button" onClick={onClear} title="Clear"
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-destructive opacity-0 group-hover/zone:opacity-100 focus:opacity-100">
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Home/away display on a manual slot card. The auto board still uses the
+ * draggable SlotPosition — this is the manual board's click-driven equivalent.
+ */
+function SlotTeamButton({ position, team, canEdit, onEdit, onClear }: {
+  position: 'home' | 'away';
+  team: Team | null;
+  canEdit: boolean;
+  onEdit: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="relative group/team min-w-0">
+      <button type="button" onClick={onEdit} disabled={!canEdit}
+        className={cn(
+          "flex items-center w-full h-8 pl-2.5 pr-7 rounded border text-xs font-medium transition-colors min-w-0",
+          team
+            ? "border-primary/40 bg-primary/5 text-foreground"
+            : "justify-center border-dashed border-border/60 text-[11px] text-muted-foreground",
+          canEdit ? "hover:border-primary" : "cursor-default"
+        )}>
+        <span className="truncate min-w-0">
+          {team ? team.name : (position === 'home' ? 'Set home team' : 'Set away team')}
         </span>
+      </button>
+      {canEdit && team && (
+        <button type="button" onClick={onClear} title={`Clear ${position} team`}
+          className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 text-muted-foreground hover:text-destructive opacity-0 group-hover/team:opacity-100 focus:opacity-100">
+          <X className="h-3.5 w-3.5" />
+        </button>
       )}
     </div>
   );
@@ -2365,11 +2201,10 @@ function ManualSlotBoard({
   const [slots, setSlots] = useState<ManualSlot[]>(initialSlots);
   const [savedSnapshot, setSavedSnapshot] = useState<string>(() => JSON.stringify(initialSlots));
   const [saving, setSaving] = useState(false);
-  const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
-  const [quickAdd, setQuickAdd] = useState<QuickAddDraft>(BLANK_QUICK_ADD);
-  const [trayOpen, setTrayOpen] = useState(true);
-  // Which slot zone has its inline (click-to-edit) control open: `${slotId}:${zone}`.
-  const [editingZone, setEditingZone] = useState<string | null>(null);
+  // The step-by-step add/edit dialog. `wizardKey` remounts it on every open so its
+  // internal draft is re-seeded from props rather than synced through an effect.
+  const [wizard, setWizard] = useState<WizardMode | null>(null);
+  const [wizardKey, setWizardKey] = useState(0);
   // Slots held in the "Working on" tray at the top of the board while the admin
   // fills them in, so dropping a date doesn't re-sort the card out from under them.
   // Order = pin order, newest first. Ephemeral: never written to schedule_config.
@@ -2394,7 +2229,6 @@ function ManualSlotBoard({
   const [editorSlotId, setEditorSlotId] = useState<string | null>(null);
   const [fairnessOpen, setFairnessOpen] = useState(false);
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const teamMap = useMemo(() => new Map(teams.map(t => [t.id, t])), [teams]);
 
   // Re-seed local slots if the persisted draft changes identity (e.g. season reload).
@@ -2439,7 +2273,7 @@ function ManualSlotBoard({
     [playedGames]
   );
 
-  // Hydrate manual slots into the DraftSlot shape SlotPosition/ScheduleReport expect.
+  // Hydrate manual slots into the DraftSlot shape the cards/ScheduleReport expect.
   const draftSlots: DraftSlot[] = useMemo(() => slots.map(ms => ({
     id: ms.id,
     blockKey: slotBlockKey({ date: ms.date, time: ms.time, locationId: ms.locationId, fieldLocation: ms.fieldLocation, fieldName: ms.fieldName }),
@@ -2477,19 +2311,6 @@ function ManualSlotBoard({
     return [...playedSlots, ...manualUnplayed];
   }, [includeCommitted, playedGames, draftSlots, playedKeys, teamMap]);
 
-  // Palette counter tracks the same set the fairness panel shows, so they stay in sync.
-  const teamGameCounts = useMemo<Record<number, number>>(() => {
-    const counts: Record<number, number> = {};
-    for (const t of teams) counts[t.id] = 0;
-    for (const s of fairnessSlots) {
-      if (s.home && s.away) {
-        counts[s.home.id] = (counts[s.home.id] ?? 0) + 1;
-        counts[s.away.id] = (counts[s.away.id] ?? 0) + 1;
-      }
-    }
-    return counts;
-  }, [fairnessSlots, teams]);
-
   const completeCount = slots.filter(s => s.homeId != null && s.awayId != null).length;
   const partialCount = slots.filter(s => (s.homeId != null || s.awayId != null) && !(s.homeId != null && s.awayId != null)).length;
 
@@ -2513,25 +2334,34 @@ function ManualSlotBoard({
     setPinnedIds([]);
   }
 
+  // ── Wizard ──────────────────────────────────────────────────────────────────
+  /** Open the add/edit dialog, remounting it so it re-seeds from a clean state. */
+  function openWizard(mode: WizardMode = { kind: 'create' }) {
+    setWizardKey(k => k + 1);
+    setWizard(mode);
+  }
+
+  const toDraft = (s: DraftSlot): GameDraft => ({
+    date: s.date, time: s.time, fieldName: s.fieldName, fieldLocation: s.fieldLocation,
+    locationId: s.locationId, seasonVenueId: s.seasonVenueId,
+    homeId: s.home?.id ?? null, awayId: s.away?.id ?? null,
+  });
+
   // ── Slot mutations ──────────────────────────────────────────────────────────
-  function addSlot() {
-    if (!quickAdd.date || !quickAdd.time || !hasVenue(quickAdd)) return;
+  /**
+   * Commit a wizard-authored draft in one transaction. Deliberately not
+   * addEmptySlot() + five patches: cancelling mid-wizard must leave nothing
+   * behind, and `dirty` re-serializes the whole slot array on every patch.
+   */
+  function addSlotFromDraft(draft: GameDraft): string {
     const id = genSlotId();
-    setSlots(prev => [...prev, {
-      id,
-      date: quickAdd.date,
-      time: quickAdd.time,
-      fieldName: quickAdd.fieldName,
-      fieldLocation: quickAdd.fieldLocation,
-      locationId: quickAdd.locationId,
-      seasonVenueId: quickAdd.seasonVenueId,
-      homeId: null,
-      awayId: null,
-    }]);
-    // Keep venue/time for rapid entry; clear the date so the admin picks the next one.
-    setQuickAdd(qa => ({ ...qa, date: '' }));
+    // Annotated so adding a field to ManualSlot fails here rather than silently
+    // dropping it.
+    const next: ManualSlot = { id, ...draft };
+    setSlots(prev => [...prev, next]);
     pinSlot(id);
     setPublishSuccess(null);
+    return id;
   }
 
   function addEmptySlot(): string {
@@ -2562,55 +2392,6 @@ function ManualSlotBoard({
 
   function swapTeams(id: string) {
     setSlots(prev => prev.map(s => s.id === id ? { ...s, homeId: s.awayId, awayId: s.homeId } : s));
-    setPublishSuccess(null);
-  }
-
-  function handleDragStart(event: DragStartEvent) {
-    const d = event.active.data.current;
-    if (!d) { setActiveDrag(null); return; }
-    if (d.type === 'team' || d.type === 'slot-team') setActiveDrag({ type: 'team', team: d.team });
-    else if (d.type === 'venuefield') setActiveDrag({ type: 'venuefield', venueName: d.venueName, fieldName: d.fieldName });
-    else if (d.type === 'date') setActiveDrag({ type: 'date', date: d.date });
-    else if (d.type === 'time') setActiveDrag({ type: 'time', time: d.time });
-    else setActiveDrag(null);
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    setActiveDrag(null);
-    const { active, over } = event;
-    if (!over) return;
-    const a = active.data.current;
-    const o = over.data.current as { slotId: string; zone?: 'date' | 'time' | 'venuefield'; position?: 'home' | 'away' } | undefined;
-    if (!a || !o?.slotId) return;
-
-    // ── Config zones: a chip only drops into its matching zone ──
-    if (o.zone === 'date' && a.type === 'date') { patchSlot(o.slotId, { date: a.date }); return; }
-    if (o.zone === 'time' && a.type === 'time') { patchSlot(o.slotId, { time: a.time }); return; }
-    if (o.zone === 'venuefield' && a.type === 'venuefield') {
-      patchSlot(o.slotId, { seasonVenueId: a.seasonVenueId, locationId: a.locationId, fieldLocation: a.venueName, fieldName: a.fieldName });
-      return;
-    }
-    if (o.zone) return; // wrong chip type for this config zone — ignore
-
-    // ── Team zones (home / away) ──
-    const position = o.position;
-    if (!position) return;
-    const draggedTeam: Team | null = a.type === 'team' || a.type === 'slot-team' ? a.team : null;
-    if (!draggedTeam) return;
-    const slotId = o.slotId;
-    const posKey = position === 'home' ? 'homeId' : 'awayId';
-    const isMove = a.type === 'slot-team';
-    const srcSlotId: string | null = isMove ? a.slotId : null;
-    const srcPosKey = isMove ? (a.position === 'home' ? 'homeId' : 'awayId') : null;
-    if (isMove && srcSlotId === slotId && a.position === position) return;
-
-    setSlots(prev => prev.map(s => {
-      if (srcSlotId && s.id === srcSlotId) s = { ...s, [srcPosKey!]: null };
-      if (s.id !== slotId) return s;
-      const otherKey = position === 'home' ? 'awayId' : 'homeId';
-      if (s[otherKey] === draggedTeam.id) return s; // don't let a team face itself
-      return { ...s, [posKey]: draggedTeam.id };
-    }));
     setPublishSuccess(null);
   }
 
@@ -2721,9 +2502,6 @@ function ManualSlotBoard({
       }))
       .sort(compareSlotOrder);
   }, [playedGames, draftSlots, teamMap]);
-
-  // ── Quick-add venue/field picker (mirrors the auto rules-panel picker) ─────────
-  const selectedVenue = venues?.find(v => v.id === (quickAdd.seasonVenueId ?? -1)) ?? null;
 
   // Shared publish-confirm dialog (reused by both the desktop and mobile layouts).
   const publishConfirmDialog = (
@@ -3053,108 +2831,46 @@ function ManualSlotBoard({
 
   // ── Desktop slot card ─────────────────────────────────────────────────────────
   // A closure rather than a component so the "Working on" tray and the schedule
-  // list render identical cards without drilling editingZone/activeDrag/venues/
-  // canEdit and the six slot mutations through props.
+  // list render identical cards without drilling venues/canEdit and the slot
+  // mutations through props. Every field opens the wizard on that single step.
   function renderSlotCard(slot: DraftSlot, pinned: boolean) {
-    const dEditing = editingZone === `${slot.id}:date`;
-    const tEditing = editingZone === `${slot.id}:time`;
-    const vEditing = editingZone === `${slot.id}:venuefield`;
-    const slotVenue = venues?.find(v => v.id === (slot.seasonVenueId ?? -1)) ?? null;
     const dateLabel = slot.date
       ? `${DAY_FULL[new Date(slot.date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(slot.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
       : '';
+    const edit = (step: WizardStep) => openWizard({ kind: 'edit', slotId: slot.id, step, draft: toDraft(slot) });
     return (
       <div key={slot.id} className={cn(
         "border rounded p-2.5 space-y-2 bg-background",
         pinned ? "border-primary/40 ring-1 ring-primary/20" : "border-border"
       )}>
-        {/* Config zones: date · time · venue/field */}
+        {/* Config fields: date · time · venue/field */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Date */}
-          <div className="w-[150px]">
-            {dEditing ? (
-              <input type="date" autoFocus value={slot.date}
-                onChange={e => patchSlot(slot.id, { date: e.target.value })}
-                onBlur={() => setEditingZone(null)}
-                className={cn(FIELD_INPUT, "w-full h-8")} />
-            ) : (
-              <ConfigZone slotId={slot.id} zone="date" icon={<CalendarDays className="h-3.5 w-3.5" />}
-                placeholder="Drop date" filled={!!slot.date} valueNode={dateLabel}
-                active={activeDrag?.type === 'date'} canEdit={canEdit}
-                onEdit={() => setEditingZone(`${slot.id}:date`)} onClear={() => patchSlot(slot.id, { date: '' })} />
-            )}
-          </div>
-          {/* Time */}
-          <div className="w-[130px]">
-            {tEditing ? (
-              <select autoFocus value={slot.time}
-                onChange={e => { patchSlot(slot.id, { time: e.target.value }); setEditingZone(null); }}
-                onBlur={() => setEditingZone(null)}
-                className={cn(FIELD_INPUT, "w-full h-8")}>
-                <option value="">— Time —</option>
-                {TIME_OPTIONS.map(t => <option key={t} value={t}>{fmt12h(t)}</option>)}
-              </select>
-            ) : (
-              <ConfigZone slotId={slot.id} zone="time" icon={<Clock className="h-3.5 w-3.5" />}
-                placeholder="Drop time" filled={!!slot.time} valueNode={slot.time ? fmt12h(slot.time) : ''}
-                active={activeDrag?.type === 'time'} canEdit={canEdit}
-                onEdit={() => setEditingZone(`${slot.id}:time`)} onClear={() => patchSlot(slot.id, { time: '' })} />
-            )}
-          </div>
-          {/* Venue · Field */}
-          <div className="flex-1 min-w-[180px]">
-            {vEditing ? (
-              <div className="flex items-center gap-1">
-                {venues && venues.length > 0 ? (
-                  <>
-                    <select autoFocus value={slot.seasonVenueId ?? ''}
-                      onChange={e => {
-                        const raw = e.target.value;
-                        if (!raw) { patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' }); return; }
-                        const v = venues.find(x => x.id === Number(raw));
-                        if (v) patchSlot(slot.id, { seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' });
-                      }}
-                      className={cn(FIELD_INPUT, "w-36 h-8")}>
-                      <option value="">— Venue (required) —</option>
-                      {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    <select value={slot.fieldName} disabled={!slotVenue}
-                      onChange={e => patchSlot(slot.id, { fieldName: e.target.value })}
-                      className={cn(FIELD_INPUT, "w-[120px] h-8 disabled:opacity-50")}>
-                      <option value="">— Field (optional) —</option>
-                      <option value={TBD_FIELD}>TBD</option>
-                      {slotVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
-                    </select>
-                  </>
-                ) : (
-                  <LocationPicker compact locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName}
-                    onChange={(val: LocationPickerValue) => patchSlot(slot.id, { fieldLocation: val.location, fieldName: val.field, locationId: val.locationId })} />
-                )}
-                <button type="button" onClick={() => setEditingZone(null)} title="Done"
-                  className="text-muted-foreground hover:text-primary p-1 shrink-0"><CheckCircle2 className="h-4 w-4" /></button>
-              </div>
-            ) : (
-              <ConfigZone slotId={slot.id} zone="venuefield" icon={<MapPin className="h-3.5 w-3.5" />}
-                placeholder="Drop venue (required)" required={!hasVenue(slot)}
-                filled={!!(slot.fieldName || slot.fieldLocation)}
-                valueNode={<LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />}
-                active={activeDrag?.type === 'venuefield'} canEdit={canEdit}
-                onEdit={() => setEditingZone(`${slot.id}:venuefield`)}
-                onClear={() => patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' })} />
-            )}
-          </div>
+          <SlotField className="w-[150px]" icon={<CalendarDays className="h-3.5 w-3.5" />}
+            placeholder="Set date" filled={!!slot.date} value={dateLabel} canEdit={canEdit}
+            onEdit={() => edit('date')} onClear={() => patchSlot(slot.id, { date: '' })} />
+          <SlotField className="w-[130px]" icon={<Clock className="h-3.5 w-3.5" />}
+            placeholder="Set time" filled={!!slot.time} value={slot.time ? fmt12h(slot.time) : ''} canEdit={canEdit}
+            onEdit={() => edit('time')} onClear={() => patchSlot(slot.id, { time: '' })} />
+          <SlotField className="flex-1 min-w-[150px]" icon={<MapPin className="h-3.5 w-3.5" />}
+            placeholder="Set venue (required)" required={!hasVenue(slot)}
+            filled={!!(slot.fieldName || slot.fieldLocation)}
+            value={<LocationDisplay locationId={slot.locationId} location={slot.fieldLocation} field={slot.fieldName} className="truncate" />}
+            canEdit={canEdit} onEdit={() => edit('venue')}
+            onClear={() => patchSlot(slot.id, { seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' })} />
+          {/* Grouped so pin and delete wrap together rather than the delete
+              button dropping onto a line of its own on a narrow board. */}
           {canEdit && (
-            <>
+            <div className="flex items-center gap-1.5 shrink-0">
               <button type="button" onClick={() => togglePin(slot.id)}
-                className={cn("shrink-0", pinned ? "text-primary" : "text-muted-foreground hover:text-primary")}
+                className={cn(pinned ? "text-primary" : "text-muted-foreground hover:text-primary")}
                 title={pinned ? 'Place in schedule (sorts by date)' : 'Keep at top while you fill it in'}>
                 {pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
               </button>
               <button type="button" onClick={() => removeSlot(slot.id)}
-                className="text-muted-foreground hover:text-destructive shrink-0" title="Delete slot">
+                className="text-muted-foreground hover:text-destructive" title="Delete slot">
                 <X className="h-4 w-4" />
               </button>
-            </>
+            </div>
           )}
         </div>
         {/* Teams */}
@@ -3166,8 +2882,8 @@ function ManualSlotBoard({
           </div>
         )}
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md">
-          <SlotPosition slotId={slot.id} position="home" team={slot.home}
-            onClear={() => clearPosition(slot.id, 'home')} />
+          <SlotTeamButton position="home" team={slot.home} canEdit={canEdit}
+            onEdit={() => edit('home')} onClear={() => clearPosition(slot.id, 'home')} />
           {canEdit && slot.home && slot.away ? (
             <button type="button" onClick={() => swapTeams(slot.id)} title="Swap home and away"
               className="flex items-center justify-center h-6 w-6 rounded-full border border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors">
@@ -3176,8 +2892,8 @@ function ManualSlotBoard({
           ) : (
             <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
           )}
-          <SlotPosition slotId={slot.id} position="away" team={slot.away}
-            onClear={() => clearPosition(slot.id, 'away')} />
+          <SlotTeamButton position="away" team={slot.away} canEdit={canEdit}
+            onEdit={() => edit('away')} onClear={() => clearPosition(slot.id, 'away')} />
         </div>
       </div>
     );
@@ -3185,88 +2901,31 @@ function ManualSlotBoard({
 
   return (
     <div style={{ fontFamily: 'var(--font-body)' }}>
-      {/* Quick-add + actions toolbar */}
+      {/* Add + actions toolbar */}
       {canEdit && (
         <div className="border border-border bg-muted/20 p-4 mb-4 space-y-3">
-          <div className="flex items-end gap-2 flex-wrap">
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Date</span>
-              <input type="date" value={quickAdd.date}
-                onChange={e => setQuickAdd(qa => ({ ...qa, date: e.target.value }))}
-                className={cn(FIELD_INPUT, "w-[150px]")} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Time</span>
-              <input type="time" value={quickAdd.time}
-                onChange={e => setQuickAdd(qa => ({ ...qa, time: e.target.value }))}
-                className={cn(FIELD_INPUT, "w-[110px]")} />
-            </label>
-            {venues && venues.length > 0 ? (
-              <>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Venue <span className="text-destructive">*</span></span>
-                  <select
-                    value={quickAdd.seasonVenueId ?? ''}
-                    onChange={e => {
-                      const raw = e.target.value;
-                      if (!raw) { setQuickAdd(qa => ({ ...qa, seasonVenueId: null, locationId: null, fieldLocation: '', fieldName: '' })); return; }
-                      const v = venues.find(x => x.id === Number(raw));
-                      if (!v) return;
-                      setQuickAdd(qa => ({ ...qa, seasonVenueId: v.id, locationId: v.locationId, fieldLocation: v.name, fieldName: '' }));
-                    }}
-                    className={cn(FIELD_INPUT, "w-40")}
-                  >
-                    <option value="">— Venue —</option>
-                    {venues.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Field <span className="normal-case tracking-normal">(optional)</span></span>
-                  <select
-                    value={quickAdd.fieldName}
-                    disabled={!selectedVenue}
-                    onChange={e => setQuickAdd(qa => ({ ...qa, fieldName: e.target.value }))}
-                    className={cn(FIELD_INPUT, "w-[130px] disabled:opacity-50")}
-                  >
-                    <option value="">— Field (optional) —</option>
-                    <option value={TBD_FIELD}>TBD</option>
-                    {selectedVenue?.fields.filter(f => f.name !== TBD_FIELD).map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
-                  </select>
-                </label>
-              </>
-            ) : (
-              <label className="flex flex-col gap-1">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Location</span>
-                <LocationPicker
-                  compact
-                  locationId={quickAdd.locationId}
-                  location={quickAdd.fieldLocation}
-                  field={quickAdd.fieldName}
-                  onChange={(val: LocationPickerValue) => setQuickAdd(qa => ({ ...qa, fieldLocation: val.location, fieldName: val.field, locationId: val.locationId }))}
-                />
-              </label>
-            )}
-            <button type="button" onClick={addSlot} disabled={!quickAdd.date || !quickAdd.time || !hasVenue(quickAdd)}
-              title={hasVenue(quickAdd) ? undefined : 'Pick a venue first — the field is optional'}
-              className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90 disabled:opacity-40")}>
-              <Plus className="h-3.5 w-3.5" /> Add Slot
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={() => openWizard()}
+              className={cn(BTN, "bg-primary text-primary-foreground border-primary hover:opacity-90")}>
+              <Plus className="h-3.5 w-3.5" /> Add Game
             </button>
             <button type="button" onClick={addEmptySlot}
               className={cn(BTN, "border-border text-muted-foreground hover:border-primary hover:text-primary")}
-              title="Create a blank slot and fill it by dragging">
-              <Plus className="h-3.5 w-3.5" /> Add empty slot
+              title="Reserve a date, time and venue now and assign teams later">
+              <Plus className="h-3.5 w-3.5" /> Add Blank Slot
             </button>
           </div>
           <p className="text-[10px] text-muted-foreground">
-            Type a slot above, or add an empty one and drag a venue, date and time in from the palette below.
-            New slots stay pinned under <strong>Working on</strong> so they don&apos;t move while you fill them in —
-            place them in the schedule when you&apos;re done. Every slot needs a venue before it can be published; the field is optional.
+            <strong>Add Game</strong> walks you through away team, home team, date, time and venue — one click each.
+            Click any field on a card below to change it. New games stay pinned under <strong>Working on</strong> so
+            they don&apos;t move while you fill them in — place them in the schedule when you&apos;re done.
+            Every slot needs a venue before it can be published; the field is optional.
           </p>
           {venues != null && venues.length === 0 && (
             <p className="text-[10px] text-muted-foreground">
               No venues set up for this season —{' '}
               <Link className="text-primary underline" href={`/seasons/${seasonId}/venues`}>set up venues</Link>{' '}
-              to pick them per slot, or type a location above.
+              to pick them per slot, or type a location in.
             </p>
           )}
         </div>
@@ -3315,198 +2974,110 @@ function ManualSlotBoard({
         </div>
       )}
 
-      <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        {/* Drag palette tray (venue · date · time) */}
-        {canEdit && (
-          <div className="border border-border rounded mb-4">
-            <button type="button" onClick={() => setTrayOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-2 bg-muted/30 hover:bg-muted/50 transition-colors">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                Drag palette — venue · date · time
-              </span>
-              {trayOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-            </button>
-            {trayOpen && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 p-4 border-t border-border">
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" /> Venue · Field
-                  </div>
-                  <VenueFieldPalette venues={venues ?? []} seasonId={seasonId} />
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1">
-                    <CalendarDays className="h-3 w-3" /> Date
-                  </div>
-                  <CalendarPalette />
-                </div>
-                <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> Time
-                  </div>
-                  <TimePalette />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="flex gap-4 items-start">
-          {/* Team palette */}
-          <div className="w-44 shrink-0 border border-border rounded sticky top-4">
-            <div className="px-3 py-2 border-b border-border bg-muted/30">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">Teams</span>
+      <div className="flex gap-4 items-start">
+        {/* Slot board */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {slots.length === 0 && !(includeCommitted && committedCards.length > 0) && (
+            <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border">
+              <CalendarCheck className="h-8 w-8 text-muted-foreground mb-3" />
+              <p className="text-sm font-medium text-muted-foreground">No slots yet</p>
+              <p className="text-xs text-muted-foreground mt-1">Click <strong>Add Game</strong> to build one step by step.</p>
             </div>
-            <div className="p-2 space-y-1.5">
-              {teams.map(t => (
-                <div key={t.id} className="flex items-center justify-between gap-1">
-                  <TeamChip team={t} />
-                  <span className={cn(
-                    "text-[10px] font-semibold tabular-nums shrink-0",
-                    (teamGameCounts[t.id] ?? 0) === 0 ? "text-destructive" : "text-muted-foreground"
-                  )}>
-                    {teamGameCounts[t.id] ?? 0}g
-                  </span>
-                </div>
-              ))}
-              {teams.length === 0 && <p className="text-[11px] text-muted-foreground px-1">No teams enrolled.</p>}
-            </div>
-          </div>
-
-          {/* Slot board */}
-          <div className="flex-1 min-w-0 space-y-4">
-            {slots.length === 0 && !(includeCommitted && committedCards.length > 0) && (
-              <div className="flex flex-col items-center justify-center py-16 text-center border border-dashed border-border">
-                <CalendarCheck className="h-8 w-8 text-muted-foreground mb-3" />
-                <p className="text-sm font-medium text-muted-foreground">No slots yet</p>
-                <p className="text-xs text-muted-foreground mt-1">Add an empty slot, then drag a venue, date and time in — or type one with Add Slot.</p>
-              </div>
-            )}
-            {/* Working on — pinned slots, in pin order, never re-sorted. */}
-            {pinnedSlots.length > 0 && (
-              <div ref={trayRef} className="border border-primary/30 rounded p-2.5 bg-primary/[0.03]">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-primary flex items-center gap-1.5">
-                    <Pin className="h-3.5 w-3.5" /> Working on ({pinnedSlots.length})
-                  </span>
-                  {canEdit && (
-                    <button type="button" onClick={unpinAll}
-                      className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-primary">
-                      Place all in schedule
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-2.5">
-                  {pinnedSlots.map(slot => renderSlotCard(slot, true))}
-                </div>
-              </div>
-            )}
-            {sortedSlots.length > 0 && (
-              <div>
-                {/* Header only while the tray is up — no extra chrome otherwise. */}
-                {pinnedSlots.length > 0 && (
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
-                    Schedule ({sortedSlots.length})
-                  </div>
+          )}
+          {/* Working on — pinned slots, in pin order, never re-sorted. */}
+          {pinnedSlots.length > 0 && (
+            <div ref={trayRef} className="border border-primary/30 rounded p-2.5 bg-primary/[0.03]">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-primary flex items-center gap-1.5">
+                  <Pin className="h-3.5 w-3.5" /> Working on ({pinnedSlots.length})
+                </span>
+                {canEdit && (
+                  <button type="button" onClick={unpinAll}
+                    className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground hover:text-primary">
+                    Place all in schedule
+                  </button>
                 )}
-                <div className="space-y-2.5">
-                  {sortedSlots.map(slot => renderSlotCard(slot, false))}
-                </div>
               </div>
-            )}
-
-            {/* Already-committed games (read-only), shown only when the toggle is on */}
-            {includeCommitted && committedCards.length > 0 && (
-              <div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1.5">
-                  <CalendarCheck className="h-3.5 w-3.5" /> Committed games ({committedCards.length}) · read-only
+              <div className="space-y-2.5">
+                {pinnedSlots.map(slot => renderSlotCard(slot, true))}
+              </div>
+            </div>
+          )}
+          {sortedSlots.length > 0 && (
+            <div>
+              {/* Header only while the tray is up — no extra chrome otherwise. */}
+              {pinnedSlots.length > 0 && (
+                <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+                  Schedule ({sortedSlots.length})
                 </div>
-                <div className="space-y-2.5">
-                  {committedCards.map((g, i) => {
-                    const dateLabel = g.date
-                      ? `${DAY_FULL[new Date(g.date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(g.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
-                      : '—';
-                    return (
-                      <div key={`committed-${i}`} className="border border-border/60 rounded p-2.5 space-y-1.5 bg-muted/20">
-                        <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
-                          <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" /> {dateLabel}</span>
-                          <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {g.time ? fmt12h(g.time) : '—'}</span>
-                          {(g.field || g.location) && (
-                            <LocationDisplay locationId={g.locationId} location={g.location} field={g.field} className="truncate min-w-0 max-w-[240px]" />
-                          )}
-                          <span className="ml-auto text-[9px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0">{g.statusLabel}</span>
-                        </div>
-                        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md">
-                          <span className="flex items-center h-8 px-2.5 rounded border border-border/60 bg-background/40 text-xs truncate">{g.homeName}</span>
-                          <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
-                          <span className="flex items-center h-8 px-2.5 rounded border border-border/60 bg-background/40 text-xs truncate">{g.awayName}</span>
-                        </div>
+              )}
+              <div className="space-y-2.5">
+                {sortedSlots.map(slot => renderSlotCard(slot, false))}
+              </div>
+            </div>
+          )}
+
+          {/* Already-committed games (read-only), shown only when the toggle is on */}
+          {includeCommitted && committedCards.length > 0 && (
+            <div>
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2 flex items-center gap-1.5">
+                <CalendarCheck className="h-3.5 w-3.5" /> Committed games ({committedCards.length}) · read-only
+              </div>
+              <div className="space-y-2.5">
+                {committedCards.map((g, i) => {
+                  const dateLabel = g.date
+                    ? `${DAY_FULL[new Date(g.date + 'T00:00:00Z').getUTCDay()].slice(0, 3)} ${new Date(g.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}`
+                    : '—';
+                  return (
+                    <div key={`committed-${i}`} className="border border-border/60 rounded p-2.5 space-y-1.5 bg-muted/20">
+                      <div className="flex items-center gap-3 flex-wrap text-[11px] text-muted-foreground">
+                        <span className="inline-flex items-center gap-1"><CalendarDays className="h-3.5 w-3.5" /> {dateLabel}</span>
+                        <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" /> {g.time ? fmt12h(g.time) : '—'}</span>
+                        {(g.field || g.location) && (
+                          <LocationDisplay locationId={g.locationId} location={g.location} field={g.field} className="truncate min-w-0 max-w-[240px]" />
+                        )}
+                        <span className="ml-auto text-[9px] uppercase tracking-[0.08em] px-1.5 py-0.5 rounded bg-muted text-muted-foreground border border-border shrink-0">{g.statusLabel}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 max-w-md">
+                        <span className="flex items-center h-8 px-2.5 rounded border border-border/60 bg-background/40 text-xs truncate">{g.homeName}</span>
+                        <span className="text-[10px] text-muted-foreground font-bold px-0.5">vs</span>
+                        <span className="flex items-center h-8 px-2.5 rounded border border-border/60 bg-background/40 text-xs truncate">{g.awayName}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-            )}
-          </div>
-
-          {/* Live fairness panel */}
-          {(slots.length > 0 || (includeCommitted && committedCards.length > 0)) && (
-            <div className="w-[420px] shrink-0 border border-border rounded p-3 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Live Fairness</div>
-              <ScheduleReport slots={fairnessSlots} teams={teams} config={config} />
             </div>
           )}
         </div>
-        <DragOverlay dropAnimation={null}>
-          {activeDrag?.type === 'team' && <DraggingChip team={activeDrag.team} />}
-          {activeDrag?.type === 'venuefield' && (
-            <div className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] border border-primary bg-primary text-primary-foreground shadow-lg">
-              <MapPin className="h-3 w-3" />{' '}
-              {/* "TBD" alone is ambiguous mid-drag — name the venue it belongs to. */}
-              {activeDrag.fieldName === TBD_FIELD
-                ? `${activeDrag.venueName} · TBD`
-                : (activeDrag.fieldName || activeDrag.venueName)}
-            </div>
-          )}
-          {activeDrag?.type === 'date' && (
-            <div className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] tabular-nums border border-primary bg-primary text-primary-foreground shadow-lg">
-              <CalendarDays className="h-3 w-3" /> {new Date(activeDrag.date + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })}
-            </div>
-          )}
-          {activeDrag?.type === 'time' && (
-            <div className="inline-flex items-center gap-1 rounded px-2 py-1 text-[11px] tabular-nums border border-primary bg-primary text-primary-foreground shadow-lg">
-              <Clock className="h-3 w-3" /> {fmt12h(activeDrag.time)}
-            </div>
-          )}
-        </DragOverlay>
-      </DndContext>
 
-      <AlertDialog open={showPublishConfirm} onOpenChange={setShowPublishConfirm}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Publish Schedule?</AlertDialogTitle>
-            <AlertDialogDescription asChild>
-              <div className="space-y-2">
-                <p>
-                  This writes your <strong>{completeCount} filled slot{completeCount !== 1 ? 's' : ''}</strong> to
-                  the season as games with status <strong>Scheduled</strong>, replacing any existing
-                  unplayed regular games for this season.
-                </p>
-                <p className="text-muted-foreground">
-                  Played games (Final, Forfeit, etc.) are not affected, and slots that already match a
-                  played game are skipped to avoid duplicates.
-                </p>
-              </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setShowPublishConfirm(false); handlePublish(); }}>
-              Publish {completeCount} Game{completeCount !== 1 ? 's' : ''}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* Live fairness panel */}
+        {(slots.length > 0 || (includeCommitted && committedCards.length > 0)) && (
+          <div className="w-[420px] shrink-0 border border-border rounded p-3 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground mb-2">Live Fairness</div>
+            <ScheduleReport slots={fairnessSlots} teams={teams} config={config} />
+          </div>
+        )}
+      </div>
+
+      {publishConfirmDialog}
+
+      <ManualGameWizard
+        key={wizardKey}
+        mode={wizard}
+        onClose={() => setWizard(null)}
+        onCreate={(draft, again) => {
+          addSlotFromDraft(draft);
+          // "Start another" is a fresh blank run — nothing carries forward.
+          if (again) { setWizardKey(k => k + 1); setWizard({ kind: 'create' }); }
+          else setWizard(null);
+        }}
+        onEdit={(slotId, patch) => patchSlot(slotId, patch)}
+        teams={teams}
+        venues={venues}
+        seasonId={seasonId}
+        firstGameDate={config.firstGameDate}
+      />
     </div>
   );
 }
