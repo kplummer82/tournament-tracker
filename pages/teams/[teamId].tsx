@@ -16,15 +16,19 @@ import {
 import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
-import type { TeamPositionEntry } from "@/pages/api/teams/[teamId]/roster/positions";
 import TeamCalendarTab from "@/components/teams/TeamCalendarTab";
 import { WalkupSongInput, WalkupSongLink } from "@/components/teams/WalkupSongInput";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import FollowButton from "@/components/FollowButton";
 import ManageAccessPanel from "@/components/ManageAccessPanel";
-import { POSITIONS } from "@/lib/positions";
+import PositionChips, { type ChipEntry } from "@/components/teams/PositionChips";
+import PositionSourcePicker, { authorLabel } from "@/components/teams/PositionSourcePicker";
+import { usePositionSource, positionSourceQuery } from "@/lib/hooks/usePositionSource";
+import type { PositionTally } from "@/lib/positionConsensus";
+import type { PositionAuthor, TeamPositionsResponse } from "@/pages/api/teams/[teamId]/roster/positions";
 
-type RosterPositionMap = Record<number, { primary: string[]; secondary: string[] }>;
+type RosterPositionMap = Record<number, ChipEntry[]>;
+type RosterTallyMap = Record<number, Partial<Record<string, PositionTally>>>;
 
 /* ─── Notes rendering — auto-link URLs to external sites ──────── */
 const URL_RE = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
@@ -55,34 +59,6 @@ function renderNotesWithLinks(text: string): React.ReactNode {
     }
     return <span key={i}>{part}</span>;
   });
-}
-
-function PositionBadges({ primary, secondary }: { primary: string[]; secondary: string[] }) {
-  if (primary.length === 0 && secondary.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-0.5">
-      {primary.map((pos) => (
-        <span
-          key={`p-${pos}`}
-          title={`${pos} (Primary)`}
-          className="inline-flex items-center justify-center w-7 h-5 text-[9px] font-bold tracking-[0.04em] border border-primary bg-primary/15 text-primary leading-none"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {pos}
-        </span>
-      ))}
-      {secondary.map((pos) => (
-        <span
-          key={`s-${pos}`}
-          title={`${pos} (Secondary)`}
-          className="inline-flex items-center justify-center w-7 h-5 text-[9px] font-bold tracking-[0.04em] border border-primary/40 bg-primary/5 text-primary/70 leading-none"
-          style={{ fontFamily: "var(--font-display)" }}
-        >
-          {pos}
-        </span>
-      ))}
-    </div>
-  );
 }
 
 type TabKey = "overview" | "roster" | "calendar";
@@ -116,7 +92,19 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [parentView, setParentView] = useState(false);
   const [parentEdits, setParentEdits] = useState<Record<number, ParentEdit>>({});
+
+  // Position ratings are per-coach and staff-only; `canEdit` mirrors the
+  // requireTeamAccess gate on the API, so non-staff never fetch them at all.
   const [positionMap, setPositionMap] = useState<RosterPositionMap>({});
+  const [positionTallies, setPositionTallies] = useState<RosterTallyMap>({});
+  const [positionAuthors, setPositionAuthors] = useState<PositionAuthor[]>([]);
+  // Admins can read every coach's ratings but keep no set of their own; only a
+  // coach/manager of this team may author. The API is the source of truth.
+  const [canAuthorPositions, setCanAuthorPositions] = useState<boolean | undefined>(undefined);
+  const { source: positionSource, setSource: setPositionSource } = usePositionSource(
+    teamId,
+    canAuthorPositions
+  );
 
   // Coach view state
   const [coachView, setCoachView] = useState(false);
@@ -148,36 +136,13 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
       setLoading(true);
       setErr(null);
       try {
-        const [rosterRes, posRes] = await Promise.all([
-          fetch(`/api/teams/${teamId}/roster`, { cache: "no-store" }),
-          fetch(`/api/teams/${teamId}/roster/positions`, { cache: "no-store" }),
-        ]);
+        const rosterRes = await fetch(`/api/teams/${teamId}/roster`, { cache: "no-store" });
         if (!rosterRes.ok) throw new Error((await rosterRes.json()).error || `HTTP ${rosterRes.status}`);
         const data = await rosterRes.json();
         const rows: RosterRow[] = Array.isArray(data?.roster) ? data.roster : [];
 
-        const posMap: RosterPositionMap = {};
-        if (posRes.ok) {
-          const posData: { positions: TeamPositionEntry[] } = await posRes.json();
-          for (const entry of posData.positions) {
-            if (!posMap[entry.roster_id]) posMap[entry.roster_id] = { primary: [], secondary: [] };
-            if (entry.priority === "primary") {
-              posMap[entry.roster_id].primary.push(entry.position);
-            } else {
-              posMap[entry.roster_id].secondary.push(entry.position);
-            }
-          }
-          // Sort by canonical position order
-          for (const id in posMap) {
-            const order = POSITIONS as readonly string[];
-            posMap[Number(id)].primary.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-            posMap[Number(id)].secondary.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-          }
-        }
-
         if (!cancelled) {
           setRoster(rows);
-          setPositionMap(posMap);
           const edits: Record<number, ParentEdit> = {};
           rows.forEach((r) => {
             edits[r.id] = {
@@ -199,6 +164,43 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
     })();
     return () => { cancelled = true; };
   }, [teamId]);
+
+  // Positions load on their own so switching source doesn't reload the table.
+  useEffect(() => {
+    if (!teamId || !canEdit) {
+      setPositionMap({});
+      setPositionTallies({});
+      setPositionAuthors([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/teams/${teamId}/roster/positions?${positionSourceQuery(positionSource)}`,
+          { cache: "no-store" }
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: TeamPositionsResponse = await res.json();
+        if (cancelled) return;
+
+        const posMap: RosterPositionMap = {};
+        for (const entry of data.positions) {
+          (posMap[entry.roster_id] ??= []).push({ position: entry.position, priority: entry.priority });
+        }
+        setPositionMap(posMap);
+        setPositionTallies(data.tallies ?? {});
+        setPositionAuthors(data.authors ?? []);
+        setCanAuthorPositions(!!data.canAuthor);
+      } catch {
+        if (!cancelled) {
+          setPositionMap({});
+          setPositionTallies({});
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamId, canEdit, positionSource]);
 
   // Fetch team seasons when coach view opens
   useEffect(() => {
@@ -522,6 +524,27 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
             Roster
           </h2>
           <div className="flex items-center gap-3 ml-auto">
+            {/* Whose position ratings to show. Hidden when the team has no
+                coaches/managers — there'd be nothing to pick between. */}
+            {canEdit && positionAuthors.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label
+                  htmlFor="position-source"
+                  className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Positions
+                </label>
+                <PositionSourcePicker
+                  id="position-source"
+                  authors={positionAuthors}
+                  value={positionSource}
+                  onChange={setPositionSource}
+                  canAuthor={canAuthorPositions !== false}
+                />
+              </div>
+            )}
+
             {/* Team Parent View toggle */}
             <button
               type="button"
@@ -594,6 +617,50 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
             )}
           </div>
         </div>
+
+        {/* Position source description */}
+        {canEdit && (() => {
+          // Only the team's own coaches/managers can hold position assignments,
+          // so with none assigned there's nothing to show under any view.
+          if (positionAuthors.length === 0) {
+            return (
+              <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
+                No one has Coach / Manager access to this team yet, so there are no position
+                assignments. Add them under Manage Access below.
+              </p>
+            );
+          }
+          if (positionSource.view === "consensus") {
+            const raters = positionAuthors.filter((a) => a.rated_players > 0).length;
+            return (
+              <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
+                {raters === 0
+                  ? "No coach has assigned positions on this team yet."
+                  : `Position chips show the consensus of ${raters} ${raters === 1 ? "coach" : "coaches"}. A dashed chip with a "?" means the staff disagrees — hover it for the breakdown.`}
+              </p>
+            );
+          }
+          if (positionSource.view === "author") {
+            const author = positionAuthors.find((a) => a.user_id === positionSource.authorId);
+            return (
+              <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
+                Showing {author ? `${authorLabel(author)}'s` : "a coach's"} position assignments.
+                {canAuthorPositions !== false && " Edit your own on a player's page."}
+              </p>
+            );
+          }
+          if (canAuthorPositions === false) return null;
+          const me = positionAuthors.find((a) => a.is_me);
+          if (me && me.rated_players === 0) {
+            return (
+              <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
+                You haven&apos;t assigned any positions yet. Open a player to set yours, or switch to
+                Consensus to see what the rest of the staff thinks.
+              </p>
+            );
+          }
+          return null;
+        })()}
 
         {/* Parent view description */}
         {parentView && (
@@ -723,12 +790,12 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                                     Data deleted
                                   </span>
                                 )}
-                                {(() => {
-                                  const pos = positionMap[r.id];
-                                  return pos && (pos.primary.length > 0 || pos.secondary.length > 0)
-                                    ? <PositionBadges primary={pos.primary} secondary={pos.secondary} />
-                                    : null;
-                                })()}
+                                {positionMap[r.id]?.length > 0 && (
+                                  <PositionChips
+                                    entries={positionMap[r.id]}
+                                    tallies={positionTallies[r.id]}
+                                  />
+                                )}
                               </div>
                               {!parentView && r.walkup_song && (
                                 <span className="hidden sm:inline">

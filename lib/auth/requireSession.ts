@@ -12,6 +12,7 @@ import {
   hasSeasonAccess,
   hasTournamentAccess,
   hasTeamAccess,
+  isTeamManager,
 } from "./permissions";
 
 type Session = NonNullable<Awaited<ReturnType<typeof getSessionForRequest>>>;
@@ -320,5 +321,42 @@ export async function requireTeamAccess(
   }
 
   res.status(403).json({ error: "Forbidden" });
+  return null;
+}
+
+/**
+ * Require coach/manager of *this* team specifically.
+ *
+ * Deliberately stricter than `requireTeamAccess`: there is **no system-admin
+ * bypass**, league/division admins do not inherit, and unlike that guard the
+ * team's creator gets no fallback — the only thing that counts is holding
+ * `team_manager` on this team, exactly what Manage Access lists as
+ * "Coach / Manager". For per-coach data like roster position ratings, admins
+ * are readers: they have no set of their own and must not overwrite a coach's.
+ *
+ * Creating a team auto-assigns `team_manager`, so a creator normally qualifies.
+ * If that role is ever revoked, a system admin can restore it via /admin/roles.
+ *
+ * Pair it with `requireTeamAccess` on the matching GET so admins can still look.
+ */
+export async function requireTeamManager(
+  req: NextApiRequest,
+  res: NextApiResponse,
+  teamId: number
+): Promise<Session | null> {
+  const session = await requireSession(req, res);
+  if (!session) return null;
+
+  // Resolve the team first so a missing one 404s instead of reading as a 403.
+  const teamAncestry = await getTeamAncestry(teamId);
+  if (!teamAncestry) {
+    res.status(404).json({ error: "Team not found" });
+    return null;
+  }
+
+  const roles = await getUserRoles(session.user.id);
+  if (isTeamManager(roles, teamId)) return session;
+
+  res.status(403).json({ error: "Only a coach or manager of this team can do that." });
   return null;
 }

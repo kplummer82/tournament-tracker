@@ -57,6 +57,20 @@ export default function TeamRoster() {
           drive the defensive-lineup builder, so a well-tagged roster turns into fair, valid fielding cards in a
           fraction of the time.
         </p>
+        <p>
+          <strong className="text-foreground">Every coach keeps their own set.</strong> What you mark is yours — no
+          other coach can change it, and you can&apos;t change theirs. Under the grid you&apos;ll see what the rest of
+          the staff thinks, and <strong className="text-foreground">Copy to mine</strong> if you&apos;d rather start
+          from someone else&apos;s read.
+        </p>
+        <p>
+          Back on the roster, the <strong className="text-foreground">Positions</strong> dropdown switches the chips
+          between your assignments, any other coach&apos;s, and{" "}
+          <strong className="text-foreground">Consensus</strong> — the staff&apos;s combined view. Consensus goes with
+          the majority, and where the majority is tied it says so instead of guessing: a dashed chip with a{" "}
+          <strong className="text-foreground">?</strong> means no agreement. Hover it to see who said what. The same
+          dropdown appears on a game&apos;s Defense tab, so you can build a lineup off whichever read you trust.
+        </p>
         <Figure src="/learn/positions.png" alt="A player's page with primary and secondary positions selected" caption="Player page — primary and secondary positions feed the lineup builder" />
         <Callout variant="note">
           Positions are the bridge to game day. Once they&apos;re set, see{" "}
@@ -64,6 +78,13 @@ export default function TeamRoster() {
             Defensive lineups, start to finish
           </Link>{" "}
           for the printable card.
+        </Callout>
+        <Callout variant="warning">
+          Position assignments are staff-only, and only this team&apos;s{" "}
+          <strong className="text-foreground">coaches and managers</strong> can set them. Admins — league, division,
+          and system — can see every coach&apos;s assignments and switch between them, but they keep no set of their
+          own and can&apos;t change anyone else&apos;s. Players, parents, and everyone else see nothing at all: not on
+          the roster, not on a player&apos;s page, not on a game.
         </Callout>
       </Step>
 

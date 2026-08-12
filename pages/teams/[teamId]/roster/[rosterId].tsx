@@ -511,12 +511,11 @@ export default function RosterDetailPage() {
         )}
 
         {/* ── Positions ─────────────────────────────────────────── */}
-        {person.role === "player" && teamId && rosterId && (
-          <PlayerPositionsCard
-            rosterId={Number(rosterId)}
-            teamId={Number(teamId)}
-            canEdit={!!canEdit}
-          />
+        {/* Staff only — position ratings are coaching evaluations, and the API
+            403s anyone without team access. Wait on permissions so the card
+            doesn't flash in for a viewer who turns out not to be staff. */}
+        {person.role === "player" && teamId && rosterId && !permissions.loading && canEdit && (
+          <PlayerPositionsCard rosterId={Number(rosterId)} teamId={Number(teamId)} />
         )}
 
         {/* ── Danger zone ───────────────────────────────────────── */}

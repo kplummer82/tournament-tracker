@@ -116,6 +116,8 @@ const ROSTER = [
     });
     const rid = r.id ?? r.roster?.id ?? r.row?.id;
     rosterIds[p.jersey] = rid;
+    // Positions are per-coach — these land under the seeding admin's set, which
+    // is also the consensus while they're the only rater.
     await api("PUT", `/api/teams/${hawks}/roster/${rid}/positions`, {
       positions: p.pos.map(([position, priority]) => ({ position, priority })),
     });

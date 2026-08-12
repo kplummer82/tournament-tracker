@@ -16,6 +16,11 @@ import { ReportsTab } from "@/components/games/ReportsTab";
 import { LocationDisplay } from "@/components/LocationPicker";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { validateLineupRules, OUTFIELD_POSITIONS, type LineupRules, type LineupRuleKey } from "@/lib/lineupRules";
+import { POSITIONS } from "@/lib/positions";
+import { priorityRank, type ConsensusPriority } from "@/lib/positionConsensus";
+import PositionSourcePicker from "@/components/teams/PositionSourcePicker";
+import { usePositionSource, positionSourceQuery } from "@/lib/hooks/usePositionSource";
+import type { PositionAuthor, TeamPositionsResponse } from "@/pages/api/teams/[teamId]/roster/positions";
 
 /* ─── Types ──────────────────────────────────────────────────── */
 
@@ -27,8 +32,9 @@ type ConfirmationRow = {
   last_name: string;
   jersey_number: number | null;
   status: "confirmed" | "declined" | "pending";
-  // keyed by position abbreviation → priority; populated in DefenseTab
-  positionPriorities?: Record<string, "primary" | "secondary">;
+  // keyed by position abbreviation → priority; populated in DefenseTab.
+  // "split" only appears in the consensus view, where coaches disagree.
+  positionPriorities?: Record<string, ConsensusPriority>;
 };
 
 type BattingRow = {
@@ -48,7 +54,6 @@ type DefenseRow = {
   jersey_number: number | null;
 };
 
-const POSITIONS = ["P", "C", "1B", "2B", "3B", "SS", "LF", "CF", "RF"] as const;
 const INNINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
 /* ─── Shared styles ──────────────────────────────────────────── */
@@ -640,11 +645,15 @@ function playerLabel(c: ConfirmationRow) {
   return c.jersey_number != null ? `#${c.jersey_number} ${name}` : name;
 }
 
-function priorityOrder(p: ConfirmationRow, position: string): 0 | 1 | 2 {
-  const pri = p.positionPriorities?.[position];
-  if (pri === "primary") return 0;
-  if (pri === "secondary") return 1;
-  return 2;
+/** primary → split → secondary → unrated, so the best fits surface first. */
+function priorityOrder(p: ConfirmationRow, position: string): number {
+  return priorityRank(p.positionPriorities?.[position]);
+}
+
+function priorityBadge(priority: ConsensusPriority): string {
+  if (priority === "primary") return "1°";
+  if (priority === "secondary") return "2°";
+  return "?";
 }
 
 function PlayerCombobox({
@@ -832,13 +841,18 @@ function PlayerCombobox({
                   <span>{playerLabel(p)}</span>
                   {p.positionPriorities?.[position] && (
                     <span
+                      title={
+                        p.positionPriorities[position] === "split"
+                          ? `${position} — coaches disagree on this player`
+                          : undefined
+                      }
                       className={cn(
                         "shrink-0 text-[9px] font-semibold tracking-[0.04em] tabular-nums",
                         p.positionPriorities[position] === "primary" ? "text-primary" : "text-primary/50"
                       )}
                       style={{ fontFamily: "var(--font-body)" }}
                     >
-                      {p.positionPriorities[position] === "primary" ? "1°" : "2°"}
+                      {priorityBadge(p.positionPriorities[position])}
                     </span>
                   )}
                 </button>
@@ -868,27 +882,31 @@ function DefenseTab({
   const [numInnings, setNumInnings] = useState(6);
   const [rules, setRules] = useState<LineupRules>({});
 
+  // Position ratings are per-coach; this picks whose to sort the dropdown by.
+  // Non-staff get a 403 on the positions route, so the picker and the 1°/2°
+  // badges simply never appear for them.
+  const [canAuthorPositions, setCanAuthorPositions] = useState<boolean | undefined>(undefined);
+  const { source: positionSource, setSource: setPositionSource } = usePositionSource(
+    teamId,
+    canAuthorPositions
+  );
+  const [positionAuthors, setPositionAuthors] = useState<PositionAuthor[]>([]);
+  const [positionsByRoster, setPositionsByRoster] = useState<
+    Record<number, Record<string, ConsensusPriority>>
+  >({});
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [lineupRes, confRes, posRes, rulesRes] = await Promise.all([
+      const [lineupRes, confRes, rulesRes] = await Promise.all([
         fetch(`/api/games/${source}/${gameId}/defensive-lineup?team=${teamId}`),
         fetch(`/api/games/${source}/${gameId}/confirmations?team=${teamId}`),
-        fetch(`/api/teams/${teamId}/roster/positions`),
         fetch(`/api/games/${source}/${gameId}/lineup-rules?team=${teamId}`),
       ]);
       const lineupData = await lineupRes.json();
       const confData = await confRes.json();
-      const posData = posRes.ok ? await posRes.json() : { positions: [] };
       const rulesData = rulesRes.ok ? await rulesRes.json() : { rules: {} };
       setRules(rulesData.rules ?? {});
-
-      // Build a lookup: roster_id → { position → priority }
-      const posByRoster: Record<number, Record<string, "primary" | "secondary">> = {};
-      for (const entry of (posData.positions ?? [])) {
-        if (!posByRoster[entry.roster_id]) posByRoster[entry.roster_id] = {};
-        posByRoster[entry.roster_id][entry.position] = entry.priority;
-      }
 
       const rows: DefenseRow[] = Array.isArray(lineupData.lineup) ? lineupData.lineup : [];
       const map: LineupMap = {};
@@ -902,10 +920,6 @@ function DefenseTab({
       setConfirmed(
         (Array.isArray(confData.confirmations) ? confData.confirmations : [])
           .filter((c: ConfirmationRow) => c.status === "confirmed")
-          .map((c: ConfirmationRow) => ({
-            ...c,
-            positionPriorities: posByRoster[c.roster_id] ?? {},
-          }))
       );
     } catch { /* silent */ }
     setLoading(false);
@@ -913,6 +927,41 @@ function DefenseTab({
   }, [source, gameId, teamId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Positions load separately so changing the source doesn't reload the lineup
+  // and throw away unsaved edits.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/teams/${teamId}/roster/positions?${positionSourceQuery(positionSource)}`
+        );
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: TeamPositionsResponse = await res.json();
+        if (cancelled) return;
+        const byRoster: Record<number, Record<string, ConsensusPriority>> = {};
+        for (const entry of data.positions) {
+          (byRoster[entry.roster_id] ??= {})[entry.position] = entry.priority;
+        }
+        setPositionsByRoster(byRoster);
+        setPositionAuthors(data.authors ?? []);
+        setCanAuthorPositions(!!data.canAuthor);
+      } catch {
+        if (!cancelled) {
+          setPositionsByRoster({});
+          setPositionAuthors([]);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamId, positionSource]);
+
+  // Attach ratings at render time — `confirmed` itself stays a pure server echo.
+  const confirmedWithPositions = useMemo(
+    () => confirmed.map((c) => ({ ...c, positionPriorities: positionsByRoster[c.roster_id] ?? {} })),
+    [confirmed, positionsByRoster]
+  );
 
   const activeInnings = INNINGS.slice(0, numInnings);
 
@@ -1072,6 +1121,26 @@ function DefenseTab({
             ))}
           </div>
         </div>
+        {/* Whose position ratings order the player dropdowns. Absent for
+            non-staff, whose positions request 403s and returns no authors. */}
+        {positionAuthors.length > 0 && (
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="defense-position-source"
+              className="text-sm text-muted-foreground"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              Positions:
+            </label>
+            <PositionSourcePicker
+              id="defense-position-source"
+              authors={positionAuthors}
+              value={positionSource}
+              onChange={setPositionSource}
+              canAuthor={canAuthorPositions !== false}
+            />
+          </div>
+        )}
         <div className="flex items-center gap-4">
           <p className="text-sm text-muted-foreground">Rules:</p>
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
@@ -1195,7 +1264,7 @@ function DefenseTab({
                           )}
                         >
                           <PlayerCombobox
-                            players={confirmed}
+                            players={confirmedWithPositions}
                             position={pos}
                             value={assigned}
                             usedIds={usedInInning}

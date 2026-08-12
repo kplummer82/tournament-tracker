@@ -183,6 +183,21 @@ export function hasTeamAccess(
   );
 }
 
+/**
+ * Strictly a coach/manager *of this team* — no admin inheritance.
+ *
+ * Unlike `hasTeamAccess`, league/division admins do NOT satisfy this, and
+ * callers must not add a system-admin bypass. Used for data that belongs to the
+ * coaching staff personally rather than to the org: a coach's own roster
+ * position ratings, where an admin can look but has no set of their own to
+ * write and no business overwriting someone else's.
+ */
+export function isTeamManager(roles: UserRoleRow[], teamId: number): boolean {
+  return roles.some(
+    (r) => r.role === "team_manager" && r.scope_type === "team" && r.scope_id === teamId
+  );
+}
+
 // --------------- Role Assignment Authorization ---------------
 
 /**
