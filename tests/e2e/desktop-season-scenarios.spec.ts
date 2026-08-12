@@ -1,17 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Scenarios', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    const tabNav = page.getByRole('complementary').first();
-    await tabNav.getByRole('link', { name: 'Scenarios' }).click();
+    await gotoSeasonTab(page, 'Scenarios');
   });
 
   test('scenarios heading is visible', async ({ page }) => {
-    await expect(page.getByText(/Scenarios/i).first()).toBeVisible({ timeout: 10000 });
+    // Match the heading, not bare text — getByText(/Scenarios/i) also matches the
+    // season shell's mobile tab strip, which is hidden at desktop widths.
+    await expect(page.getByRole('heading', { name: 'Scenarios', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('new scenario form renders with all fields', async ({ page }) => {
@@ -44,8 +42,11 @@ test.describe('Desktop: Season Scenarios', () => {
   test('mode select has or_better and exact options', async ({ page }) => {
     await expect(page.getByText(/New Scenario/i)).toBeVisible({ timeout: 10000 });
     const modeSelect = page.locator('label', { hasText: 'Mode' }).locator('select');
-    await expect(modeSelect.locator('option', { hasText: /or better/i })).toBeVisible();
-    await expect(modeSelect.locator('option', { hasText: /Exactly/i })).toBeVisible();
+    // <option>s inside a closed <select> are never "visible" to Playwright —
+    // assert on their text instead.
+    const options = (await modeSelect.locator('option').allTextContents()).join(' | ');
+    expect(options).toMatch(/or better/i);
+    expect(options).toMatch(/exactly/i);
   });
 
   test('page loads without errors', async ({ page }) => {

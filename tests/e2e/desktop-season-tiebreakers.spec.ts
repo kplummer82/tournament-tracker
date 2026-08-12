@@ -1,13 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Tiebreakers', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    const tabNav = page.getByRole('complementary').first();
-    await tabNav.getByRole('link', { name: 'Tiebreakers' }).click();
+    await gotoSeasonTab(page, 'Tiebreakers');
   });
 
   test('tiebreakers heading is visible', async ({ page }) => {
@@ -15,12 +11,14 @@ test.describe('Desktop: Season Tiebreakers', () => {
   });
 
   test('page describes tiebreaker purpose', async ({ page }) => {
-    await expect(page.getByText(/ranked|records|equal/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/when teams are tied/i)).toBeVisible({ timeout: 10000 });
   });
 
   test('available tiebreakers list is shown', async ({ page }) => {
-    // The tiebreakers panel should show available tiebreaker options
-    await expect(page.getByText(/Tiebreakers/i).first()).toBeVisible({ timeout: 10000 });
+    // Assert on the configured rules themselves. A bare getByText(/Tiebreakers/i)
+    // matches the season shell's mobile tab strip, which is hidden at this width.
+    await expect(page.getByText('Win-Loss Percentage')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: 'Drag to reorder' }).first()).toBeVisible();
     await expect(page).not.toHaveTitle(/500|Error/i);
   });
 

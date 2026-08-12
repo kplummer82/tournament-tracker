@@ -1,11 +1,15 @@
 import { test, expect } from '@playwright/test';
+import { TOURNAMENT_1DAY } from './helpers/navigate';
 
 test.describe('Desktop: Tournament Standings', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/tournaments');
-    await page.getByRole('link', { name: /1-Day Test/i }).click();
+    await page.getByRole('link', { name: TOURNAMENT_1DAY }).click();
     const tabNav = page.getByRole('complementary').first();
     await tabNav.getByRole('link', { name: 'Standings' }).click();
+    // Settle on the tab before asserting — the default 5s expect timeout is not
+    // enough for the shell + standings data on a cold dev server.
+    await expect(page.getByRole('heading', { name: /Standings/i })).toBeVisible({ timeout: 15000 });
   });
 
   test('standings heading and controls are visible', async ({ page }) => {

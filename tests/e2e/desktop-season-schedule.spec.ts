@@ -1,17 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Schedule', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    const tabNav = page.getByRole('complementary').first();
-    await tabNav.getByRole('link', { name: 'Schedule' }).click();
+    // The tab is labelled "Results" (the route is still /seasons/:id/schedule).
+    await gotoSeasonTab(page, 'Results');
   });
 
   test('schedule heading and add game button are visible', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /Schedule/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /Results|Schedule/i }).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('button', { name: /Add Game/i })).toBeVisible();
   });
 

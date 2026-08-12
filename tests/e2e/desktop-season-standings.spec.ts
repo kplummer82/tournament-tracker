@@ -1,19 +1,17 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Standings', () => {
   test.beforeEach(async ({ page }) => {
-    // Navigate to Spring 2026 season standings via leagues
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    const tabNav = page.getByRole('complementary').first();
-    await tabNav.getByRole('link', { name: 'Standings' }).click();
+    await gotoSeasonTab(page, 'Standings');
   });
 
   test('standings heading and controls are visible', async ({ page }) => {
     await expect(page.getByRole('heading', { name: /Standings/i })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/Include In Progress/i)).toBeVisible();
+    // The old "Include In Progress" checkbox is now a Current/Live/As-of mode toggle.
+    await expect(page.getByRole('button', { name: 'Current', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Live', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'As-of', exact: true })).toBeVisible();
   });
 
   test('standings table has core column headers', async ({ page }) => {

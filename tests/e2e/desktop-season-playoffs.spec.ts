@@ -1,13 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Playoffs', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    const tabNav = page.getByRole('complementary').first();
-    await tabNav.getByRole('link', { name: 'Playoffs' }).click();
+    await gotoSeasonTab(page, 'Playoffs');
   });
 
   test('playoffs heading and add bracket button are visible', async ({ page }) => {

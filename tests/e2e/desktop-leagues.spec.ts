@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { gotoMustangSeason } from './helpers/navigate';
 
 test.describe('Desktop: Leagues List', () => {
   test('leagues page renders with heading', async ({ page }) => {
@@ -12,31 +13,35 @@ test.describe('Desktop: Leagues List', () => {
     await expect(page.getByText('SMYB').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('clicking a league shows divisions', async ({ page }) => {
+  // The hierarchy is league → season → division. League detail lists seasons;
+  // the league's divisions live behind a "Manage divisions" disclosure.
+  test('clicking a league shows its seasons', async ({ page }) => {
     await page.goto('/leagues');
     await page.getByRole('link', { name: /SMYB/ }).click();
 
-    // Should see Divisions heading
-    await expect(page.getByText(/Divisions/i)).toBeVisible({ timeout: 10000 });
-
-    // Mustang division should be visible
-    await expect(page.getByText('Mustang').first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /2026 Spring/ })).toBeVisible({ timeout: 10000 });
   });
 
-  test('clicking a division shows seasons', async ({ page }) => {
+  test('league detail can reveal its divisions', async ({ page }) => {
     await page.goto('/leagues');
     await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
 
-    // Should see season(s) listed
-    await expect(page.getByText(/Spring 2026/i)).toBeVisible({ timeout: 10000 });
+    // Divisions are collapsed until the disclosure is opened.
+    await expect(page.getByText('Mustang')).toHaveCount(0);
+    await page.getByRole('button', { name: /Manage divisions/i }).click();
+    await expect(page.getByText('Mustang').first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('clicking a season loads season shell with tabs', async ({ page }) => {
+  test('clicking a season shows its divisions', async ({ page }) => {
     await page.goto('/leagues');
     await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
+    await page.getByRole('link', { name: /2026 Spring/ }).click();
+
+    await expect(page.getByRole('link', { name: /Mustang/ })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('clicking a division loads the season shell with tabs', async ({ page }) => {
+    await gotoMustangSeason(page);
 
     // Season shell should load — sidebar visible on desktop
     await expect(page.getByRole('complementary').first()).toBeVisible({ timeout: 10000 });

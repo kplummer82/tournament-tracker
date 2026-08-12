@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { TOURNAMENT_1DAY } from './helpers/navigate';
 
 test.describe('Desktop: Tournaments List', () => {
   test.beforeEach(async ({ page }) => {
@@ -19,12 +20,12 @@ test.describe('Desktop: Tournaments List', () => {
 
   test('tournament rows render with name and status badge', async ({ page }) => {
     // Wait for at least one tournament link to appear
-    const firstRow = page.getByRole('link', { name: /1-Day Test/i });
+    const firstRow = page.getByRole('link', { name: TOURNAMENT_1DAY });
     await expect(firstRow).toBeVisible({ timeout: 10000 });
   });
 
   test('clicking a tournament navigates to overview', async ({ page }) => {
-    await page.getByRole('link', { name: /1-Day Test/i }).click();
+    await page.getByRole('link', { name: TOURNAMENT_1DAY }).click();
 
     // Should land on overview — look for the tournament shell with Overview tab active
     await expect(page).not.toHaveTitle(/500|Error/i);
@@ -36,7 +37,7 @@ test.describe('Desktop: Tournaments List', () => {
 test.describe('Desktop: Tournament Tabs', () => {
   test('all sidebar tabs are visible and navigable', async ({ page }) => {
     await page.goto('/tournaments');
-    await page.getByRole('link', { name: /1-Day Test/i }).click();
+    await page.getByRole('link', { name: TOURNAMENT_1DAY }).click();
 
     const tabNav = page.getByRole('complementary').first();
 

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { loginAs, ensureLoggedIn, authedFetch } from "./helpers/auth";
+import { gotoSeasonTab, TOURNAMENT_1DAY } from "./helpers/navigate";
 
 /**
  * Regression tests ensuring existing functionality still works
@@ -41,14 +42,14 @@ test.describe("RBAC Regression: Pages load correctly", () => {
     await expect(page.locator("h1, h2").first()).toContainText(/Tournaments/i);
     // At least one tournament link should appear
     await expect(
-      page.getByRole("link", { name: /1-Day Test/i })
+      page.getByRole("link", { name: TOURNAMENT_1DAY })
     ).toBeVisible({ timeout: 10000 });
   });
 
   test("tournament detail page loads (pool, standings)", async ({ page }) => {
     await loginAs(page, "admin");
     await page.goto("/tournaments");
-    await page.getByRole("link", { name: /1-Day Test/i }).click();
+    await page.getByRole("link", { name: TOURNAMENT_1DAY }).click();
 
     // Should render the tournament shell
     await expect(page).not.toHaveTitle(/500|Error/i);
@@ -78,55 +79,13 @@ test.describe("RBAC Regression: Season pages load", () => {
     await loginAs(page, "admin");
   });
 
-  test("season schedule page loads", async ({ page }) => {
-    // Navigate to a season via leagues
-    await page.goto("/leagues");
-    await page.getByRole("link", { name: /SMYB/ }).click();
-    await page.getByRole("link", { name: /Mustang/ }).click();
-    await page.getByRole("link", { name: /Spring 2026/ }).click();
-
-    // Navigate to schedule tab
-    const sidebar = page.getByRole("complementary").first();
-    await expect(sidebar).toBeVisible({ timeout: 10000 });
-    await sidebar.getByRole("link", { name: "Schedule" }).click();
-    await expect(page).not.toHaveTitle(/500|Error/i);
-  });
-
-  test("season standings page loads", async ({ page }) => {
-    await page.goto("/leagues");
-    await page.getByRole("link", { name: /SMYB/ }).click();
-    await page.getByRole("link", { name: /Mustang/ }).click();
-    await page.getByRole("link", { name: /Spring 2026/ }).click();
-
-    const sidebar = page.getByRole("complementary").first();
-    await expect(sidebar).toBeVisible({ timeout: 10000 });
-    await sidebar.getByRole("link", { name: "Standings" }).click();
-    await expect(page).not.toHaveTitle(/500|Error/i);
-  });
-
-  test("season teams page loads", async ({ page }) => {
-    await page.goto("/leagues");
-    await page.getByRole("link", { name: /SMYB/ }).click();
-    await page.getByRole("link", { name: /Mustang/ }).click();
-    await page.getByRole("link", { name: /Spring 2026/ }).click();
-
-    const sidebar = page.getByRole("complementary").first();
-    await expect(sidebar).toBeVisible({ timeout: 10000 });
-    await sidebar.getByRole("link", { name: "Teams" }).click();
-    await expect(page).not.toHaveTitle(/500|Error/i);
-  });
-
-  test("season playoffs page loads", async ({ page }) => {
-    await page.goto("/leagues");
-    await page.getByRole("link", { name: /SMYB/ }).click();
-    await page.getByRole("link", { name: /Mustang/ }).click();
-    await page.getByRole("link", { name: /Spring 2026/ }).click();
-
-    const sidebar = page.getByRole("complementary").first();
-    await expect(sidebar).toBeVisible({ timeout: 10000 });
-    await sidebar.getByRole("link", { name: "Playoffs" }).click();
-    await expect(page).not.toHaveTitle(/500|Error/i);
-  });
+  // "Results" is the schedule tab's label (route: /seasons/:id/schedule).
+  for (const tab of ["Results", "Standings", "Teams", "Playoffs"]) {
+    test(`season ${tab.toLowerCase()} page loads`, async ({ page }) => {
+      await gotoSeasonTab(page, tab);
+      await expect(page).not.toHaveTitle(/500|Error/i);
+    });
+  }
 });
 
 test.describe("RBAC Regression: Read access is open", () => {

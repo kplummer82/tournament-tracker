@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { loginAs } from './helpers/auth';
+import { gotoMustangSeason, gotoSeasonTab, TOURNAMENT_1DAY } from './helpers/navigate';
 
 /**
  * RBAC UI Visibility Tests
@@ -11,29 +12,25 @@ import { loginAs } from './helpers/auth';
 
 // Shared navigation helpers
 async function navigateToSeason(page: import('@playwright/test').Page) {
-  await page.goto('/leagues');
-  await page.getByRole('link', { name: /SMYB/ }).click();
-  await page.getByRole('link', { name: /Mustang/ }).click();
-  await page.getByRole('link', { name: /Spring 2026/ }).click();
+  await gotoMustangSeason(page);
   // Wait for the season shell to load
   await expect(page.getByRole('complementary').first()).toBeVisible({ timeout: 15000 });
 }
 
 async function navigateToSeasonTab(page: import('@playwright/test').Page, tabName: string) {
-  await navigateToSeason(page);
-  const tabNav = page.getByRole('complementary').first();
-  await tabNav.getByRole('link', { name: tabName }).click();
+  await gotoSeasonTab(page, tabName);
 }
 
 async function navigateToLeagueDetail(page: import('@playwright/test').Page) {
   await page.goto('/leagues');
   await page.getByRole('link', { name: /SMYB/ }).click();
-  await expect(page.getByText(/Divisions/i)).toBeVisible({ timeout: 15000 });
+  // League detail lists seasons; divisions sit behind a "Manage divisions" disclosure.
+  await expect(page.getByRole('link', { name: /2026 Spring/ })).toBeVisible({ timeout: 15000 });
 }
 
 async function navigateToTournament(page: import('@playwright/test').Page) {
   await page.goto('/tournaments');
-  await page.getByRole('link', { name: /1-Day Test/i }).click();
+  await page.getByRole('link', { name: TOURNAMENT_1DAY }).click();
   await expect(page.getByRole('complementary').first()).toBeVisible({ timeout: 15000 });
 }
 
@@ -45,7 +42,7 @@ test.describe('RBAC: Admin user sees edit controls', () => {
   });
 
   test('season schedule page shows "Add Game" button', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Schedule');
+    await navigateToSeasonTab(page, 'Results');
     await expect(page.getByRole('button', { name: /Add Game/i })).toBeVisible({ timeout: 10000 });
   });
 
@@ -67,6 +64,8 @@ test.describe('RBAC: Admin user sees edit controls', () => {
 
   test('league detail page shows "Add Division" button', async ({ page }) => {
     await navigateToLeagueDetail(page);
+    // Division management lives behind the "Manage divisions" disclosure.
+    await page.getByRole('button', { name: /Manage divisions/i }).click();
     await expect(page.getByRole('button', { name: /Add Division/i })).toBeVisible({ timeout: 10000 });
   });
 
@@ -85,9 +84,9 @@ test.describe('RBAC: Regular user cannot see edit controls', () => {
   });
 
   test('season schedule page hides "Add Game" button', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Schedule');
+    await navigateToSeasonTab(page, 'Results');
     // Wait for schedule content to load first
-    await expect(page.getByRole('heading', { name: /Schedule/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /Results|Schedule/i }).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('button', { name: /Add Game/i })).toHaveCount(0);
   });
 
@@ -139,8 +138,8 @@ test.describe('RBAC: Regular user sees all read-only content', () => {
   });
 
   test('season schedule shows game table', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Schedule');
-    await expect(page.getByRole('heading', { name: /Schedule/i })).toBeVisible({ timeout: 10000 });
+    await navigateToSeasonTab(page, 'Results');
+    await expect(page.getByRole('heading', { name: /Results|Schedule/i }).first()).toBeVisible({ timeout: 10000 });
     const table = page.locator('table').first();
     await expect(table).toBeVisible();
     // Verify data rows exist
@@ -150,7 +149,9 @@ test.describe('RBAC: Regular user sees all read-only content', () => {
 
   test('season standings are visible', async ({ page }) => {
     await navigateToSeasonTab(page, 'Standings');
-    await expect(page.getByText(/Standings/i).first()).toBeVisible({ timeout: 10000 });
+    // Match the heading — getByText(/Standings/i) also hits the season shell's
+    // mobile tab strip, which is in the DOM but hidden at desktop widths.
+    await expect(page.getByRole('heading', { name: /Standings/i })).toBeVisible({ timeout: 10000 });
     // Standings table should have team data
     const table = page.locator('table').first();
     await expect(table).toBeVisible();
@@ -161,14 +162,15 @@ test.describe('RBAC: Regular user sees all read-only content', () => {
     await expect(page.getByText(/team/i).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('league detail shows divisions', async ({ page }) => {
+  test('league detail shows seasons and can reveal divisions', async ({ page }) => {
     await navigateToLeagueDetail(page);
-    await expect(page.getByText(/Divisions/i)).toBeVisible();
+    await expect(page.getByRole('link', { name: /2026 Spring/ })).toBeVisible();
+    await page.getByRole('button', { name: /Manage divisions/i }).click();
     await expect(page.getByText('Mustang').first()).toBeVisible();
   });
 
   test('tournament list is visible and navigable', async ({ page }) => {
     await page.goto('/tournaments');
-    await expect(page.getByRole('link', { name: /1-Day Test/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('link', { name: TOURNAMENT_1DAY })).toBeVisible({ timeout: 10000 });
   });
 });

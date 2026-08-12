@@ -1,17 +1,14 @@
 import { test, expect } from '@playwright/test';
+import { gotoSeasonTabMobile } from './helpers/navigate';
 
 test.describe('Mobile: Season Scenarios', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/leagues');
-    await page.getByRole('link', { name: /SMYB/ }).click();
-    await page.getByRole('link', { name: /Mustang/ }).click();
-    await page.getByRole('link', { name: /Spring 2026/ }).click();
-    // Mobile uses horizontal tab strip, not sidebar
-    await page.getByRole('link', { name: 'Scenarios' }).click();
+    // Mobile uses a horizontal tab strip, not the desktop sidebar.
+    await gotoSeasonTabMobile(page, 'Scenarios');
   });
 
   test('scenarios page loads with heading', async ({ page }) => {
-    await expect(page.getByText(/Scenarios/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Scenarios', exact: true })).toBeVisible({ timeout: 10000 });
     await expect(page).not.toHaveTitle(/500|Error/i);
   });
 
