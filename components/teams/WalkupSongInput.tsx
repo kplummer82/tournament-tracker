@@ -27,16 +27,22 @@ export function appleMusicUrl(itunesId: number): string {
   return `https://music.apple.com/us/song/${itunesId}`;
 }
 
+// Goes through our own API rather than hitting itunes.apple.com directly:
+// Apple redirects browser requests from Apple devices to the `musics://` scheme,
+// which fetch() refuses to follow, so the direct call always failed on iOS.
 export async function searchItunes(q: string): Promise<ItunesTrack[]> {
   if (!q.trim()) return [];
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(q)}&entity=song&limit=8&media=music`;
-  const res = await fetch(url);
+  const res = await fetch(`/api/itunes/search?q=${encodeURIComponent(q)}`);
   if (!res.ok) throw new Error("iTunes API error");
   const json = await res.json();
   return Array.isArray(json.results) ? json.results : [];
 }
 
 /* ─── WalkupSongInput ─────────────────────────────────────────── */
+const DROPDOWN_MAX_HEIGHT = 224; // px — matches the old max-h-56
+const DROPDOWN_MIN_HEIGHT = 96; // below this the panel is too short to be useful
+const DROPDOWN_GUTTER = 8;
+
 type WalkupSongInputProps = {
   value: string;
   itunesId: number | null;
@@ -49,14 +55,53 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
   const [results, setResults] = useState<ItunesTrack[]>([]);
   const [searching, setSearching] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [selected, setSelected] = useState(!!_itunesId);
   const [itunesEnabled, setItunesEnabled] = useState(true); // default true while loading
+  // Where the dropdown goes, and how tall it may be. On phones the field often
+  // sits near the bottom of the screen with the on-screen keyboard covering
+  // everything below it, so a fixed drop-down panel would be invisible.
+  const [placement, setPlacement] = useState<{ dropUp: boolean; maxHeight: number }>({
+    dropUp: false,
+    maxHeight: DROPDOWN_MAX_HEIGHT,
+  });
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     fetchItunesEnabled().then(setItunesEnabled);
   }, []);
+
+  // visualViewport (rather than innerHeight) is what shrinks when the on-screen
+  // keyboard opens, so it tells us the space the user can actually see.
+  const measurePlacement = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    const top = vv ? vv.offsetTop : 0;
+    const bottom = vv ? vv.offsetTop + vv.height : window.innerHeight;
+    const spaceBelow = bottom - rect.bottom - DROPDOWN_GUTTER;
+    const spaceAbove = rect.top - top - DROPDOWN_GUTTER;
+    const dropUp = spaceBelow < DROPDOWN_MIN_HEIGHT && spaceAbove > spaceBelow;
+    const available = Math.max(dropUp ? spaceAbove : spaceBelow, DROPDOWN_MIN_HEIGHT);
+    setPlacement({ dropUp, maxHeight: Math.min(DROPDOWN_MAX_HEIGHT, available) });
+  }, []);
+
+  // Keep the panel placed correctly as the keyboard opens/closes or the page scrolls.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    measurePlacement();
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", measurePlacement);
+    vv?.addEventListener("scroll", measurePlacement);
+    window.addEventListener("scroll", measurePlacement, true);
+    return () => {
+      vv?.removeEventListener("resize", measurePlacement);
+      vv?.removeEventListener("scroll", measurePlacement);
+      window.removeEventListener("scroll", measurePlacement, true);
+    };
+  }, [dropdownOpen, measurePlacement]);
 
   // sync from parent when it changes externally
   useEffect(() => {
@@ -65,25 +110,31 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
   }, [value, _itunesId]);
 
   const runSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); setDropdownOpen(false); return; }
-    if (!itunesEnabled) { setResults([]); setDropdownOpen(false); return; }
+    if (!q.trim()) { setResults([]); setNotice(null); setDropdownOpen(false); return; }
+    if (!itunesEnabled) { setResults([]); setNotice(null); setDropdownOpen(false); return; }
     setSearching(true);
     try {
       const tracks = await searchItunes(q);
       setResults(tracks);
-      setDropdownOpen(tracks.length > 0);
+      // Say something either way — a silent no-op reads as a broken field.
+      setNotice(tracks.length ? null : "No songs found. You can type it in manually.");
+      measurePlacement();
+      setDropdownOpen(true);
     } catch {
       setResults([]);
-      setDropdownOpen(false);
+      setNotice("Song search is unavailable. You can type it in manually.");
+      measurePlacement();
+      setDropdownOpen(true);
     } finally {
       setSearching(false);
     }
-  }, [itunesEnabled]);
+  }, [itunesEnabled, measurePlacement]);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const q = e.target.value;
     setQuery(q);
     setSelected(false);
+    setNotice(null);
     onChange(q, null);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runSearch(q), 400);
@@ -93,6 +144,7 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     const label = `${t.trackName} — ${t.artistName}`;
     setQuery(label);
     setSelected(true);
+    setNotice(null);
     setDropdownOpen(false);
     onChange(label, t.trackId);
     setTimeout(onBlurCommit, 0);
@@ -101,6 +153,7 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
   const clearSong = () => {
     setQuery("");
     setSelected(false);
+    setNotice(null);
     setDropdownOpen(false);
     onChange("", null);
     setTimeout(onBlurCommit, 0);
@@ -147,8 +200,22 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
         )}
       </div>
 
-      {dropdownOpen && results.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 top-full mt-0.5 bg-card border border-border shadow-lg max-h-56 overflow-y-auto">
+      {dropdownOpen && (results.length > 0 || notice) && (
+        <div
+          className={cn(
+            "absolute z-50 left-0 right-0 bg-card border border-border shadow-lg overflow-y-auto overscroll-contain",
+            placement.dropUp ? "bottom-full mb-0.5" : "top-full mt-0.5"
+          )}
+          style={{ maxHeight: placement.maxHeight }}
+        >
+          {notice && results.length === 0 && (
+            <p
+              className="px-2 py-1.5 text-[10px] text-muted-foreground"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              {notice}
+            </p>
+          )}
           {results.map((t) => (
             <button
               key={t.trackId}
