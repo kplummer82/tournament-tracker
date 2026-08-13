@@ -44,6 +44,7 @@ export default function RosterDetailPage() {
     hat_monogram: "",
     walkup_song: "",
     walkup_song_itunes_id: null as number | null,
+    walkup_song_start_seconds: null as number | null,
   });
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -99,6 +100,7 @@ export default function RosterDetailPage() {
       hat_monogram: person.hat_monogram ?? "",
       walkup_song: person.walkup_song ?? "",
       walkup_song_itunes_id: person.walkup_song_itunes_id ?? null,
+      walkup_song_start_seconds: person.walkup_song_start_seconds ?? null,
     });
     setEditError(null);
     setEditing(true);
@@ -142,6 +144,7 @@ export default function RosterDetailPage() {
           hat_monogram: draft.hat_monogram.trim() || null,
           walkup_song: draft.walkup_song.trim() || null,
           walkup_song_itunes_id: draft.walkup_song_itunes_id,
+          walkup_song_start_seconds: draft.walkup_song_start_seconds,
         }),
       });
       if (!parentRes.ok) {
@@ -348,7 +351,11 @@ export default function RosterDetailPage() {
                   <div className="sm:col-span-2">
                     <dt className={labelCls} style={{ fontFamily: "var(--font-body)" }}>Walk-up Song</dt>
                     <dd className="mt-0.5">
-                      <WalkupSongLink song={person.walkup_song} itunesId={person.walkup_song_itunes_id} />
+                      <WalkupSongLink
+                        song={person.walkup_song}
+                        itunesId={person.walkup_song_itunes_id}
+                        startSeconds={person.walkup_song_start_seconds}
+                      />
                     </dd>
                   </div>
                 )}
@@ -469,8 +476,14 @@ export default function RosterDetailPage() {
                   <WalkupSongInput
                     value={draft.walkup_song}
                     itunesId={draft.walkup_song_itunes_id}
-                    onChange={(song, itunesId) =>
-                      setDraft((d) => ({ ...d, walkup_song: song, walkup_song_itunes_id: itunesId }))
+                    startSeconds={draft.walkup_song_start_seconds}
+                    onChange={(next) =>
+                      setDraft((d) => ({
+                        ...d,
+                        walkup_song: next.song,
+                        walkup_song_itunes_id: next.itunesId,
+                        walkup_song_start_seconds: next.startSeconds,
+                      }))
                     }
                     onBlurCommit={() => {}}
                   />

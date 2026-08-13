@@ -76,7 +76,7 @@ test.describe("Mobile: team roster layout", () => {
   });
 
   test("every header control is reachable inside the viewport", async () => {
-    for (const name of [/^parent$/i, /^coach$/i, /^add$/i]) {
+    for (const name of [/^coach$/i, /^add$/i]) {
       const button = page.getByRole("button", { name });
       await expect(button).toBeVisible();
       const box = await button.boundingBox();
@@ -87,13 +87,20 @@ test.describe("Mobile: team roster layout", () => {
     }
   });
 
+  test("Team Parent View is not offered on a phone", async () => {
+    // The columns it reveals are desktop-only, so on a phone the toggle did
+    // nothing unless you turned the device sideways. Both the button and the
+    // paragraph explaining it are hidden below the sm breakpoint.
+    await expect(page.getByRole("button", { name: /team parent view/i })).toBeHidden();
+    await expect(page.getByText(/Team Parent View is on/i)).toBeHidden();
+  });
+
   test("the page does not scroll horizontally", async () => {
     await expectFitsPhone(page);
   });
 
-  test("still fits with Team Parent View and Coach View both on", async () => {
-    // Both toggles add table columns, the widest the roster ever gets.
-    await page.getByRole("button", { name: /^parent$/i }).click();
+  test("still fits with Coach View on", async () => {
+    // Coach View adds the widest columns still available at phone size.
     await page.getByRole("button", { name: /^coach$/i }).click();
     await page.waitForTimeout(500);
     await expectFitsPhone(page);

@@ -78,6 +78,7 @@ type ParentEdit = {
   hat_monogram: string;
   walkup_song: string;
   walkup_song_itunes_id: number | null;
+  walkup_song_start_seconds: number | null;
 };
 
 /* ─── Shared field styles ────────────────────────────────────── */
@@ -149,6 +150,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
               hat_monogram: r.hat_monogram ?? "",
               walkup_song: r.walkup_song ?? "",
               walkup_song_itunes_id: r.walkup_song_itunes_id ?? null,
+              walkup_song_start_seconds: r.walkup_song_start_seconds ?? null,
             };
           });
           setParentEdits(edits);
@@ -323,6 +325,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
           hat_monogram: data.hat_monogram ?? "",
           walkup_song: data.walkup_song ?? "",
           walkup_song_itunes_id: data.walkup_song_itunes_id ?? null,
+          walkup_song_start_seconds: data.walkup_song_start_seconds ?? null,
         },
       }));
       setNewDraft(BLANK_DRAFT);
@@ -549,12 +552,17 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
               </div>
             )}
 
-            {/* Team Parent View toggle */}
+            {/* Team Parent View toggle.
+                Desktop only: the columns it reveals (hat monogram, walk-up song)
+                are `hidden sm:table-cell`, so below the sm breakpoint the toggle
+                did nothing visible — the fields only appeared if you turned the
+                phone sideways. On a phone you edit these by tapping into the
+                player instead, so the control is hidden rather than made to fit. */}
             <button
               type="button"
               onClick={() => setParentView((v) => !v)}
               className={cn(
-                "flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
+                "hidden shrink-0 items-center gap-2 whitespace-nowrap px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100 sm:flex",
                 parentView
                   ? "bg-primary text-primary-foreground border-primary"
                   : "border-border text-muted-foreground hover:text-foreground"
@@ -574,8 +582,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                   )}
                 />
               </span>
-              <span className="sm:hidden">Parent</span>
-              <span className="hidden sm:inline">Team Parent View</span>
+              Team Parent View
             </button>
 
             {/* Coach View toggle */}
@@ -669,10 +676,11 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
           return null;
         })()}
 
-        {/* Parent view description */}
+        {/* Parent view description. Hidden alongside its toggle on phones —
+            explaining a control that isn't there just takes up the screen. */}
         {parentView && (
-          <p className="text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
-            Team Parent View is on. Edit hat monograms and walk-up songs inline — changes save automatically on blur.
+          <p className="hidden sm:block text-xs text-muted-foreground mb-4" style={{ fontFamily: "var(--font-body)" }}>
+            Team Parent View is on. Edit hat monograms, walk-up songs and song start times inline — changes save automatically on blur.
           </p>
         )}
 
@@ -749,7 +757,8 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                         {parentView && (
                           <>
                             <th className={cn(thCls, "w-64 hidden sm:table-cell")} style={{ fontFamily: "var(--font-body)" }}>Hat Monogram</th>
-                            <th className={cn(thCls, "min-w-[160px] hidden sm:table-cell")} style={{ fontFamily: "var(--font-body)" }}>Walk-up Song</th>
+                            {/* Wider than the song box alone needs — it also carries the start-time field. */}
+                            <th className={cn(thCls, "min-w-[240px] hidden sm:table-cell")} style={{ fontFamily: "var(--font-body)" }}>Walk-up Song</th>
                           </>
                         )}
                         {allstarEnabled && (
@@ -761,10 +770,11 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                     <tbody>
                       {players.map((r) => {
                         if (editingId === r.id) return renderEditRow(r.id, playerCols);
-                        const edit = parentEdits[r.id] ?? {
+                        const edit: ParentEdit = parentEdits[r.id] ?? {
                           hat_monogram: r.hat_monogram ?? "",
                           walkup_song: r.walkup_song ?? "",
                           walkup_song_itunes_id: r.walkup_song_itunes_id ?? null,
+                          walkup_song_start_seconds: r.walkup_song_start_seconds ?? null,
                         };
                         return (
                           <tr
@@ -806,7 +816,11 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                               </div>
                               {!parentView && r.walkup_song && (
                                 <span className="hidden sm:inline">
-                                  <WalkupSongLink song={r.walkup_song} itunesId={r.walkup_song_itunes_id} />
+                                  <WalkupSongLink
+                                    song={r.walkup_song}
+                                    itunesId={r.walkup_song_itunes_id}
+                                    startSeconds={r.walkup_song_start_seconds}
+                                  />
                                 </span>
                               )}
                             </td>
@@ -836,21 +850,29 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                                   <WalkupSongInput
                                     value={edit.walkup_song}
                                     itunesId={edit.walkup_song_itunes_id}
-                                    onChange={(song, itunesId) =>
+                                    startSeconds={edit.walkup_song_start_seconds}
+                                    onChange={(next) =>
                                       updateParentEdit(r.id, {
-                                        walkup_song: song,
-                                        walkup_song_itunes_id: itunesId,
+                                        walkup_song: next.song,
+                                        walkup_song_itunes_id: next.itunesId,
+                                        walkup_song_start_seconds: next.startSeconds,
                                       })
                                     }
                                     onBlurCommit={() => {
                                       patchRosterEntry(r.id, {
                                         walkup_song: edit.walkup_song || null,
                                         walkup_song_itunes_id: edit.walkup_song_itunes_id,
+                                        walkup_song_start_seconds: edit.walkup_song_start_seconds,
                                       });
                                       setRoster((prev) =>
                                         prev.map((row) =>
                                           row.id === r.id
-                                            ? { ...row, walkup_song: edit.walkup_song || null, walkup_song_itunes_id: edit.walkup_song_itunes_id }
+                                            ? {
+                                                ...row,
+                                                walkup_song: edit.walkup_song || null,
+                                                walkup_song_itunes_id: edit.walkup_song_itunes_id,
+                                                walkup_song_start_seconds: edit.walkup_song_start_seconds,
+                                              }
                                             : row
                                         )
                                       );
@@ -924,7 +946,11 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                               <span>{[r.first_name, r.last_name].filter(Boolean).join(" ")}</span>
                               {r.walkup_song && (
                                 <span className="hidden sm:inline">
-                                  <WalkupSongLink song={r.walkup_song} itunesId={r.walkup_song_itunes_id} />
+                                  <WalkupSongLink
+                                    song={r.walkup_song}
+                                    itunesId={r.walkup_song_itunes_id}
+                                    startSeconds={r.walkup_song_start_seconds}
+                                  />
                                 </span>
                               )}
                             </td>

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireTeamAccess } from "@/lib/auth/requireSession";
+import { parseStartSeconds } from "@/lib/roster/walkupSong";
 
 export type RosterRow = {
   id: number;
@@ -12,6 +13,7 @@ export type RosterRow = {
   hat_monogram: string | null;
   walkup_song: string | null;
   walkup_song_itunes_id: number | null;
+  walkup_song_start_seconds: number | null;
   deleted_at: string | null;
 };
 
@@ -30,7 +32,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = (await sql`
         SELECT id, teamid, first_name, last_name, role, jersey_number,
-               hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
+               hat_monogram, walkup_song, walkup_song_itunes_id,
+               walkup_song_start_seconds, deleted_at
         FROM public.team_roster
         WHERE teamid = ${teamId}
         ORDER BY role ASC, last_name ASC NULLS LAST, first_name ASC
@@ -61,13 +64,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         body.walkup_song_itunes_id != null && body.walkup_song_itunes_id !== ""
           ? parseInt(String(body.walkup_song_itunes_id), 10)
           : null;
+      const startSeconds = parseStartSeconds(body.walkup_song_start_seconds);
+      if (startSeconds.error) return res.status(400).json({ error: startSeconds.error });
 
       const inserted = (await sql`
         INSERT INTO public.team_roster
-          (teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id)
+          (teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song,
+           walkup_song_itunes_id, walkup_song_start_seconds)
         VALUES
-          (${teamId}, ${firstName}, ${lastName}, ${role}, ${jersey}, ${hatMonogram}, ${walkupSong}, ${walkupSongItunesId})
-        RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
+          (${teamId}, ${firstName}, ${lastName}, ${role}, ${jersey}, ${hatMonogram}, ${walkupSong},
+           ${walkupSongItunesId}, ${startSeconds.value})
+        RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song,
+                  walkup_song_itunes_id, walkup_song_start_seconds, deleted_at
       `) as RosterRow[];
 
       return res.status(201).json(inserted[0]);

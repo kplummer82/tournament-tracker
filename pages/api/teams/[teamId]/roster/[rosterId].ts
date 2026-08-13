@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireTeamAccess } from "@/lib/auth/requireSession";
+import { parseStartSeconds } from "@/lib/roster/walkupSong";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 
 function parseId(val: string | string[] | undefined): number | null {
@@ -21,7 +22,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const rows = await sql`
         SELECT id, teamid, first_name, last_name, role, jersey_number,
-               hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at
+               hat_monogram, walkup_song, walkup_song_itunes_id,
+               walkup_song_start_seconds, deleted_at
         FROM public.team_roster
         WHERE id = ${rosterId} AND teamid = ${teamId}
         LIMIT 1
@@ -81,88 +83,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               jersey_number = ${jersey}
           WHERE id = ${rosterId} AND teamid = ${teamId}
           RETURNING id, teamid, first_name, last_name, role, jersey_number,
-                    hat_monogram, walkup_song, walkup_song_itunes_id
+                    hat_monogram, walkup_song, walkup_song_itunes_id,
+                    walkup_song_start_seconds
         `) as RosterRow[];
 
         if (!rows?.length) return res.status(404).json({ error: "Roster entry not found." });
         return res.status(200).json(rows[0]);
       }
 
-      // Parent-view-only edit: hat_monogram / walkup_song / walkup_song_itunes_id
-      const updates: Record<string, unknown> = {};
-      if ("hat_monogram" in body) {
-        updates.hat_monogram = typeof body.hat_monogram === "string" ? body.hat_monogram.trim() || null : null;
-      }
-      if ("walkup_song" in body) {
-        updates.walkup_song = typeof body.walkup_song === "string" ? body.walkup_song.trim() || null : null;
-      }
-      if ("walkup_song_itunes_id" in body) {
-        const raw = body.walkup_song_itunes_id;
-        if (raw == null || raw === "") {
-          updates.walkup_song_itunes_id = null;
-        } else {
-          const n = parseInt(String(raw), 10);
-          updates.walkup_song_itunes_id = Number.isFinite(n) ? n : null;
-        }
-      }
+      // Parent-view-only edit: hat_monogram / walkup_song / walkup_song_itunes_id /
+      // walkup_song_start_seconds. Each field is optional and only the ones
+      // present in the body are touched.
+      //
+      // This used to branch through every combination of present fields — one
+      // hand-written UPDATE per subset, which is 2^n statements and was already
+      // at seven for three fields. The CASE form below says "write this column
+      // only if its flag is set", so a new field costs one line instead of
+      // doubling the branches. The casts are needed because a bare NULL
+      // parameter has no type Postgres can infer inside a CASE.
+      const hasHat = "hat_monogram" in body;
+      const hasSong = "walkup_song" in body;
+      const hasItunesId = "walkup_song_itunes_id" in body;
+      const hasStart = "walkup_song_start_seconds" in body;
 
-      if (Object.keys(updates).length === 0) {
+      if (!hasHat && !hasSong && !hasItunesId && !hasStart) {
         return res.status(400).json({ error: "No updatable fields provided." });
       }
 
-      const hatMonogram = "hat_monogram" in updates ? updates.hat_monogram as string | null : undefined;
-      const walkupSong = "walkup_song" in updates ? updates.walkup_song as string | null : undefined;
-      const walkupSongItunesId = "walkup_song_itunes_id" in updates ? updates.walkup_song_itunes_id as number | null : undefined;
+      const hatMonogram =
+        typeof body.hat_monogram === "string" ? body.hat_monogram.trim() || null : null;
+      const walkupSong =
+        typeof body.walkup_song === "string" ? body.walkup_song.trim() || null : null;
 
-      let updated: RosterRow[];
-
-      if (hatMonogram !== undefined && walkupSong !== undefined && walkupSongItunesId !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster
-          SET hat_monogram = ${hatMonogram}, walkup_song = ${walkupSong}, walkup_song_itunes_id = ${walkupSongItunesId}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else if (hatMonogram !== undefined && walkupSong !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster
-          SET hat_monogram = ${hatMonogram}, walkup_song = ${walkupSong}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else if (hatMonogram !== undefined && walkupSongItunesId !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster
-          SET hat_monogram = ${hatMonogram}, walkup_song_itunes_id = ${walkupSongItunesId}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else if (walkupSong !== undefined && walkupSongItunesId !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster
-          SET walkup_song = ${walkupSong}, walkup_song_itunes_id = ${walkupSongItunesId}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else if (hatMonogram !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster SET hat_monogram = ${hatMonogram}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else if (walkupSong !== undefined) {
-        updated = (await sql`
-          UPDATE public.team_roster SET walkup_song = ${walkupSong}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
-      } else {
-        updated = (await sql`
-          UPDATE public.team_roster SET walkup_song_itunes_id = ${walkupSongItunesId as number | null}
-          WHERE id = ${rosterId} AND teamid = ${teamId}
-          RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram, walkup_song, walkup_song_itunes_id
-        `) as RosterRow[];
+      let walkupSongItunesId: number | null = null;
+      if (hasItunesId && body.walkup_song_itunes_id != null && body.walkup_song_itunes_id !== "") {
+        const n = parseInt(String(body.walkup_song_itunes_id), 10);
+        walkupSongItunesId = Number.isFinite(n) ? n : null;
       }
+
+      const startSeconds = parseStartSeconds(hasStart ? body.walkup_song_start_seconds : null);
+      if (startSeconds.error) return res.status(400).json({ error: startSeconds.error });
+
+      const updated = (await sql`
+        UPDATE public.team_roster
+        SET hat_monogram = CASE WHEN ${hasHat} THEN ${hatMonogram}::text ELSE hat_monogram END,
+            walkup_song  = CASE WHEN ${hasSong} THEN ${walkupSong}::text ELSE walkup_song END,
+            walkup_song_itunes_id =
+              CASE WHEN ${hasItunesId} THEN ${walkupSongItunesId}::bigint ELSE walkup_song_itunes_id END,
+            walkup_song_start_seconds =
+              CASE WHEN ${hasStart} THEN ${startSeconds.value}::integer ELSE walkup_song_start_seconds END
+        WHERE id = ${rosterId} AND teamid = ${teamId}
+        RETURNING id, teamid, first_name, last_name, role, jersey_number, hat_monogram,
+                  walkup_song, walkup_song_itunes_id, walkup_song_start_seconds
+      `) as RosterRow[];
 
       if (!updated || updated.length === 0) {
         return res.status(404).json({ error: "Roster entry not found." });

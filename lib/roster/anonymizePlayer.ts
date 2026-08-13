@@ -25,6 +25,7 @@ export type AnonymizedRoster = {
   hat_monogram: string | null;
   walkup_song: string | null;
   walkup_song_itunes_id: number | null;
+  walkup_song_start_seconds: number | null;
   deleted_at: string | null;
 };
 
@@ -68,11 +69,13 @@ export async function anonymizePlayer(
          hat_monogram          = NULL,
          walkup_song           = NULL,
          walkup_song_itunes_id = NULL,
+         walkup_song_start_seconds = NULL,
          deleted_at            = NOW(),
          deleted_by            = $3
      WHERE id = $1 AND teamid = $2 AND deleted_at IS NULL
      RETURNING id, teamid, first_name, last_name, role, jersey_number,
-               hat_monogram, walkup_song, walkup_song_itunes_id, deleted_at`,
+               hat_monogram, walkup_song, walkup_song_itunes_id,
+               walkup_song_start_seconds, deleted_at`,
     [rosterId, teamId, deletedBy]
   );
 

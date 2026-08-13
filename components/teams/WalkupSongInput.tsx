@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Music, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { WALKUP_START_MAX_SECONDS, formatStartSeconds } from "@/lib/roster/walkupSong";
 
 // Module-level cache so multiple WalkupSongInput instances share one fetch per page load.
 let _settingsPromise: Promise<boolean> | null = null;
@@ -43,15 +44,35 @@ const DROPDOWN_MAX_HEIGHT = 224; // px — matches the old max-h-56
 const DROPDOWN_MIN_HEIGHT = 96; // below this the panel is too short to be useful
 const DROPDOWN_GUTTER = 8;
 
+/**
+ * Song, track id and start time travel together — picking a suggestion sets the
+ * first two, clearing the field wipes all three — so they're one value rather
+ * than three loosely-coupled callbacks.
+ */
+export type WalkupSongValue = {
+  song: string;
+  itunesId: number | null;
+  startSeconds: number | null;
+};
+
 type WalkupSongInputProps = {
   value: string;
   itunesId: number | null;
-  onChange: (song: string, itunesId: number | null) => void;
+  startSeconds: number | null;
+  onChange: (next: WalkupSongValue) => void;
   onBlurCommit: () => void;
 };
 
-export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCommit }: WalkupSongInputProps) {
+export function WalkupSongInput({
+  value,
+  itunesId: _itunesId,
+  startSeconds,
+  onChange,
+  onBlurCommit,
+}: WalkupSongInputProps) {
   const [query, setQuery] = useState(value);
+  // Kept as a string so the box can be emptied without snapping back to 0.
+  const [startText, setStartText] = useState(startSeconds == null ? "" : String(startSeconds));
   const [results, setResults] = useState<ItunesTrack[]>([]);
   const [searching, setSearching] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -109,6 +130,10 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     setSelected(!!_itunesId);
   }, [value, _itunesId]);
 
+  useEffect(() => {
+    setStartText(startSeconds == null ? "" : String(startSeconds));
+  }, [startSeconds]);
+
   const runSearch = useCallback(async (q: string) => {
     if (!q.trim()) { setResults([]); setNotice(null); setDropdownOpen(false); return; }
     if (!itunesEnabled) { setResults([]); setNotice(null); setDropdownOpen(false); return; }
@@ -135,7 +160,7 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     setQuery(q);
     setSelected(false);
     setNotice(null);
-    onChange(q, null);
+    onChange({ song: q, itunesId: null, startSeconds });
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => runSearch(q), 400);
   };
@@ -146,17 +171,42 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     setSelected(true);
     setNotice(null);
     setDropdownOpen(false);
-    onChange(label, t.trackId);
+    onChange({ song: label, itunesId: t.trackId, startSeconds });
     setTimeout(onBlurCommit, 0);
   };
 
+  // Clearing the song clears its start time too — a start time with no song to
+  // play is meaningless, and leaving it behind would silently apply to whatever
+  // song is typed next.
   const clearSong = () => {
     setQuery("");
+    setStartText("");
     setSelected(false);
     setNotice(null);
     setDropdownOpen(false);
-    onChange("", null);
+    onChange({ song: "", itunesId: null, startSeconds: null });
     setTimeout(onBlurCommit, 0);
+  };
+
+  const handleStartInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Strip anything that isn't a digit so a stray "-" or "e" (both legal in a
+    // number input) can't reach the API as NaN.
+    const raw = e.target.value.replace(/[^0-9]/g, "");
+    setStartText(raw);
+    if (raw === "") {
+      onChange({ song: query, itunesId: _itunesId, startSeconds: null });
+      return;
+    }
+    const n = Math.min(parseInt(raw, 10), WALKUP_START_MAX_SECONDS);
+    onChange({ song: query, itunesId: _itunesId, startSeconds: n });
+  };
+
+  const commitStart = () => {
+    // Re-render the box from the clamped value, so typing 9999 visibly settles
+    // at the ceiling instead of looking accepted and then saving something else.
+    const n = startText === "" ? null : Math.min(parseInt(startText, 10), WALKUP_START_MAX_SECONDS);
+    setStartText(n == null || Number.isNaN(n) ? "" : String(n));
+    onBlurCommit();
   };
 
   useEffect(() => {
@@ -169,8 +219,11 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
     return () => document.removeEventListener("pointerdown", handler);
   }, []);
 
+  const startHint = formatStartSeconds(startSeconds);
+
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="flex items-start gap-2">
+    <div className="relative min-w-0 flex-1" ref={containerRef}>
       <div className="relative">
         <Music className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground pointer-events-none" />
         <input
@@ -236,14 +289,63 @@ export function WalkupSongInput({ value, itunesId: _itunesId, onChange, onBlurCo
         </div>
       )}
     </div>
+
+      {/* Start time. Seconds from the top of the track — most walk-up songs are
+          cued to a chorus or a drop, not 0:00. */}
+      <div className="shrink-0">
+        <div className="relative">
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            value={startText}
+            onChange={handleStartInput}
+            onBlur={commitStart}
+            placeholder="0"
+            aria-label="Song start time in seconds"
+            title={
+              startHint
+                ? `Starts at ${startHint} (${startSeconds}s into the song)`
+                : "Start playing this many seconds into the song"
+            }
+            className={cn(
+              "w-14 pl-2 pr-5 py-1.5 text-xs tabular-nums bg-input-bg border border-border",
+              "focus:outline-none focus:border-primary transition-colors duration-100",
+              "placeholder:text-muted-foreground/50"
+            )}
+            style={{ fontFamily: "var(--font-body)" }}
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">
+            s
+          </span>
+        </div>
+        {startHint && (
+          <p
+            className="mt-0.5 text-[10px] text-muted-foreground text-center tabular-nums"
+            style={{ fontFamily: "var(--font-body)" }}
+          >
+            {startHint}
+          </p>
+        )}
+      </div>
+    </div>
   );
 }
 
 /* ─── WalkupSongLink (read-only display chip) ────────────────── */
-export function WalkupSongLink({ song, itunesId }: { song: string; itunesId: number | null }) {
+export function WalkupSongLink({
+  song,
+  itunesId,
+  startSeconds = null,
+}: {
+  song: string;
+  itunesId: number | null;
+  startSeconds?: number | null;
+}) {
   const parts = song.split(" — ");
   const trackName = parts[0] || song;
   const artistName = parts.length > 1 ? parts.slice(1).join(" — ") : null;
+  const startHint = formatStartSeconds(startSeconds);
 
   const chip = (
     <span
@@ -267,6 +369,15 @@ export function WalkupSongLink({ song, itunesId }: { song: string; itunesId: num
           <span className="text-muted-foreground"> — {artistName}</span>
         )}
       </span>
+      {startHint && (
+        <span
+          className="shrink-0 tabular-nums text-[10px] text-muted-foreground"
+          title={`Starts at ${startHint}`}
+          style={{ fontFamily: "var(--font-body)" }}
+        >
+          @{startHint}
+        </span>
+      )}
     </span>
   );
 
