@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { POSITIONS, emptyPositionMap, type Position, type Priority, type PositionMap } from "@/lib/positions";
@@ -39,15 +39,16 @@ function toEntries(map: PositionMap): { position: Position; priority: Priority }
     .map(([position, priority]) => ({ position, priority: priority as Priority }));
 }
 
+/** How long to wait after the last click before persisting. */
+const SAVE_DEBOUNCE_MS = 600;
+
 function PositionTile({
   pos,
   priority,
-  saving,
   onClick,
 }: {
   pos: Position;
   priority: Priority | null;
-  saving: boolean;
   onClick: () => void;
 }) {
   const isPrimary = priority === "primary";
@@ -60,13 +61,11 @@ function PositionTile({
       title={POS_LABELS[pos]}
       aria-label={`${POS_LABELS[pos]}: ${priority ?? "unassigned"}`}
       onClick={onClick}
-      disabled={saving}
       className={cn(
         "relative flex flex-col items-center justify-center w-12 h-12 border transition-all duration-100 select-none cursor-pointer",
         isPrimary && "bg-primary/15 border-primary text-primary",
         isSecondary && "bg-primary/5 border-primary/40 text-primary/70",
-        !isAssigned && "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground",
-        saving && "opacity-60"
+        !isAssigned && "border-border text-muted-foreground hover:border-foreground/30 hover:text-foreground"
       )}
     >
       <span
@@ -107,14 +106,12 @@ function ComparisonRow({
   entries,
   tallies,
   onCopy,
-  copying,
 }: {
   label: string;
   sublabel?: string;
   entries: ChipEntry[];
   tallies?: Partial<Record<string, PositionTally>>;
   onCopy?: () => void;
-  copying: boolean;
 }) {
   return (
     <div className="flex items-center gap-3 py-2 border-t border-border/60 flex-wrap">
@@ -133,8 +130,7 @@ function ComparisonRow({
         <button
           type="button"
           onClick={onCopy}
-          disabled={copying}
-          className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors duration-100 disabled:opacity-50"
+          className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors duration-100"
           style={{ fontFamily: "var(--font-body)" }}
         >
           Copy to mine
@@ -167,85 +163,140 @@ export default function PlayerPositionsCard({
   // coach/manager of this team may author. The API is the source of truth.
   const [canAuthor, setCanAuthor] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [error, setError] = useState<string | null>(null);
 
-  const applyAll = useCallback((data: PlayerPositionsAllResponse) => {
-    const me = data.authors.find((a) => a.is_me) ?? null;
-    setMeId(me?.user_id ?? null);
-    setCanAuthor(!!data.canAuthor);
-    setAuthors(data.authors);
-    setByAuthor(data.byAuthor);
-    setConsensus(data.consensus);
-    if (me) setPosMap(toMap(data.byAuthor[me.user_id] ?? []));
+  const url = `/api/teams/${teamId}/roster/${rosterId}/positions`;
+
+  // Clicking must never wait on the network, so the grid is driven entirely by
+  // local state and the write is debounced in the background. The ref mirrors
+  // posMap so rapid clicks compose off the latest value, not a stale closure.
+  const posMapRef = useRef<PositionMap>(emptyPositionMap());
+  // Last state the server confirmed — where we roll back to if a save fails.
+  const savedMapRef = useRef<PositionMap>(emptyPositionMap());
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped per flush so a slow response can't clobber newer clicks.
+  const saveSeqRef = useRef(0);
+
+  const setMap = useCallback((next: PositionMap) => {
+    posMapRef.current = next;
+    setPosMap(next);
   }, []);
+
+  /** Refresh the comparison strip only — never the grid, which the user owns. */
+  const refreshComparison = useCallback(async () => {
+    try {
+      const res = await fetch(`${url}?view=all`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as PlayerPositionsAllResponse;
+      setAuthors(data.authors);
+      setByAuthor(data.byAuthor);
+      setConsensus(data.consensus);
+    } catch {
+      /* the grid is still correct; a stale consensus row is not worth an error */
+    }
+  }, [url]);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/teams/${teamId}/roster/${rosterId}/positions?view=all`, {
-        cache: "no-store",
-      });
+      const res = await fetch(`${url}?view=all`, { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      applyAll((await res.json()) as PlayerPositionsAllResponse);
+      const data = (await res.json()) as PlayerPositionsAllResponse;
+      const me = data.authors.find((a) => a.is_me) ?? null;
+      setMeId(me?.user_id ?? null);
+      setCanAuthor(!!data.canAuthor);
+      setAuthors(data.authors);
+      setByAuthor(data.byAuthor);
+      setConsensus(data.consensus);
+      const mine = toMap(me ? data.byAuthor[me.user_id] ?? [] : []);
+      savedMapRef.current = mine;
+      setMap(mine);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load positions");
     } finally {
       setLoading(false);
     }
-  }, [teamId, rosterId, applyAll]);
+  }, [url, setMap]);
 
   useEffect(() => { load(); }, [load]);
 
-  /** Persist my set. Optimistic — `nextMap` is already on screen. */
-  const save = useCallback(
-    async (nextMap: PositionMap, prevMap: PositionMap) => {
-      setSaving(true);
-      setError(null);
-      try {
-        const res = await fetch(`/api/teams/${teamId}/roster/${rosterId}/positions`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ positions: toEntries(nextMap) }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `HTTP ${res.status}`);
-        }
-        // Re-read everything so the consensus row reflects the new vote.
-        await load();
-      } catch (e) {
-        setPosMap(prevMap);
-        setError(e instanceof Error ? e.message : "Failed to save");
-      } finally {
-        setSaving(false);
+  /** Persist whatever is on screen right now. */
+  const flush = useCallback(async () => {
+    timerRef.current = null;
+    const snapshot = posMapRef.current;
+    const seq = ++saveSeqRef.current;
+    setSaveState("saving");
+    setError(null);
+    try {
+      const res = await fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ positions: toEntries(snapshot) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `HTTP ${res.status}`);
       }
-    },
-    [teamId, rosterId, load]
-  );
+      // A newer flush is already in flight — let it have the last word.
+      if (seq !== saveSeqRef.current) return;
+      savedMapRef.current = snapshot;
+      setSaveState("saved");
+      void refreshComparison();
+    } catch (e) {
+      if (seq !== saveSeqRef.current) return;
+      // Roll back to the last confirmed state rather than the pre-click one:
+      // the user may have clicked several more times since this save started.
+      setMap(savedMapRef.current);
+      setSaveState("idle");
+      setError(e instanceof Error ? e.message : "Failed to save");
+    }
+  }, [url, refreshComparison, setMap]);
+
+  const scheduleSave = useCallback(() => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => void flush(), SAVE_DEBOUNCE_MS);
+  }, [flush]);
+
+  // Let "Saved" fade out rather than sit there indefinitely.
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const t = setTimeout(() => setSaveState("idle"), 1500);
+    return () => clearTimeout(t);
+  }, [saveState]);
+
+  // A pending edit must survive navigating away mid-debounce. `keepalive` lets
+  // the request outlive the unmount; there's no response to handle by then.
+  useEffect(() => {
+    return () => {
+      if (!timerRef.current) return;
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+      void fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ positions: toEntries(posMapRef.current) }),
+        keepalive: true,
+      }).catch(() => {});
+    };
+  }, [url]);
 
   const handleToggle = useCallback(
     (pos: Position) => {
-      if (saving) return;
-      const prevMap = { ...posMap };
-      const nextMap = { ...posMap, [pos]: cycleNext(posMap[pos]) };
-      setPosMap(nextMap);
-      void save(nextMap, prevMap);
+      setMap({ ...posMapRef.current, [pos]: cycleNext(posMapRef.current[pos]) });
+      scheduleSave();
     },
-    [saving, posMap, save]
+    [setMap, scheduleSave]
   );
 
   const handleCopy = useCallback(
     (entries: PositionEntry[], sourceLabel: string) => {
-      if (saving) return;
-      const hasOwn = POSITIONS.some((p) => posMap[p] !== null);
+      const hasOwn = POSITIONS.some((p) => posMapRef.current[p] !== null);
       if (hasOwn && !window.confirm(`Replace your position assignments with ${sourceLabel}?`)) return;
-      const prevMap = { ...posMap };
-      const nextMap = toMap(entries);
-      setPosMap(nextMap);
-      void save(nextMap, prevMap);
+      setMap(toMap(entries));
+      scheduleSave();
     },
-    [saving, posMap, save]
+    [setMap, scheduleSave]
   );
 
   const primaryCount = POSITIONS.filter((p) => posMap[p] === "primary").length;
@@ -283,6 +334,19 @@ export default function PlayerPositionsCard({
             </p>
           </div>
           <div className="flex items-center gap-3 text-[10px] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
+            {/* Saving happens in the background — this reports it without ever
+                blocking a click. Fixed width so the row doesn't jump. */}
+            {canAuthor && (
+              <span
+                aria-live="polite"
+                className={cn(
+                  "w-12 text-right transition-opacity duration-200",
+                  saveState === "idle" && "opacity-0"
+                )}
+              >
+                {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : ""}
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <span className="inline-block w-2.5 h-2.5 rounded-full bg-primary" />
               Primary
@@ -306,7 +370,6 @@ export default function PlayerPositionsCard({
                       key={pos}
                       pos={pos}
                       priority={posMap[pos]}
-                      saving={saving}
                       onClick={() => handleToggle(pos)}
                     />
                   ))}
@@ -337,7 +400,6 @@ export default function PlayerPositionsCard({
                     sublabel={`${consensus.raters} ${consensus.raters === 1 ? "coach" : "coaches"} · dashed = no agreement`}
                     entries={consensus.positions}
                     tallies={consensus.tallies}
-                    copying={saving}
                     onCopy={
                       canAuthor
                         ? () =>
@@ -356,7 +418,6 @@ export default function PlayerPositionsCard({
                     key={a.user_id}
                     label={a.is_me ? `${authorLabel(a)} (you)` : authorLabel(a)}
                     entries={byAuthor[a.user_id] ?? []}
-                    copying={saving}
                     onCopy={
                       canAuthor
                         ? () => handleCopy(byAuthor[a.user_id] ?? [], `${authorLabel(a)}'s`)
