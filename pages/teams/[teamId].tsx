@@ -514,23 +514,26 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
 
   return (
     <Card>
-      <CardContent className="p-6">
-        {/* Header row */}
-        <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+      {/* Tighter gutters on phones — p-6 costs 48px of a 390px viewport. */}
+      <CardContent className="p-4 sm:p-6">
+        {/* Header row. Stacks on mobile: title, then the source picker on its
+            own line, then the toggles — four controls never fit side by side
+            at phone widths and used to run off the right edge. */}
+        <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
           <h2
             className="uppercase"
             style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "18px", letterSpacing: "-0.01em" }}
           >
             Roster
           </h2>
-          <div className="flex items-center gap-3 ml-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 sm:ml-auto">
             {/* Whose position ratings to show. Hidden when the team has no
                 coaches/managers — there'd be nothing to pick between. */}
             {canEdit && positionAuthors.length > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <label
                   htmlFor="position-source"
-                  className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium"
+                  className="shrink-0 text-[10px] uppercase tracking-[0.08em] text-muted-foreground font-medium"
                   style={{ fontFamily: "var(--font-body)" }}
                 >
                   Positions
@@ -541,6 +544,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                   value={positionSource}
                   onChange={setPositionSource}
                   canAuthor={canAuthorPositions !== false}
+                  className="min-w-0 flex-1 sm:flex-none"
                 />
               </div>
             )}
@@ -550,7 +554,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
               type="button"
               onClick={() => setParentView((v) => !v)}
               className={cn(
-                "flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
+                "flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
                 parentView
                   ? "bg-primary text-primary-foreground border-primary"
                   : "border-border text-muted-foreground hover:text-foreground"
@@ -570,7 +574,8 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                   )}
                 />
               </span>
-              Team Parent View
+              <span className="sm:hidden">Parent</span>
+              <span className="hidden sm:inline">Team Parent View</span>
             </button>
 
             {/* Coach View toggle */}
@@ -579,7 +584,7 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                 type="button"
                 onClick={() => setCoachView((v) => !v)}
                 className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
+                  "flex shrink-0 items-center gap-2 whitespace-nowrap px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border transition-colors duration-100",
                   coachView
                     ? "bg-primary text-primary-foreground border-primary"
                     : "border-border text-muted-foreground hover:text-foreground"
@@ -599,7 +604,8 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
                     )}
                   />
                 </span>
-                Coach View
+                <span className="sm:hidden">Coach</span>
+                <span className="hidden sm:inline">Coach View</span>
               </button>
             )}
 
@@ -608,11 +614,12 @@ function RosterTab({ teamId, canEdit }: { teamId: string; canEdit: boolean }) {
               <button
                 type="button"
                 onClick={openAdd}
-                className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
+                className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap bg-primary text-primary-foreground px-3 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase hover:opacity-90 transition-opacity duration-100"
                 style={{ fontFamily: "var(--font-body)" }}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add person
+                <span className="sm:hidden">Add</span>
+                <span className="hidden sm:inline">Add person</span>
               </button>
             )}
           </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import type { PositionAuthor } from "@/lib/rosterPositions";
 import type { PositionSource } from "@/lib/hooks/usePositionSource";
 
@@ -58,10 +59,10 @@ export default function PositionSourcePicker({
       aria-label="Position assignments to show"
       value={toValue(value)}
       onChange={(e) => onChange(fromValue(e.target.value))}
-      className={
-        className ??
-        "px-2 py-1 text-[11px] bg-input-bg border border-border focus:outline-none focus:border-primary transition-colors duration-100"
-      }
+      className={cn(
+        "px-2 py-1 text-[11px] bg-input-bg border border-border focus:outline-none focus:border-primary transition-colors duration-100",
+        className
+      )}
     >
       {canAuthor && <option value={MINE}>My assignments</option>}
       <option value={CONSENSUS}>
