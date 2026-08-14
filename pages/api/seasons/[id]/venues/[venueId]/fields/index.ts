@@ -27,14 +27,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     if (own.length === 0) return res.status(404).json({ error: "Venue not found" });
 
-    // Case-insensitive duplicate check
+    // Case-insensitive duplicate check. A name that collides with a field the
+    // organizer switched off is a request to bring that one back, not an error.
     const { rows: dup } = await client.query(
-      `SELECT id FROM season_venue_fields
+      `SELECT id, is_active FROM season_venue_fields
         WHERE season_venue_id = $1 AND LOWER(name) = LOWER($2) LIMIT 1`,
       [venueId, name],
     );
     if (dup.length > 0) {
-      return res.status(409).json({ error: "Field already exists on this venue" });
+      if (dup[0].is_active !== false) {
+        return res.status(409).json({ error: "Field already exists on this venue" });
+      }
+      const { rows: reactivated } = await client.query(
+        `UPDATE season_venue_fields SET is_active = true
+          WHERE id = $1
+          RETURNING id, name, sort_order`,
+        [Number(dup[0].id)],
+      );
+      return res.status(200).json({
+        field: {
+          id: Number(reactivated[0].id),
+          name: reactivated[0].name,
+          sortOrder: Number(reactivated[0].sort_order),
+          isActive: true,
+        },
+      });
     }
 
     try {
@@ -47,7 +64,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         [venueId, name],
       );
       return res.status(201).json({
-        field: { id: Number(ins[0].id), name: ins[0].name, sortOrder: Number(ins[0].sort_order) },
+        field: {
+          id: Number(ins[0].id),
+          name: ins[0].name,
+          sortOrder: Number(ins[0].sort_order),
+          isActive: true,
+        },
       });
     } catch (e: any) {
       if (String(e.code) === "23505") {

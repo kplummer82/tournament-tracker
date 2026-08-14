@@ -24,7 +24,14 @@ export type VenueDTO = {
   longitude: number | null;
   sortOrder: number;
   gameCount: number;
+  /** Fields in play for this season — the only ones schedulers may use. */
   fields: VenueFieldDTO[];
+  /**
+   * Fields that exist on the venue but are switched off for this season.
+   * Only the venues tab surfaces these; every picker reads `fields`, so a
+   * deactivated field is excluded from scheduling by construction.
+   */
+  inactiveFields: VenueFieldDTO[];
 };
 
 /**
@@ -66,7 +73,7 @@ export async function loadVenues(
   const venueIds = venueRows.map((r) => Number(r.id));
   const { rows: fieldRows } = await client.query(
     `
-    SELECT id, season_venue_id, name, sort_order
+    SELECT id, season_venue_id, name, sort_order, is_active
     FROM season_venue_fields
     WHERE season_venue_id = ANY($1::int[])
     ORDER BY sort_order ASC, id ASC
@@ -75,11 +82,13 @@ export async function loadVenues(
   );
 
   const fieldsByVenue = new Map<number, VenueFieldDTO[]>();
+  const inactiveByVenue = new Map<number, VenueFieldDTO[]>();
   for (const f of fieldRows) {
     const vid = Number(f.season_venue_id);
-    const list = fieldsByVenue.get(vid) ?? [];
+    const bucket = f.is_active === false ? inactiveByVenue : fieldsByVenue;
+    const list = bucket.get(vid) ?? [];
     list.push({ id: Number(f.id), name: f.name, sortOrder: Number(f.sort_order) });
-    fieldsByVenue.set(vid, list);
+    bucket.set(vid, list);
   }
 
   return venueRows.map((r): VenueDTO => {
@@ -97,8 +106,51 @@ export async function loadVenues(
       sortOrder: Number(r.sort_order),
       gameCount: Number(r.game_count ?? 0),
       fields: fieldsByVenue.get(Number(r.id)) ?? [],
+      inactiveFields: inactiveByVenue.get(Number(r.id)) ?? [],
     };
   });
+}
+
+/**
+ * Fields added to a location *after* it was pulled into this season don't exist
+ * on the venue yet. Copy any missing ones in as inactive, so the venues tab can
+ * offer them without silently widening what's schedulable.
+ *
+ * Matching is by case-insensitive name — the same key the venue's unique index
+ * uses — so a field the organizer switched off already has a row here and is
+ * never resurrected. Custom venues have no location and are left alone.
+ *
+ * Idempotent; safe to call on every read by a caller allowed to write.
+ */
+export async function syncLocationFields(
+  client: PoolClient,
+  seasonId: number,
+): Promise<void> {
+  await client.query(
+    `
+    WITH missing AS (
+      SELECT
+        sv.id AS venue_id,
+        TRIM(lf.name) AS name,
+        COALESCE((SELECT MAX(f.sort_order) FROM season_venue_fields f
+                   WHERE f.season_venue_id = sv.id), -1) AS base,
+        ROW_NUMBER() OVER (PARTITION BY sv.id ORDER BY lf.id) AS rn
+      FROM season_venues sv
+      JOIN location_fields lf ON lf.location_id = sv.location_id
+      WHERE sv.season_id = $1
+        AND TRIM(lf.name) <> ''
+        AND NOT EXISTS (
+          SELECT 1 FROM season_venue_fields f
+           WHERE f.season_venue_id = sv.id
+             AND LOWER(f.name) = LOWER(TRIM(lf.name))
+        )
+    )
+    INSERT INTO season_venue_fields (season_venue_id, name, sort_order, is_active)
+    SELECT venue_id, name, base + rn, false FROM missing
+    ON CONFLICT DO NOTHING
+    `,
+    [seasonId],
+  );
 }
 
 /**

@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
 import { requireSession, requireTournamentAccess } from "@/lib/auth/requireSession";
 import { getUserRoles, hasTournamentAccess } from "@/lib/auth/permissions";
-import { loadVenues, runAutoPromotionIfNeeded } from "@/lib/tournaments/venues";
+import { loadVenues, runAutoPromotionIfNeeded, syncLocationFields } from "@/lib/tournaments/venues";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const tournamentId = Number(req.query.tournamentid);
@@ -20,8 +20,9 @@ async function getVenues(req: NextApiRequest, res: NextApiResponse, tournamentId
   const session = await requireSession(req, res);
   if (!session) return;
 
-  // Auto-promotion writes data; only run it for callers with tournament_admin
-  // access. Non-admin readers just see whatever venues already exist.
+  // Auto-promotion and the location-field sync both write; only run them for
+  // callers with tournament_admin access. Non-admin readers just see whatever
+  // venues already exist.
   const canAdmin =
     session.user.role === "admin" ||
     hasTournamentAccess(await getUserRoles(session.user.id), tournamentId);
@@ -31,6 +32,7 @@ async function getVenues(req: NextApiRequest, res: NextApiResponse, tournamentId
     await client.query("BEGIN");
     if (canAdmin) {
       await runAutoPromotionIfNeeded(client, tournamentId);
+      await syncLocationFields(client, tournamentId);
     }
     const venues = await loadVenues(client, tournamentId);
     await client.query("COMMIT");

@@ -23,5 +23,11 @@ export type VenueDTO = {
   longitude: number | null;
   sortOrder: number;
   gameCount: number;
+  /**
+   * Fields in play for this tournament/season. Pickers read only this, so a
+   * field switched off in the venues tab drops out of scheduling automatically.
+   */
   fields: VenueFieldDTO[];
+  /** Switched-off fields — shown greyed in the venues tab, nowhere else. */
+  inactiveFields: VenueFieldDTO[];
 };

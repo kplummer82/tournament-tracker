@@ -16,6 +16,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                  pv.tournamentid,
                  pv.hometeam,
                  pv.awayteam,
+                 -- Team ids, not just names: setup progress counts pool games per
+                 -- team and names aren't a reliable key.
+                 pv.home,
+                 pv.away,
                  pv.gamedate,
                  pv.gametime,
                  pv.homescore,

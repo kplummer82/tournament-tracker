@@ -46,6 +46,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sets.push(`sort_order = $${i++}`);
         params.push(Number(body.sortOrder));
       }
+      // Switching a field off keeps the row but hides it from every scheduling
+      // picker; games already booked on it keep their free-text field label.
+      if (typeof body.isActive === "boolean") {
+        sets.push(`is_active = $${i++}`);
+        params.push(body.isActive);
+      }
       if (sets.length === 0) return res.status(200).json({ ok: true });
 
       params.push(fieldId);
@@ -53,11 +59,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const { rows: upd } = await client.query(
           `UPDATE season_venue_fields SET ${sets.join(", ")}
             WHERE id = $${i}
-            RETURNING id, name, sort_order`,
+            RETURNING id, name, sort_order, is_active`,
           params,
         );
         return res.status(200).json({
-          field: { id: Number(upd[0].id), name: upd[0].name, sortOrder: Number(upd[0].sort_order) },
+          field: {
+            id: Number(upd[0].id),
+            name: upd[0].name,
+            sortOrder: Number(upd[0].sort_order),
+            isActive: upd[0].is_active !== false,
+          },
         });
       } catch (e: any) {
         if (String(e.code) === "23505") {

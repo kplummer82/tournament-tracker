@@ -149,7 +149,14 @@ export default function VenuesPanel({ basePath, canEdit, scopeNoun = "tournament
       ) : (
         <div className="flex flex-col gap-3">
           {venues.map((v) => (
-            <VenueCard key={v.id} basePath={basePath} venue={v} canEdit={canEdit} onChanged={refresh} />
+            <VenueCard
+              key={v.id}
+              basePath={basePath}
+              venue={v}
+              canEdit={canEdit}
+              scopeNoun={scopeNoun}
+              onChanged={refresh}
+            />
           ))}
         </div>
       )}

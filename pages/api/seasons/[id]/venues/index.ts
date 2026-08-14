@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { pool } from "@/lib/db";
 import { requireSession, requireSeasonAccess } from "@/lib/auth/requireSession";
 import { getUserRoles, hasSeasonAccess, getSeasonAncestry } from "@/lib/auth/permissions";
-import { loadVenues, runAutoPromotionIfNeeded } from "@/lib/seasons/venues";
+import { loadVenues, runAutoPromotionIfNeeded, syncLocationFields } from "@/lib/seasons/venues";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const seasonId = Number(req.query.id);
@@ -20,8 +20,9 @@ async function getVenues(req: NextApiRequest, res: NextApiResponse, seasonId: nu
   const session = await requireSession(req, res);
   if (!session) return;
 
-  // Auto-promotion writes data; only run it for callers with season/division
-  // access. Non-admin readers just see whatever venues already exist.
+  // Auto-promotion and the location-field sync both write; only run them for
+  // callers with season/division access. Non-admin readers just see whatever
+  // venues already exist.
   let canAdmin = session.user.role === "admin";
   if (!canAdmin) {
     const ancestry = await getSeasonAncestry(seasonId);
@@ -35,6 +36,7 @@ async function getVenues(req: NextApiRequest, res: NextApiResponse, seasonId: nu
     await client.query("BEGIN");
     if (canAdmin) {
       await runAutoPromotionIfNeeded(client, seasonId);
+      await syncLocationFields(client, seasonId);
     }
     const venues = await loadVenues(client, seasonId);
     await client.query("COMMIT");

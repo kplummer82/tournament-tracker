@@ -67,6 +67,14 @@ export default function VenuePicker({ basePath, setupHref, value, onChange, requ
   }
 
   const selected = venues.find((v) => v.id === value.venueId) ?? null;
+  // A game booked before its field was switched off still names that field.
+  // Keep it in the list (flagged) so re-saving the game can't silently drop it.
+  const retiredField =
+    value.field &&
+    value.field !== TBD_FIELD &&
+    !selected?.fields.some((f) => f.name === value.field)
+      ? value.field
+      : null;
 
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -107,6 +115,7 @@ export default function VenuePicker({ basePath, setupHref, value, onChange, requ
         <option value="">— Select field —</option>
         {/* Always available so a game can be set before the field is known. */}
         <option value={TBD_FIELD}>TBD</option>
+        {retiredField && <option value={retiredField}>{retiredField} (not in use)</option>}
         {selected?.fields
           .filter((f) => f.name !== TBD_FIELD)
           .map((f) => (
