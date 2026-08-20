@@ -79,8 +79,7 @@ test.describe("RBAC Regression: Season pages load", () => {
     await loginAs(page, "admin");
   });
 
-  // "Results" is the schedule tab's label (route: /seasons/:id/schedule).
-  for (const tab of ["Results", "Standings", "Teams", "Playoffs"]) {
+  for (const tab of ["Schedule", "Standings", "Teams", "Playoffs"]) {
     test(`season ${tab.toLowerCase()} page loads`, async ({ page }) => {
       await gotoSeasonTab(page, tab);
       await expect(page).not.toHaveTitle(/500|Error/i);

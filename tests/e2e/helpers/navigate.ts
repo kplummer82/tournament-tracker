@@ -35,9 +35,9 @@ export async function gotoMustangSeason(page: Page): Promise<void> {
 
 /**
  * Click a tab link and wait for its own href to become the URL. Waiting on the
- * href rather than on the tab name keeps this correct where the two differ —
- * the "Results" tab routes to /seasons/:id/schedule — and stops tests asserting
- * against the previous tab's DOM when the dev server is slow under parallel load.
+ * href rather than on the tab name keeps this correct if the two ever differ,
+ * and stops tests asserting against the previous tab's DOM when the dev server
+ * is slow under parallel load.
  */
 async function clickTabAndSettle(page: Page, link: ReturnType<Page["getByRole"]>): Promise<void> {
   await expect(link).toBeVisible({ timeout: 15000 });

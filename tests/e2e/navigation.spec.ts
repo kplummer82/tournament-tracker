@@ -34,10 +34,10 @@ test.describe('League → Season navigation', () => {
     await page.getByRole('link', { name: /Mustang/ }).click();
 
     // Verify each season tab loads without error. Use the sidebar: several tab
-    // names also appear in the header nav. ("Results" is the schedule tab.)
+    // names also appear in the header nav.
     const sidebar = page.getByRole('complementary').first();
     await expect(sidebar).toBeVisible({ timeout: 15000 });
-    const tabs = ['Results', 'Standings', 'Playoffs', 'Tiebreakers'];
+    const tabs = ['Schedule', 'Standings', 'Playoffs', 'Tiebreakers'];
     for (const tab of tabs) {
       await sidebar.getByRole('link', { name: tab, exact: true }).click();
       await expect(page).not.toHaveTitle(/500|Error/i);

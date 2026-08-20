@@ -3,8 +3,7 @@ import { gotoSeasonTab } from './helpers/navigate';
 
 test.describe('Desktop: Season Schedule', () => {
   test.beforeEach(async ({ page }) => {
-    // The tab is labelled "Results" (the route is still /seasons/:id/schedule).
-    await gotoSeasonTab(page, 'Results');
+    await gotoSeasonTab(page, 'Schedule');
   });
 
   test('schedule heading and add game button are visible', async ({ page }) => {

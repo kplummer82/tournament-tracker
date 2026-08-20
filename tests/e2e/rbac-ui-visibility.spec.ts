@@ -42,7 +42,7 @@ test.describe('RBAC: Admin user sees edit controls', () => {
   });
 
   test('season schedule page shows "Add Game" button', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Results');
+    await navigateToSeasonTab(page, 'Schedule');
     await expect(page.getByRole('button', { name: /Add Game/i })).toBeVisible({ timeout: 10000 });
   });
 
@@ -84,7 +84,7 @@ test.describe('RBAC: Regular user cannot see edit controls', () => {
   });
 
   test('season schedule page hides "Add Game" button', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Results');
+    await navigateToSeasonTab(page, 'Schedule');
     // Wait for schedule content to load first
     await expect(page.getByRole('heading', { name: /Results|Schedule/i }).first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('button', { name: /Add Game/i })).toHaveCount(0);
@@ -138,7 +138,7 @@ test.describe('RBAC: Regular user sees all read-only content', () => {
   });
 
   test('season schedule shows game table', async ({ page }) => {
-    await navigateToSeasonTab(page, 'Results');
+    await navigateToSeasonTab(page, 'Schedule');
     await expect(page.getByRole('heading', { name: /Results|Schedule/i }).first()).toBeVisible({ timeout: 10000 });
     const table = page.locator('table').first();
     await expect(table).toBeVisible();
