@@ -11,6 +11,7 @@ import interactionPlugin from "@fullcalendar/interaction";
 import { Plus, X, Pencil, Ban, Trash2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import LocationPicker, { LocationDisplay } from "@/components/LocationPicker";
 import type { CalendarGameRow, TeamRecord } from "@/pages/api/teams/[teamId]/games";
 
 /* ── Constants ────────────────────────────────────────────────── */
@@ -27,14 +28,23 @@ const SOURCE_LABELS = {
 } as const;
 
 /* ── Types ────────────────────────────────────────────────────── */
-type TeamSearchRow = { id: number; name: string; division?: string; season?: string };
+type TeamSearchRow = {
+  id: number;
+  name: string;
+  division?: string;
+  season?: string;
+  year?: number;
+  league_name?: string;
+};
 
 type ScrimmageFormState = {
   gamedate: string;
   gametime: string;
   opponent_team_id: number | null;
   opponent_name: string;
+  location_id: number | null;
   location: string;
+  field: string;
   notes: string;
   gamestatusid: number | null;
 };
@@ -44,7 +54,9 @@ const EMPTY_FORM: ScrimmageFormState = {
   gametime: "",
   opponent_team_id: null,
   opponent_name: "",
+  location_id: null,
   location: "",
+  field: "",
   notes: "",
   gamestatusid: null,
 };
@@ -162,9 +174,11 @@ function OpponentInput({ teamId, selectedId, selectedName, onChange }: OpponentI
               className="w-full text-left px-3 py-2 hover:bg-elevated transition-colors duration-75"
             >
               <p className="text-sm font-medium" style={{ fontFamily: "var(--font-body)" }}>{r.name}</p>
-              {(r.division || r.season) && (
+              {(r.division || r.league_name || r.season || r.year) && (
                 <p className="text-[10px] text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                  {[r.division, r.season].filter(Boolean).join(" · ")}
+                  {[r.division, r.league_name, [r.season, r.year].filter(Boolean).join(" ")]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               )}
             </button>
@@ -200,7 +214,9 @@ function AddScrimmageDialog({
         gametime: editingRow.gametime ?? "",
         opponent_team_id: editingRow.opponent_team_id ?? null,
         opponent_name: editingRow.opponent_name_raw ?? editingRow.away_team ?? "",
+        location_id: editingRow.location_id ?? null,
         location: editingRow.location ?? "",
+        field: editingRow.field ?? "",
         notes: editingRow.notes ?? "",
         gamestatusid: editingRow.gamestatusid ?? null,
       };
@@ -238,7 +254,9 @@ function AddScrimmageDialog({
         gametime: form.gametime || null,
         opponent_team_id: form.opponent_team_id,
         opponent_name: form.opponent_team_id ? null : form.opponent_name.trim() || null,
+        location_id: form.location_id,
         location: form.location.trim() || null,
+        field: form.field.trim() || null,
         notes: form.notes.trim() || null,
         gamestatusid: form.gamestatusid,
       };
@@ -331,12 +349,13 @@ function AddScrimmageDialog({
           {/* Location */}
           <div>
             <label className={LABEL}>Location</label>
-            <input
-              type="text"
-              value={form.location}
-              onChange={(e) => set({ location: e.target.value })}
-              placeholder="Field, park, gym…"
-              className={INPUT}
+            <LocationPicker
+              locationId={form.location_id}
+              location={form.location}
+              field={form.field}
+              onChange={(v) =>
+                set({ location_id: v.locationId, location: v.location, field: v.field })
+              }
             />
           </div>
 
@@ -645,10 +664,14 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
             </div>
           )}
 
-          {isScrimmage && row.location && (
+          {isScrimmage && (row.location || row.field) && (
             <div className="flex gap-2">
               <span className="text-muted-foreground w-20 shrink-0">Location</span>
-              <span>{row.location}</span>
+              <LocationDisplay
+                locationId={row.location_id}
+                location={row.location}
+                field={row.field}
+              />
             </div>
           )}
 

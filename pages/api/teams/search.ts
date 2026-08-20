@@ -33,6 +33,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ? Number(exclRaw)
     : undefined;
 
+  const exclTeamRaw =
+    (qp.excludeteamid as string | undefined) ??
+    (qp.excludeTeamId as string | undefined) ??
+    (qp.exclude_team_id as string | undefined);
+  const excludeTeamId = exclTeamRaw && !Number.isNaN(Number(exclTeamRaw))
+    ? Number(exclTeamRaw)
+    : undefined;
+
   const pageNum  = Math.max(1, parseInt(String(qp.page ?? "1"), 10) || 1);
   const sizeNum  = Math.min(50, Math.max(1, parseInt(String(qp.pageSize ?? "12"), 10) || 12));
   const offset   = (pageNum - 1) * sizeNum;
@@ -41,10 +49,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const where: string[] = [];
   const params: any[] = [];
 
-  // Text search
+  // Text search: each whitespace-separated word must match the team name,
+  // age-division label ("11u"), league name, season, or year — so queries
+  // like "sox 11u escondido" narrow instead of failing.
   if (q) {
-    params.push(`%${q}%`);
-    where.push(`t.name ILIKE $${params.length}`);
+    for (const token of q.trim().split(/\s+/).filter(Boolean)) {
+      params.push(`%${token}%`);
+      const n = params.length;
+      where.push(
+        `(t.name ILIKE $${n} OR d.division ILIKE $${n} OR l.name ILIKE $${n} OR t.season ILIKE $${n} OR t.year::text ILIKE $${n})`
+      );
+    }
   }
 
   // Division filter:
@@ -90,6 +105,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
   }
 
+  // Exclude a specific team (e.g. the team picking its own scrimmage opponent)
+  if (excludeTeamId !== undefined) {
+    params.push(excludeTeamId);
+    where.push(`t.teamid <> $${params.length}`);
+  }
+
   const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
   // Base FROM / JOINs
@@ -97,6 +118,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     FROM teams t
     LEFT JOIN sport s     ON s.id = t.sportid
     LEFT JOIN divisions d ON d.id = t.division
+    LEFT JOIN leagues l   ON l.id = t.league_id
   `;
 
   const listSql = `
@@ -106,6 +128,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       d.division       AS division,   -- "9u" label
       t.season,
       t.year,
+      l.name           AS league_name,
       s.sportname      AS sport       -- "Baseball"/"Boys Baseball"/etc.
     ${baseFromJoins}
     ${whereSql}

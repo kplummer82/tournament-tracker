@@ -49,7 +49,9 @@ export default async function handler(
       gametime,
       opponent_team_id,
       opponent_name,
+      location_id,
       location,
+      field,
       notes,
       homescore,
       awayscore,
@@ -72,14 +74,16 @@ export default async function handler(
       const rows = await sql`
         INSERT INTO scrimmages
           (team_id, gamedate, gametime, opponent_team_id, opponent_name,
-           location, notes, homescore, awayscore, gamestatusid)
+           location_id, location, field, notes, homescore, awayscore, gamestatusid)
         VALUES (
           ${teamId},
           ${gamedate ?? null},
           ${gtime},
           ${typeof opponent_team_id === "number" ? opponent_team_id : null},
           ${typeof opponent_name === "string" ? opponent_name.trim() || null : null},
+          ${typeof location_id === "number" && !isNaN(location_id) ? location_id : null},
           ${typeof location === "string" ? location.trim() || null : null},
+          ${typeof field === "string" ? field.trim() || null : null},
           ${typeof notes === "string" ? notes.trim() || null : null},
           ${homescore ?? null},
           ${awayscore ?? null},
