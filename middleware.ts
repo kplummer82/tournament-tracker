@@ -2,7 +2,15 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 // "/" is the public marketing landing; /learn is the public guide library.
-const PUBLIC_PAGES = new Set(["/login", "/sign-up", "/", "/learn"]);
+// /forgot-password and /reset-password must work pre-login (password recovery).
+const PUBLIC_PAGES = new Set([
+  "/login",
+  "/sign-up",
+  "/",
+  "/learn",
+  "/forgot-password",
+  "/reset-password",
+]);
 // Pages reachable while logged out (prefix match — covers dynamic routes).
 // /invite/<token> is the invite landing page; it must work pre-login.
 // /learn/<slug> are public training guides.

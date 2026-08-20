@@ -6,7 +6,7 @@ import { authClient } from "@/lib/auth/client";
 import PendingApprovalScreen from "@/components/PendingApprovalScreen";
 
 // Auth pages bounce already-signed-in users away (to "/").
-const AUTH_PAGES = new Set(["/login", "/sign-up"]);
+const AUTH_PAGES = new Set(["/login", "/sign-up", "/forgot-password"]);
 // Public marketing/training pages render for everyone, signed in or out.
 const PUBLIC_PAGES = new Set(["/", "/learn"]);
 const PUBLIC_PAGE_PREFIXES = ["/learn/"];
@@ -47,6 +47,14 @@ export default function AuthGate({ children }: { children: React.ReactNode }) {
   // must NOT redirect either way (unlike /login & /sign-up below, which bounce
   // logged-in users to /).
   if (router.pathname.startsWith("/invite/")) {
+    return <>{children}</>;
+  }
+
+  // --- Reset-password landing ---
+  // The page consumes the emailed token itself; never redirect. A user who is
+  // signed in on this device and clicks the reset link must still reach the
+  // form, so this cannot live in AUTH_PAGES (which bounces signed-in users).
+  if (router.pathname === "/reset-password") {
     return <>{children}</>;
   }
 

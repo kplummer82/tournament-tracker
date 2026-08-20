@@ -33,6 +33,7 @@ export default function LoginPage() {
   }, []);
 
   const registered = router.query.registered === "1";
+  const reset = router.query.reset === "1";
 
   const rawCallback =
     typeof router.query.callbackUrl === "string" &&
@@ -213,6 +214,11 @@ export default function LoginPage() {
               Account created. If we sent you a verification email, confirm it first — then sign in below.
             </p>
           )}
+          {reset && (
+            <p className="mb-5 text-sm text-success border border-success/30 bg-success/10 px-3 py-2" style={{ fontFamily: "var(--font-body)" }}>
+              Password updated. Sign in with your new password.
+            </p>
+          )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -228,7 +234,16 @@ export default function LoginPage() {
               />
             </div>
             <div>
-              <label className="label-section mb-1.5 block">Password</label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="label-section block">Password</label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs text-primary hover:opacity-80 transition-opacity duration-100"
+                  style={{ fontFamily: "var(--font-body)" }}
+                >
+                  Forgot password?
+                </Link>
+              </div>
               <input
                 type="password"
                 value={password}
