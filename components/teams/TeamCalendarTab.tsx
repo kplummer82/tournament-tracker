@@ -46,6 +46,9 @@ type ScrimmageFormState = {
   location: string;
   field: string;
   notes: string;
+  // Scores are held as strings so the inputs can be blank; coerced at submit.
+  homescore: string;
+  awayscore: string;
   gamestatusid: number | null;
 };
 
@@ -58,8 +61,13 @@ const EMPTY_FORM: ScrimmageFormState = {
   location: "",
   field: "",
   notes: "",
+  homescore: "",
+  awayscore: "",
   gamestatusid: null,
 };
+
+const HOME_TEAM_FORFEIT_ID = 6; // home forfeited → away wins
+const AWAY_TEAM_FORFEIT_ID = 7; // away forfeited → home wins
 
 /* ── OpponentInput ────────────────────────────────────────────── */
 // Searches teams in the system; falls back to free text if no selection is made.
@@ -218,6 +226,10 @@ function AddScrimmageDialog({
         location: editingRow.location ?? "",
         field: editingRow.field ?? "",
         notes: editingRow.notes ?? "",
+        // Safe to read straight off the row: this dialog only opens for the host
+        // team, and games.ts only flips the scores for the visiting team.
+        homescore: editingRow.homescore != null ? String(editingRow.homescore) : "",
+        awayscore: editingRow.awayscore != null ? String(editingRow.awayscore) : "",
         gamestatusid: editingRow.gamestatusid ?? null,
       };
     }
@@ -258,6 +270,8 @@ function AddScrimmageDialog({
         location: form.location.trim() || null,
         field: form.field.trim() || null,
         notes: form.notes.trim() || null,
+        homescore: form.homescore !== "" ? Number(form.homescore) : null,
+        awayscore: form.awayscore !== "" ? Number(form.awayscore) : null,
         gamestatusid: form.gamestatusid,
       };
 
@@ -284,6 +298,17 @@ function AddScrimmageDialog({
 
   const INPUT = "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-colors";
   const LABEL = "block text-[10px] uppercase tracking-[0.08em] text-muted-foreground mb-1";
+
+  // A forfeit decides the winner on its own, so scores are not entered by hand.
+  const isForfeit =
+    form.gamestatusid === HOME_TEAM_FORFEIT_ID || form.gamestatusid === AWAY_TEAM_FORFEIT_ID;
+  const hasScore = form.homescore !== "" && form.awayscore !== "";
+  const isFinal =
+    statuses.find((s) => s.id === form.gamestatusid)?.name.toLowerCase() === "final";
+
+  // For the host (the only role that can open this dialog) home is their own team.
+  const homeLabel = editingRow?.home_team || "Home";
+  const awayLabel = editingRow?.away_team || form.opponent_name.trim() || "Away";
 
   return (
     <div
@@ -359,23 +384,59 @@ function AddScrimmageDialog({
             />
           </div>
 
-          {/* Status */}
-          {statuses.length > 0 && (
-            <div>
-              <label className={LABEL}>Status</label>
-              <select
-                value={form.gamestatusid ?? ""}
-                onChange={(e) =>
-                  set({ gamestatusid: e.target.value ? parseInt(e.target.value, 10) : null })
-                }
-                className={INPUT}
-              >
-                <option value="">— No status —</option>
-                {statuses.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
+          {/* Score + Status */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="min-w-0">
+              <label className={cn(LABEL, "truncate")} title={homeLabel}>
+                {homeLabel}
+              </label>
+              <input
+                inputMode="numeric"
+                placeholder="—"
+                value={form.homescore}
+                onChange={(e) => set({ homescore: e.target.value.replace(/[^\d]/g, "") })}
+                disabled={isForfeit}
+                className={cn(INPUT, "disabled:opacity-50")}
+              />
             </div>
+            <div className="min-w-0">
+              <label className={cn(LABEL, "truncate")} title={awayLabel}>
+                {awayLabel}
+              </label>
+              <input
+                inputMode="numeric"
+                placeholder="—"
+                value={form.awayscore}
+                onChange={(e) => set({ awayscore: e.target.value.replace(/[^\d]/g, "") })}
+                disabled={isForfeit}
+                className={cn(INPUT, "disabled:opacity-50")}
+              />
+            </div>
+            <div className="min-w-0">
+              <label className={LABEL}>Status</label>
+              {statuses.length > 0 ? (
+                <select
+                  value={form.gamestatusid ?? ""}
+                  onChange={(e) =>
+                    set({ gamestatusid: e.target.value ? parseInt(e.target.value, 10) : null })
+                  }
+                  className={INPUT}
+                >
+                  <option value="">— No status —</option>
+                  {statuses.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className={cn(INPUT, "text-muted-foreground")}>Loading…</div>
+              )}
+            </div>
+          </div>
+          {hasScore && !isFinal && (
+            <p className="text-xs text-muted-foreground -mt-2">
+              Set the status to <span className="text-foreground">Final</span> for this game to
+              count toward the team record.
+            </p>
           )}
 
           {/* Notes */}
@@ -585,6 +646,9 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
   const color = SOURCE_COLORS[row.source];
   const isHome = row.home !== null;
   const isScrimmage = row.source === "scrimmage";
+  // Edit and Delete both scope on scrimmages.team_id server-side, so only the
+  // hosting team can use them — the visitor would just get a 404.
+  const isHost = row.host_team_id === Number(teamId);
 
   const dateDisplay = row.gamedate
     ? new Date(row.gamedate + "T12:00:00").toLocaleDateString("en-US", {
@@ -729,46 +793,51 @@ function EventDetailDialog({ row, teamId, onClose, onEdit, onChanged }: EventDet
           {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
-        {/* Actions — scrimmage only */}
-        {isScrimmage && (
+        {/* Actions — scrimmage only. Cancel/Restore are open to either team;
+            Edit and Delete are host-only. */}
+        {isScrimmage && (isCanceled || isMarketplace || isHost) && (
           <div className="flex items-center justify-between px-6 py-4 border-t border-border">
-            {isCanceled ? (
+            <div>
+              {isCanceled ? (
+                <button
+                  type="button"
+                  onClick={handleUncancel}
+                  disabled={uncanceling}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+                >
+                  {uncanceling ? "Restoring…" : "Restore Game"}
+                </button>
+              ) : isMarketplace ? (
+                <button
+                  type="button"
+                  onClick={() => setCancelOpen(true)}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity"
+                >
+                  <Ban className="h-3.5 w-3.5" />
+                  Cancel Game
+                </button>
+              ) : isHost ? (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              ) : null}
+            </div>
+            {isHost && (
               <button
                 type="button"
-                onClick={handleUncancel}
-                disabled={uncanceling}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-primary hover:opacity-80 transition-opacity disabled:opacity-50"
+                onClick={() => { onClose(); onEdit(); }}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border hover:bg-elevated transition-colors"
               >
-                {uncanceling ? "Restoring…" : "Restore Game"}
-              </button>
-            ) : isMarketplace ? (
-              <button
-                type="button"
-                onClick={() => setCancelOpen(true)}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity"
-              >
-                <Ban className="h-3.5 w-3.5" />
-                Cancel Game
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting}
-                className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] text-destructive hover:opacity-80 transition-opacity disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                {deleting ? "Deleting…" : "Delete"}
+                <Pencil className="h-3.5 w-3.5" />
+                Edit
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => { onClose(); onEdit(); }}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border hover:bg-elevated transition-colors"
-            >
-              <Pencil className="h-3.5 w-3.5" />
-              Edit
-            </button>
           </div>
         )}
       </div>

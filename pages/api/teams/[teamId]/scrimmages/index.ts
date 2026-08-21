@@ -7,6 +7,14 @@ function normalizeTime(t: unknown): string | null {
   return t.trim();
 }
 
+/** Coerces a score to a non-negative whole number, or null when blank. */
+function parseScore(v: unknown): number | null | "invalid" {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) return "invalid";
+  return n;
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -70,6 +78,15 @@ export default async function handler(
 
     const gtime = normalizeTime(gametime);
 
+    const home = parseScore(homescore);
+    if (home === "invalid") {
+      return res.status(400).json({ error: "homescore must be a non-negative whole number" });
+    }
+    const away = parseScore(awayscore);
+    if (away === "invalid") {
+      return res.status(400).json({ error: "awayscore must be a non-negative whole number" });
+    }
+
     try {
       const rows = await sql`
         INSERT INTO scrimmages
@@ -85,8 +102,8 @@ export default async function handler(
           ${typeof location === "string" ? location.trim() || null : null},
           ${typeof field === "string" ? field.trim() || null : null},
           ${typeof notes === "string" ? notes.trim() || null : null},
-          ${homescore ?? null},
-          ${awayscore ?? null},
+          ${home},
+          ${away},
           ${gamestatusid ?? null}
         )
         RETURNING *

@@ -18,6 +18,10 @@ export type CalendarGameRow = {
   gamestatusid: number | null;
   gamestatus_label: string | null;
   // scrimmage-only (null for season/tournament rows)
+  // NOTE: `home`/`away` and the two scores above are oriented to the *requesting*
+  // team for scrimmages, so `home` is always the viewer. `host_team_id` is the raw
+  // scrimmages.team_id and is the only reliable way to tell who owns the game.
+  host_team_id: number | null;
   opponent_team_id: number | null;
   opponent_name_raw: string | null;
   location: string | null;
@@ -70,7 +74,8 @@ export default async function handler(
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,
         NULL::text                      AS canceled_by_team_name,
-        NULL::int                       AS listing_id
+        NULL::int                       AS listing_id,
+        NULL::int                       AS host_team_id
       FROM season_games sg
       JOIN seasons s  ON s.id = sg.season_id
       JOIN teams ht   ON ht.teamid = sg.home
@@ -105,7 +110,8 @@ export default async function handler(
         NULL::text                      AS cancellation_note,
         NULL::int                       AS canceled_by_team_id,
         NULL::text                      AS canceled_by_team_name,
-        NULL::int                       AS listing_id
+        NULL::int                       AS listing_id,
+        NULL::int                       AS host_team_id
       FROM tournamentgames tg
       JOIN tournaments t ON t.tournamentid = tg.tournamentid
       JOIN teams ht      ON ht.teamid = tg.home
@@ -148,7 +154,8 @@ export default async function handler(
         sc.cancellation_note,
         sc.canceled_by_team_id,
         cbt.name                        AS canceled_by_team_name,
-        sc.listing_id
+        sc.listing_id,
+        sc.team_id                      AS host_team_id
       FROM scrimmages sc
       JOIN teams ot ON ot.teamid = sc.team_id
       LEFT JOIN teams opp ON opp.teamid = sc.opponent_team_id

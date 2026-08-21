@@ -2,9 +2,19 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
 import { requireTeamAccess } from "@/lib/auth/requireSession";
 
+const CANCELED_STATUS_ID = 8;
+
 function normalizeTime(t: unknown): string | null {
   if (typeof t !== "string" || !t.trim()) return null;
   return t.trim();
+}
+
+/** Coerces a score to a non-negative whole number, or null when blank. */
+function parseScore(v: unknown): number | null | "invalid" {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0) return "invalid";
+  return n;
 }
 
 export default async function handler(
@@ -24,53 +34,88 @@ export default async function handler(
     const session = await requireTeamAccess(req, res, teamId);
     if (!session) return;
 
-    const {
-      gamedate,
-      gametime,
-      opponent_team_id,
-      opponent_name,
-      location_id,
-      location,
-      field,
-      notes,
-      homescore,
-      awayscore,
-      gamestatusid,
-    } = req.body ?? {};
+    const body = req.body ?? {};
 
-    const hasOpponent =
-      (typeof opponent_team_id === "number" && !isNaN(opponent_team_id)) ||
-      (typeof opponent_name === "string" && opponent_name.trim().length > 0);
+    // Only re-validate the opponent when the caller is actually changing it, so
+    // a score-only body doesn't have to resend the whole game.
+    if ("opponent_team_id" in body || "opponent_name" in body) {
+      const hasOpponent =
+        (typeof body.opponent_team_id === "number" && !isNaN(body.opponent_team_id)) ||
+        (typeof body.opponent_name === "string" && body.opponent_name.trim().length > 0);
 
-    if (!hasOpponent) {
-      return res.status(400).json({
-        error: "opponent_team_id or opponent_name is required",
-      });
+      if (!hasOpponent) {
+        return res.status(400).json({
+          error: "opponent_team_id or opponent_name is required",
+        });
+      }
     }
 
-    const gtime = normalizeTime(gametime);
+    // Build SET clauses only for the fields actually present in the body, so
+    // omitted columns keep their current values.
+    const sets: ReturnType<typeof sql>[] = [];
+
+    if ("gamedate" in body) sets.push(sql`gamedate = ${body.gamedate ?? null}`);
+    if ("gametime" in body) sets.push(sql`gametime = ${normalizeTime(body.gametime)}`);
+    if ("opponent_team_id" in body) {
+      sets.push(sql`opponent_team_id = ${typeof body.opponent_team_id === "number" ? body.opponent_team_id : null}`);
+    }
+    if ("opponent_name" in body) {
+      sets.push(sql`opponent_name = ${typeof body.opponent_name === "string" ? body.opponent_name.trim() || null : null}`);
+    }
+    if ("location_id" in body) {
+      sets.push(sql`location_id = ${typeof body.location_id === "number" && !isNaN(body.location_id) ? body.location_id : null}`);
+    }
+    if ("location" in body) {
+      sets.push(sql`location = ${typeof body.location === "string" ? body.location.trim() || null : null}`);
+    }
+    if ("field" in body) {
+      sets.push(sql`field = ${typeof body.field === "string" ? body.field.trim() || null : null}`);
+    }
+    if ("notes" in body) {
+      sets.push(sql`notes = ${typeof body.notes === "string" ? body.notes.trim() || null : null}`);
+    }
+
+    if ("homescore" in body) {
+      const score = parseScore(body.homescore);
+      if (score === "invalid") {
+        return res.status(400).json({ error: "homescore must be a non-negative whole number" });
+      }
+      sets.push(sql`homescore = ${score}`);
+    }
+    if ("awayscore" in body) {
+      const score = parseScore(body.awayscore);
+      if (score === "invalid") {
+        return res.status(400).json({ error: "awayscore must be a non-negative whole number" });
+      }
+      sets.push(sql`awayscore = ${score}`);
+    }
+
+    if ("gamestatusid" in body) {
+      const statusId =
+        body.gamestatusid != null && body.gamestatusid !== "" ? Number(body.gamestatusid) : null;
+      if (statusId !== null && !Number.isInteger(statusId)) {
+        return res.status(400).json({ error: "gamestatusid must be an integer" });
+      }
+      sets.push(sql`gamestatusid = ${statusId}`);
+
+      // Moving off "Canceled" clears the cancellation trail.
+      if (statusId !== null && statusId !== CANCELED_STATUS_ID) {
+        sets.push(sql`cancellation_note = NULL`);
+        sets.push(sql`canceled_by_team_id = NULL`);
+        sets.push(sql`canceled_at = NULL`);
+      }
+    }
+
+    if (!sets.length) return res.status(400).json({ error: "No fields to update" });
+
+    let setClause = sets[0];
+    for (let i = 1; i < sets.length; i++) {
+      setClause = sql`${setClause}, ${sets[i]}`;
+    }
 
     try {
-      const CANCELED_STATUS_ID = 8;
-      const clearCancellation =
-        typeof gamestatusid === "number" && gamestatusid !== CANCELED_STATUS_ID;
-
       const rows = await sql`
-        UPDATE scrimmages SET
-          gamedate            = ${gamedate ?? null},
-          gametime            = ${gtime},
-          opponent_team_id    = ${typeof opponent_team_id === "number" ? opponent_team_id : null},
-          opponent_name       = ${typeof opponent_name === "string" ? opponent_name.trim() || null : null},
-          location_id         = ${typeof location_id === "number" && !isNaN(location_id) ? location_id : null},
-          location            = ${typeof location === "string" ? location.trim() || null : null},
-          field               = ${typeof field === "string" ? field.trim() || null : null},
-          notes               = ${typeof notes === "string" ? notes.trim() || null : null},
-          homescore           = ${homescore ?? null},
-          awayscore           = ${awayscore ?? null},
-          gamestatusid        = ${gamestatusid ?? null},
-          cancellation_note   = CASE WHEN ${clearCancellation} THEN NULL ELSE cancellation_note END,
-          canceled_by_team_id = CASE WHEN ${clearCancellation} THEN NULL ELSE canceled_by_team_id END,
-          canceled_at         = CASE WHEN ${clearCancellation} THEN NULL ELSE canceled_at END
+        UPDATE scrimmages SET ${setClause}
         WHERE id = ${scrimmageId} AND team_id = ${teamId}
         RETURNING *
       `;
