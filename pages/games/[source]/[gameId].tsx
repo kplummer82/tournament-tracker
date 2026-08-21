@@ -4,7 +4,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowLeft, Check, X, Minus, Copy, Save, Shuffle, GripVertical, Navigation } from "lucide-react";
+import { ArrowLeft, Check, X, Minus, Copy, Save, Shuffle, GripVertical, Navigation, Import, BookmarkPlus } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -17,7 +17,12 @@ import { LocationDisplay } from "@/components/LocationPicker";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import { validateLineupRules, OUTFIELD_POSITIONS, type LineupRules, type LineupRuleKey } from "@/lib/lineupRules";
 import { POSITIONS } from "@/lib/positions";
-import { priorityRank, type ConsensusPriority } from "@/lib/positionConsensus";
+import { type ConsensusPriority } from "@/lib/positionConsensus";
+import PlayerCombobox from "@/components/lineups/PlayerCombobox";
+import ImportLineupDialog from "@/components/lineups/ImportLineupDialog";
+import SaveLineupDialog from "@/components/lineups/SaveLineupDialog";
+import { playerLabel } from "@/lib/lineups/player";
+import { defenseForInning } from "@/lib/lineups/defense";
 import PositionSourcePicker from "@/components/teams/PositionSourcePicker";
 import { usePositionSource, positionSourceQuery } from "@/lib/hooks/usePositionSource";
 import type { PositionAuthor, TeamPositionsResponse } from "@/pages/api/teams/[teamId]/roster/positions";
@@ -56,20 +61,225 @@ type DefenseRow = {
 
 const INNINGS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
+const HOME_TEAM_FORFEIT_ID = 6; // home forfeited → away wins
+const AWAY_TEAM_FORFEIT_ID = 7; // away forfeited → home wins
+
 /* ─── Shared styles ──────────────────────────────────────────── */
 
 const labelCls = "text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground";
 const valueCls = "text-sm font-medium";
+
+/* ─── ScoreCard ──────────────────────────────────────────────── */
+
+/**
+ * Editable score + status, scrimmages only. Rendered just for the hosting team —
+ * PATCH /api/teams/:teamId/scrimmages/:id scopes its UPDATE on scrimmages.team_id,
+ * so the visiting team would only get a 404. Scores here are raw DB values (the
+ * game detail API is not team-scoped), so there is no home/away flip to undo.
+ */
+function ScoreCard({
+  game,
+  onGameChange,
+}: {
+  game: GameDetail;
+  onGameChange?: (g: GameDetail) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [homescore, setHomescore] = useState("");
+  const [awayscore, setAwayscore] = useState("");
+  const [statusId, setStatusId] = useState("");
+  const [statuses, setStatuses] = useState<{ id: number; name: string }[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/gamestatuses")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setStatuses(Array.isArray(d.statuses) ? d.statuses : []);
+      })
+      .catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const beginEdit = () => {
+    setHomescore(game.homescore != null ? String(game.homescore) : "");
+    setAwayscore(game.awayscore != null ? String(game.awayscore) : "");
+    setStatusId(game.gamestatusid != null ? String(game.gamestatusid) : "");
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (game.home == null) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const patch = {
+        homescore: homescore !== "" ? Number(homescore) : null,
+        awayscore: awayscore !== "" ? Number(awayscore) : null,
+        gamestatusid: statusId !== "" ? Number(statusId) : null,
+      };
+      const res = await fetch(`/api/teams/${game.home}/scrimmages/${game.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      onGameChange?.({
+        ...game,
+        ...patch,
+        gamestatus_label:
+          statuses.find((s) => s.id === patch.gamestatusid)?.name ?? null,
+      });
+      setEditing(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // A forfeit decides the winner on its own, so scores are not entered by hand.
+  const isForfeit =
+    statusId === String(HOME_TEAM_FORFEIT_ID) || statusId === String(AWAY_TEAM_FORFEIT_ID);
+  const isFinal = game.gamestatus_label?.toLowerCase() === "final";
+  const hasScore = game.homescore != null && game.awayscore != null;
+
+  const inputCls =
+    "w-full border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary disabled:opacity-50";
+
+  return (
+    <Card>
+      <CardContent className="p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2
+            className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Score &amp; Status
+          </h2>
+          {!editing && (
+            <button
+              type="button"
+              onClick={beginEdit}
+              className="text-xs uppercase tracking-[0.08em] font-semibold text-primary hover:underline"
+            >
+              {hasScore ? "Edit" : "Enter score"}
+            </button>
+          )}
+        </div>
+
+        {editing ? (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="min-w-0">
+                <label className={cn(labelCls, "block mb-1 truncate")} title={game.home_team ?? ""}>
+                  {game.home_team ?? "Home"}
+                </label>
+                <input
+                  inputMode="numeric"
+                  placeholder="—"
+                  value={homescore}
+                  disabled={isForfeit}
+                  onChange={(e) => setHomescore(e.target.value.replace(/[^\d]/g, ""))}
+                  className={inputCls}
+                />
+              </div>
+              <div className="min-w-0">
+                <label className={cn(labelCls, "block mb-1 truncate")} title={game.away_team ?? ""}>
+                  {game.away_team ?? "Away"}
+                </label>
+                <input
+                  inputMode="numeric"
+                  placeholder="—"
+                  value={awayscore}
+                  disabled={isForfeit}
+                  onChange={(e) => setAwayscore(e.target.value.replace(/[^\d]/g, ""))}
+                  className={inputCls}
+                />
+              </div>
+              <div className="min-w-0">
+                <label className={cn(labelCls, "block mb-1")}>Status</label>
+                <select
+                  value={statusId}
+                  onChange={(e) => setStatusId(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">— No status —</option>
+                  {statuses.map((s) => (
+                    <option key={s.id} value={String(s.id)}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
+
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={saving}
+                className="px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-baseline gap-3">
+              <span className="text-sm text-muted-foreground">{game.home_team ?? "Home"}</span>
+              <span
+                className={cn("text-xl font-bold tabular-nums", isFinal && hasScore && game.homescore! > game.awayscore! && "text-primary")}
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {game.homescore ?? "—"}
+              </span>
+              <span className="text-muted-foreground">–</span>
+              <span
+                className={cn("text-xl font-bold tabular-nums", isFinal && hasScore && game.awayscore! > game.homescore! && "text-primary")}
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                {game.awayscore ?? "—"}
+              </span>
+              <span className="text-sm text-muted-foreground">{game.away_team ?? "Away"}</span>
+            </div>
+            {hasScore && !isFinal && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Set the status to <span className="text-foreground">Final</span> for this game to
+                count toward the team record.
+              </p>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 /* ─── OverviewTab ────────────────────────────────────────────── */
 
 function OverviewTab({
   game,
   canEditField = false,
+  canEditScore = false,
   onGameChange,
 }: {
   game: GameDetail;
   canEditField?: boolean;
+  canEditScore?: boolean;
   onGameChange?: (g: GameDetail) => void;
 }) {
   const hasScore = game.homescore != null && game.awayscore != null;
@@ -148,7 +358,8 @@ function OverviewTab({
               <dt className={labelCls}>Status</dt>
               <dd className={valueCls}>{game.gamestatus_label ?? "—"}</dd>
             </div>
-            {hasScore && (
+            {/* When editable the score gets its own card below, so don't repeat it here. */}
+            {hasScore && !canEditScore && (
               <div>
                 <dt className={labelCls}>Score</dt>
                 <dd className={valueCls}>
@@ -259,6 +470,8 @@ function OverviewTab({
           </dl>
         </CardContent>
       </Card>
+
+      {canEditScore && <ScoreCard game={game} onGameChange={onGameChange} />}
 
       <Card>
         <CardContent className="p-6">
@@ -638,233 +851,6 @@ function BattingOrderTab({
   );
 }
 
-/* ─── PlayerCombobox ──────────────────────────────────────────── */
-
-function playerLabel(c: ConfirmationRow) {
-  const name = `${c.first_name} ${c.last_name}`;
-  return c.jersey_number != null ? `#${c.jersey_number} ${name}` : name;
-}
-
-/** primary → split → secondary → unrated, so the best fits surface first. */
-function priorityOrder(p: ConfirmationRow, position: string): number {
-  return priorityRank(p.positionPriorities?.[position]);
-}
-
-function priorityBadge(priority: ConsensusPriority): string {
-  if (priority === "primary") return "1°";
-  if (priority === "secondary") return "2°";
-  return "?";
-}
-
-function PlayerCombobox({
-  players,
-  position,
-  value,
-  usedIds,
-  isDuplicate,
-  cellKey,
-  onTab,
-  onChange,
-}: {
-  players: ConfirmationRow[];
-  position: string;
-  value: number | null;
-  usedIds: Set<number>;
-  isDuplicate: boolean;
-  cellKey: string;
-  onTab: (shiftKey: boolean) => void;
-  onChange: (id: number | null) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const [hlIdx, setHlIdx] = useState(0);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const selectedPlayer = value != null ? players.find((p) => p.roster_id === value) : null;
-  const displayText = selectedPlayer ? playerLabel(selectedPlayer) : "";
-
-  const filtered = players
-    .filter((p) => {
-      if (!query) return true;
-      const q = query.toLowerCase();
-      const full = `${p.first_name} ${p.last_name}`.toLowerCase();
-      const jersey = p.jersey_number != null ? `#${p.jersey_number}` : "";
-      return full.includes(q) || jersey.startsWith(q) || p.first_name.toLowerCase().startsWith(q) || p.last_name.toLowerCase().startsWith(q);
-    })
-    .sort((a, b) => {
-      const diff = priorityOrder(a, position) - priorityOrder(b, position);
-      if (diff !== 0) return diff;
-      return a.first_name.localeCompare(b.first_name);
-    });
-
-  const selectPlayer = (id: number | null) => {
-    onChange(id);
-    setOpen(false);
-    setQuery("");
-  };
-
-  const handleFocus = () => {
-    setOpen(true);
-    setQuery("");
-    setHlIdx(0);
-    // Select all text on focus so typing replaces it
-    setTimeout(() => inputRef.current?.select(), 0);
-  };
-
-  const handleBlur = (e: React.FocusEvent) => {
-    // Don't close if focus moves within the container (clicking dropdown items)
-    if (containerRef.current?.contains(e.relatedTarget as Node)) return;
-    setOpen(false);
-    setQuery("");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (!open) {
-      if (e.key === "ArrowDown" || e.key === "Enter") {
-        e.preventDefault();
-        setOpen(true);
-        setHlIdx(0);
-      } else if (e.key === "Tab") {
-        e.preventDefault();
-        onTab(e.shiftKey);
-      }
-      return;
-    }
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        setHlIdx((prev) => Math.min(prev + 1, filtered.length - 1));
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        setHlIdx((prev) => Math.max(prev - 1, 0));
-        break;
-      case "Enter":
-        e.preventDefault();
-        if (filtered.length > 0 && hlIdx < filtered.length) {
-          selectPlayer(filtered[hlIdx].roster_id);
-        }
-        break;
-      case "Escape":
-        e.preventDefault();
-        setOpen(false);
-        setQuery("");
-        break;
-      case "Tab":
-        if (filtered.length > 0 && hlIdx < filtered.length && query) {
-          onChange(filtered[hlIdx].roster_id);
-        }
-        setOpen(false);
-        setQuery("");
-        e.preventDefault();
-        onTab(e.shiftKey);
-        break;
-      case "Backspace":
-        if (!query && value != null) {
-          e.preventDefault();
-          selectPlayer(null);
-        }
-        break;
-    }
-  };
-
-  // Reset highlight when filter changes
-  useEffect(() => { setHlIdx(0); }, [query]);
-
-  // Scroll highlighted item into view
-  useEffect(() => {
-    if (!open) return;
-    const el = containerRef.current?.querySelector(`[data-hl="true"]`);
-    el?.scrollIntoView({ block: "nearest" });
-  }, [hlIdx, open]);
-
-  return (
-    <div ref={containerRef} data-cell={cellKey} className="relative">
-      <input
-        ref={inputRef}
-        type="text"
-        value={open ? query : displayText}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={handleFocus}
-        onBlur={handleBlur}
-        onKeyDown={handleKeyDown}
-        placeholder="—"
-        className={cn(
-          "w-full px-1.5 py-1 text-xs border bg-transparent",
-          "focus:outline-none transition-colors",
-          isDuplicate
-            ? "border-destructive text-destructive focus:border-destructive bg-transparent"
-            : [
-                "border-border focus:border-primary",
-                value != null ? "text-foreground" : "text-muted-foreground",
-              ]
-        )}
-      />
-      {open && (
-        <div className="absolute z-20 left-0 right-0 top-full mt-0.5 bg-card border border-border shadow-lg max-h-40 overflow-y-auto">
-          {value != null && (
-            <button
-              type="button"
-              tabIndex={-1}
-              onMouseDown={(e) => { e.preventDefault(); selectPlayer(null); }}
-              className="w-full text-left px-2 py-1 text-xs text-muted-foreground hover:bg-elevated/50 border-b border-border/40"
-            >
-              — Unassigned
-            </button>
-          )}
-          {filtered.length === 0 ? (
-            <div className="px-2 py-1.5 text-[10px] text-muted-foreground">No match</div>
-          ) : (
-            filtered.map((p, i) => {
-              const isUsed = usedIds.has(p.roster_id) && p.roster_id !== value;
-              const isHl = i === hlIdx;
-              return (
-                <button
-                  key={p.roster_id}
-                  type="button"
-                  tabIndex={-1}
-                  data-hl={isHl ? "true" : undefined}
-                  onMouseDown={(e) => {
-                    e.preventDefault(); // prevent blur
-                    selectPlayer(p.roster_id);
-                  }}
-                  onMouseEnter={() => setHlIdx(i)}
-                  className={cn(
-                    "w-full text-left px-2 py-1 text-xs transition-colors flex items-center justify-between gap-2",
-                    isHl && "bg-primary/25 text-foreground",
-                    !isHl && "hover:bg-elevated/50",
-                    isUsed && "line-through text-muted-foreground"
-                  )}
-                >
-                  <span>{playerLabel(p)}</span>
-                  {p.positionPriorities?.[position] && (
-                    <span
-                      title={
-                        p.positionPriorities[position] === "split"
-                          ? `${position} — coaches disagree on this player`
-                          : undefined
-                      }
-                      className={cn(
-                        "shrink-0 text-[9px] font-semibold tracking-[0.04em] tabular-nums",
-                        p.positionPriorities[position] === "primary" ? "text-primary" : "text-primary/50"
-                      )}
-                      style={{ fontFamily: "var(--font-body)" }}
-                    >
-                      {priorityBadge(p.positionPriorities[position])}
-                    </span>
-                  )}
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
 /* ─── DefenseTab ─────────────────────────────────────────────── */
 
 type LineupMap = Record<string, number>; // key: "inning-position" → roster_id
@@ -875,12 +861,17 @@ function DefenseTab({
   source: string; gameId: number; teamId: number;
 }) {
   const [lineup, setLineup] = useState<LineupMap>({});
-  const [confirmed, setConfirmed] = useState<ConfirmationRow[]>([]);
+  // Everyone on the roster, not just the confirmed players. Import needs the
+  // full list so it can name a saved lineup's players who aren't available.
+  const [allPlayers, setAllPlayers] = useState<ConfirmationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [numInnings, setNumInnings] = useState(6);
   const [rules, setRules] = useState<LineupRules>({});
+  const [importOpen, setImportOpen] = useState(false);
+  const [saveTemplateFor, setSaveTemplateFor] = useState<number | null>(null);
+  const [templateSavedMsg, setTemplateSavedMsg] = useState<string | null>(null);
 
   // Position ratings are per-coach; this picks whose to sort the dropdown by.
   // Non-staff get a 403 on the positions route, so the picker and the 1°/2°
@@ -917,10 +908,7 @@ function DefenseTab({
       }
       setLineup(map);
       setNumInnings(maxInning);
-      setConfirmed(
-        (Array.isArray(confData.confirmations) ? confData.confirmations : [])
-          .filter((c: ConfirmationRow) => c.status === "confirmed")
-      );
+      setAllPlayers(Array.isArray(confData.confirmations) ? confData.confirmations : []);
     } catch { /* silent */ }
     setLoading(false);
     setDirty(false);
@@ -957,6 +945,17 @@ function DefenseTab({
     return () => { cancelled = true; };
   }, [teamId, positionSource]);
 
+  // Only confirmed players can be assigned. Derived rather than stored so the
+  // full roster stays available to the import dialog.
+  const confirmed = useMemo(
+    () => allPlayers.filter((c) => c.status === "confirmed"),
+    [allPlayers]
+  );
+  const confirmedIdSet = useMemo(
+    () => new Set(confirmed.map((c) => c.roster_id)),
+    [confirmed]
+  );
+
   // Attach ratings at render time — `confirmed` itself stays a pure server echo.
   const confirmedWithPositions = useMemo(
     () => confirmed.map((c) => ({ ...c, positionPriorities: positionsByRoster[c.roster_id] ?? {} })),
@@ -988,6 +987,33 @@ function DefenseTab({
         const curKey = `${inning}-${pos}`;
         if (prev[prevKey] != null) {
           next[curKey] = prev[prevKey];
+        }
+      }
+      return next;
+    });
+    setDirty(true);
+  };
+
+  /**
+   * A saved lineup REPLACES each selected inning outright — positions it leaves
+   * unset are cleared, not left holding a previous assignment. Merging would
+   * silently produce duplicates (a player kept at 2B while the lineup also puts
+   * them at SS) and would surprise a coach who imported "Jack pitching" and got
+   * a hybrid. Players who aren't confirmed for this game are left empty; the
+   * dialog already named them.
+   *
+   * Nothing is written to the game until the coach presses Save, same as
+   * copyFromPrevious.
+   */
+  const applyTemplate = (defense: Record<string, number | null>, innings: number[]) => {
+    setLineup((prev) => {
+      const next = { ...prev };
+      for (const inn of innings) {
+        for (const pos of POSITIONS) {
+          const id = defense[pos];
+          const key = `${inn}-${pos}`;
+          if (id != null && confirmedIdSet.has(id)) next[key] = id;
+          else delete next[key];
         }
       }
       return next;
@@ -1168,6 +1194,18 @@ function DefenseTab({
         </div>
         <div className="flex flex-col items-end gap-1">
           <button
+            onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.07em] border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+          >
+            <Import className="h-3 w-3" />
+            Import lineup
+          </button>
+          {templateSavedMsg && (
+            <p className="text-[10px] text-primary">{templateSavedMsg}</p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
             onClick={save}
             disabled={!dirty || saving || hasDuplicates}
             className={cn(
@@ -1218,16 +1256,32 @@ function DefenseTab({
                         <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                           Inn {inn}
                         </span>
-                        {inn > 1 && (
+                        <div className="flex items-center gap-2">
+                          {inn > 1 && (
+                            <button
+                              onClick={() => copyFromPrevious(inn)}
+                              className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-foreground transition-colors"
+                              title={`Copy from inning ${inn - 1}`}
+                            >
+                              <Copy className="h-2.5 w-2.5" />
+                              Copy
+                            </button>
+                          )}
                           <button
-                            onClick={() => copyFromPrevious(inn)}
-                            className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-foreground transition-colors"
-                            title={`Copy from inning ${inn - 1}`}
+                            onClick={() => setSaveTemplateFor(inn)}
+                            disabled={
+                              duplicatesInInning(inn).size > 0 || playersInInning(inn).size === 0
+                            }
+                            className="inline-flex items-center gap-0.5 text-[9px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:hover:text-muted-foreground"
+                            title={`Save inning ${inn} as a team lineup`}
+                            // The visible label is just "Save", which collides with
+                            // the tab's own Save button for screen readers.
+                            aria-label={`Save inning ${inn} as a team lineup`}
                           >
-                            <Copy className="h-2.5 w-2.5" />
-                            Copy
+                            <BookmarkPlus className="h-2.5 w-2.5" />
+                            Save
                           </button>
-                        )}
+                        </div>
                       </div>
                     </th>
                   ))}
@@ -1270,6 +1324,7 @@ function DefenseTab({
                             usedIds={usedInInning}
                             isDuplicate={isDuplicate}
                             cellKey={key}
+                            ariaLabel={`${pos} inning ${inn}`}
                             onTab={(shiftKey) => handleCellTab(key, shiftKey)}
                             onChange={(id) => assign(inn, pos, id)}
                           />
@@ -1323,6 +1378,32 @@ function DefenseTab({
           </div>
         </CardContent>
       </Card>
+
+      <ImportLineupDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        teamId={teamId}
+        activeInnings={[...activeInnings]}
+        players={allPlayers}
+        confirmedIds={confirmedIdSet}
+        onApply={applyTemplate}
+      />
+
+      {saveTemplateFor != null && (
+        <SaveLineupDialog
+          open
+          onOpenChange={(v) => { if (!v) setSaveTemplateFor(null); }}
+          teamId={teamId}
+          inning={saveTemplateFor}
+          defense={defenseForInning(lineup, saveTemplateFor)}
+          players={allPlayers}
+          onSaved={(name) => {
+            setSaveTemplateFor(null);
+            setTemplateSavedMsg(`Saved “${name}” to team lineups`);
+            setTimeout(() => setTemplateSavedMsg(null), 3000);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1584,6 +1665,11 @@ export default function GameDetailPage() {
             <OverviewTab
               game={game}
               canEditField={
+                game.source === "scrimmage" &&
+                Number.isFinite(managingTeamId) &&
+                game.home === managingTeamId
+              }
+              canEditScore={
                 game.source === "scrimmage" &&
                 Number.isFinite(managingTeamId) &&
                 game.home === managingTeamId

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import type { TeamDetail, TeamTournament } from "@/pages/api/teams/[teamId]";
 import type { RosterRow } from "@/pages/api/teams/[teamId]/roster";
 import TeamCalendarTab from "@/components/teams/TeamCalendarTab";
+import TeamLineupsTab from "@/components/teams/TeamLineupsTab";
 import { WalkupSongInput, WalkupSongLink } from "@/components/teams/WalkupSongInput";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import FollowButton from "@/components/FollowButton";
@@ -61,7 +62,7 @@ function renderNotesWithLinks(text: string): React.ReactNode {
   });
 }
 
-type TabKey = "overview" | "roster" | "calendar";
+type TabKey = "overview" | "roster" | "calendar" | "lineups";
 
 type Draft = {
   jersey_number: string;
@@ -1397,7 +1398,11 @@ export default function TeamDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editOpen, setEditOpen] = useState(false);
-  const tabKeys: TabKey[] = ["overview", "roster", "calendar"];
+  // "lineups" stays in this list unconditionally even though only coaches see
+  // its trigger: `tab` is seeded synchronously below, but canEdit depends on the
+  // async team fetch and is always false at mount, so gating the list on it
+  // would break the ?tab=lineups deep link for everyone.
+  const tabKeys: TabKey[] = ["overview", "roster", "calendar", "lineups"];
   const queryTab = router.query.tab as string | undefined;
   const [tab, setTab] = useState<TabKey>(
     queryTab && tabKeys.includes(queryTab as TabKey) ? (queryTab as TabKey) : "overview"
@@ -1488,6 +1493,7 @@ export default function TeamDetailPage() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="roster">Roster</TabsTrigger>
             <TabsTrigger value="calendar">Calendar</TabsTrigger>
+            {canEdit && <TabsTrigger value="lineups">Lineups</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="overview" className="mt-6 space-y-6">
@@ -1578,6 +1584,10 @@ export default function TeamDetailPage() {
 
           <TabsContent value="calendar" className="mt-6">
             {teamId && <TeamCalendarTab teamId={teamId} />}
+          </TabsContent>
+
+          <TabsContent value="lineups" className="mt-6">
+            {teamId && <TeamLineupsTab teamId={teamId} canEdit={canEdit} />}
           </TabsContent>
         </Tabs>
 
