@@ -1,6 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { fetchTournamentStandingsData, computeStandings } from "@/lib/standings";
-import { buildCoinTossContext } from "@/lib/standings/coinTossService";
+import {
+  fetchTournamentStandingsData,
+  fetchTournamentRemainingPoolGameCount,
+  computeStandings,
+} from "@/lib/standings";
+import { buildCoinTossContext, resolveCoinTossPhase } from "@/lib/standings/coinTossService";
 import type { StandingsRow } from "@/lib/standings";
 
 export type { StandingsRow };
@@ -33,7 +37,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const includeInProgress = req.query.includeInProgress === "true";
 
   try {
-    const data = await fetchTournamentStandingsData(tournamentId, { includeInProgress });
+    const [data, remainingGames] = await Promise.all([
+      fetchTournamentStandingsData(tournamentId, { includeInProgress }),
+      fetchTournamentRemainingPoolGameCount(tournamentId),
+    ]);
 
     // Fetch pool_group assignments for each team
     const { sql } = await import("@/lib/db");
@@ -68,7 +75,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       coinTossGroups = groups.filter((g) => g.pool_group === filterGroup);
     }
 
-    return res.status(200).json({ standings, coinToss: { groups: coinTossGroups } });
+    // Pool play has no as-of mode. `manualCoinToss` stays applied at every phase.
+    const phase = resolveCoinTossPhase({
+      coinTossConfigured: data.tiebreakers.some((tb) => tb.code === "coin_toss"),
+      completedGames: data.games.length,
+      remainingGames,
+      asOfDate: null,
+    });
+
+    return res.status(200).json({
+      standings,
+      coinToss: { groups: phase === "none" ? [] : coinTossGroups, phase, remainingGames },
+    });
   } catch (err: unknown) {
     const message = "Server error";
     console.error("[standings API]", err);

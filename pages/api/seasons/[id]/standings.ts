@@ -1,6 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { fetchSeasonStandingsData, computeStandings } from "@/lib/standings";
-import { buildCoinTossContext } from "@/lib/standings/coinTossService";
+import {
+  fetchSeasonStandingsData,
+  fetchSeasonRemainingGameCount,
+  computeStandings,
+} from "@/lib/standings";
+import { buildCoinTossContext, resolveCoinTossPhase } from "@/lib/standings/coinTossService";
 import type { StandingsRow } from "@/lib/standings";
 
 export type SeasonStandingsRow = StandingsRow & {
@@ -25,7 +29,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const asOfDate = typeof rawAsOf === "string" && /^\d{4}-\d{2}-\d{2}$/.test(rawAsOf) ? rawAsOf : undefined;
 
   try {
-    const data = await fetchSeasonStandingsData(seasonId, { includeInProgress, asOfDate });
+    const [data, remainingGames] = await Promise.all([
+      fetchSeasonStandingsData(seasonId, { includeInProgress, asOfDate }),
+      fetchSeasonRemainingGameCount(seasonId),
+    ]);
     const { manualCoinToss, groups } = await buildCoinTossContext(
       "season",
       seasonId,
@@ -36,7 +43,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     );
     const rows = computeStandings(data.games, data.teams, data.tiebreakers, data.config, manualCoinToss);
     const standings = [...rows].sort((a, b) => a.rank_final - b.rank_final);
-    return res.status(200).json({ standings, coinToss: { groups } });
+
+    // `manualCoinToss` above is applied at every phase — a result saved when the
+    // season was final stays valid if a game is later reopened for a correction.
+    // Only the affordance changes.
+    const phase = resolveCoinTossPhase({
+      coinTossConfigured: data.tiebreakers.some((tb) => tb.code === "coin_toss"),
+      completedGames: data.games.length,
+      remainingGames,
+      asOfDate,
+    });
+
+    return res.status(200).json({
+      standings,
+      coinToss: { groups: phase === "none" ? [] : groups, phase, remainingGames },
+    });
   } catch (err: unknown) {
     const message = "Server error";
     console.error("[season standings API]", err);

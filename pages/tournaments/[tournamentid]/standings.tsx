@@ -6,6 +6,7 @@ import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournam
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CoinTossResolver, { type CoinTossGroup } from "@/components/standings/CoinTossResolver";
+import type { CoinTossPhase } from "@/lib/standings/types";
 
 const formatWLPct = (wltpct: unknown, games: number): string => {
   const n = Number(wltpct);
@@ -242,6 +243,8 @@ function StandingsBody() {
   const { tid, t, canEdit } = useTournament();
   const [rows, setRows] = useState<StandingsRow[]>([]);
   const [coinTossGroups, setCoinTossGroups] = useState<CoinTossGroup[]>([]);
+  const [coinTossPhase, setCoinTossPhase] = useState<CoinTossPhase>("none");
+  const [remainingGames, setRemainingGames] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -271,9 +274,18 @@ function StandingsBody() {
         if (!cancelled) {
           setRows(Array.isArray(data?.standings) ? data.standings : []);
           setCoinTossGroups(Array.isArray(data?.coinToss?.groups) ? data.coinToss.groups : []);
+          const p = data?.coinToss?.phase;
+          setCoinTossPhase(p === "final" || p === "provisional" ? p : "none");
+          setRemainingGames(Number(data?.coinToss?.remainingGames ?? 0));
         }
       } catch (e: unknown) {
-        if (!cancelled) { setErr(e instanceof Error ? e.message : "Failed to load standings"); setRows([]); setCoinTossGroups([]); }
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Failed to load standings");
+          setRows([]);
+          setCoinTossGroups([]);
+          setCoinTossPhase("none");
+          setRemainingGames(0);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -295,10 +307,14 @@ function StandingsBody() {
       .filter((r) => r.pool_group === group)
       .map((r, idx) => ({ ...r, rank_final: idx + 1 }));
 
-  // Teams whose rank is provisional pending a manual coin toss
-  const unresolvedTeamIds = new Set<number>(
-    coinTossGroups.filter((g) => !g.resolved).flatMap((g) => g.teams.map((t) => t.teamid))
-  );
+  // Teams whose rank is provisional pending a manual coin toss. Only meaningful once
+  // pool play is over — mid-pool every tie would get a pill, which is just noise.
+  const unresolvedTeamIds =
+    coinTossPhase === "final"
+      ? new Set<number>(
+          coinTossGroups.filter((g) => !g.resolved).flatMap((g) => g.teams.map((t) => t.teamid))
+        )
+      : new Set<number>();
 
   return (
     <div>
@@ -333,6 +349,8 @@ function StandingsBody() {
           scope="tournament"
           scopeId={Number(tid)}
           groups={coinTossGroups}
+          phase={coinTossPhase}
+          remainingGames={remainingGames}
           canEdit={canEdit}
           onSaved={() => setReloadKey((k) => k + 1)}
         />

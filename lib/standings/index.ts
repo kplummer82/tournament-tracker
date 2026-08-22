@@ -1,6 +1,6 @@
 export { computeStandings } from "./ranker";
 export { detectCoinTossGroups, groupSignature } from "./coinToss";
-export type { GameRecord, SeasonConfig, StandingsRow, TeamRecord, TiebreakerConfig } from "./types";
+export type { CoinTossPhase, GameRecord, SeasonConfig, StandingsRow, TeamRecord, TiebreakerConfig } from "./types";
 
 import { sql } from "@/lib/db";
 import type { GameRecord, SeasonConfig, TeamRecord, TiebreakerConfig } from "./types";
@@ -233,6 +233,57 @@ export async function fetchTournamentStandingsData(
   };
 
   return { games, teams, tiebreakers, config };
+}
+
+// ---------------------------------------------------------------------------
+// Remaining-game counts
+//
+// Standings are computed from settled games only, so the fetchers above can't
+// tell you whether a season is *over*. These answer that separately.
+//
+// Status ids: 1 Scheduled, 2 Delayed, 3 In Progress, 4 Final, 5 Rained Out,
+// 6 Home Forfeit, 7 Away Forfeit, 8 Canceled. Settled = 4/6/7. Rained-out and
+// canceled games are dead — they must never keep a season from being complete.
+// ---------------------------------------------------------------------------
+
+/** Regular-season games still to be played. Settled (4/6/7) and dead (5/8) both excluded. */
+export async function fetchSeasonRemainingGameCount(seasonId: number): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS remaining
+    FROM season_games
+    WHERE season_id = ${seasonId}
+      AND game_type = 'regular'
+      AND (gamestatusid IS NULL OR gamestatusid NOT IN (4, 5, 6, 7, 8))
+  `) as { remaining: number }[];
+  return Number(rows[0]?.remaining ?? 0);
+}
+
+/**
+ * Pool games still to be played.
+ *
+ * This has to be the complement of the completed predicate used by
+ * `fetchTournamentStandingsData`, not a plain `status IN (1,2,3)` test: on
+ * `tournamentgames` a NULL status means Final by legacy convention, so an
+ * untouched row (NULL status, NULL scores) would otherwise count as neither
+ * settled nor remaining and the tournament would read as complete before a
+ * single pool game. Forfeits (6/7) are excluded from both sides — the
+ * score-not-null guard keeps them out of `games`, so counting them as remaining
+ * would pin the tournament in "provisional" forever.
+ */
+export async function fetchTournamentRemainingPoolGameCount(tournamentId: number): Promise<number> {
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS remaining
+    FROM tournamentgames
+    WHERE tournamentid = ${tournamentId}
+      AND poolorbracket = 'Pool'
+      AND COALESCE(gamestatusid, 4) NOT IN (5, 6, 7, 8)
+      AND NOT (
+        COALESCE(gamestatusid, 4) = 4
+        AND homescore IS NOT NULL
+        AND awayscore IS NOT NULL
+      )
+  `) as { remaining: number }[];
+  return Number(rows[0]?.remaining ?? 0);
 }
 
 // ---------------------------------------------------------------------------

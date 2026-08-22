@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
-import { fetchTournamentStandingsData } from "@/lib/standings";
-import { validateCoinTossSubmission } from "@/lib/standings/coinTossService";
+import { fetchTournamentStandingsData, fetchTournamentRemainingPoolGameCount } from "@/lib/standings";
+import { resolveCoinTossPhase, validateCoinTossSubmission } from "@/lib/standings/coinTossService";
 import { requireTournamentAccess } from "@/lib/auth/requireSession";
 
 function parseTournamentId(req: NextApiRequest): number | null {
@@ -38,8 +38,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         : [];
       if (!groupSig) return res.status(400).json({ error: "Missing groupSig" });
 
-      const data = await fetchTournamentStandingsData(tournamentId);
-      const groupMap = await poolGroupMap(tournamentId);
+      const [data, remainingGames, groupMap] = await Promise.all([
+        fetchTournamentStandingsData(tournamentId),
+        fetchTournamentRemainingPoolGameCount(tournamentId),
+        poolGroupMap(tournamentId),
+      ]);
+
+      // Pool play has to be over before a tie is worth a coin toss. The UI hides
+      // the button, but that's not an invariant on its own.
+      const phase = resolveCoinTossPhase({
+        coinTossConfigured: data.tiebreakers.some((tb) => tb.code === "coin_toss"),
+        completedGames: data.games.length,
+        remainingGames,
+      });
+      if (phase !== "final") {
+        return res.status(409).json({
+          error: "Pool play isn't complete — a coin toss can't be recorded yet",
+        });
+      }
+
       const check = validateCoinTossSubmission(
         groupSig,
         order,

@@ -46,3 +46,14 @@ export type StandingsRow = TeamStats & {
   lexi_key: number;
   details: Record<string, number | null>;
 };
+
+/**
+ * How actionable a coin toss is right now.
+ *
+ *   none        — nothing to show: no games settled yet, or this season/tournament
+ *                 doesn't use the coin_toss tiebreaker at all.
+ *   provisional — ties exist but games remain (or you're viewing a historical
+ *                 snapshot), so a real coin toss can't be recorded yet.
+ *   final       — every game is settled; ties are ready to be resolved.
+ */
+export type CoinTossPhase = "none" | "provisional" | "final";

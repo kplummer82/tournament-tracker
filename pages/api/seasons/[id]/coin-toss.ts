@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
-import { fetchSeasonStandingsData } from "@/lib/standings";
-import { validateCoinTossSubmission } from "@/lib/standings/coinTossService";
+import { fetchSeasonStandingsData, fetchSeasonRemainingGameCount } from "@/lib/standings";
+import { resolveCoinTossPhase, validateCoinTossSubmission } from "@/lib/standings/coinTossService";
 import { requireSeasonAccess } from "@/lib/auth/requireSession";
 
 function parseSeasonId(req: NextApiRequest): number | null {
@@ -27,7 +27,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!groupSig) return res.status(400).json({ error: "Missing groupSig" });
 
       // Re-detect groups and validate the submission against current standings.
-      const data = await fetchSeasonStandingsData(seasonId, { includeInProgress: false });
+      const [data, remainingGames] = await Promise.all([
+        fetchSeasonStandingsData(seasonId, { includeInProgress: false }),
+        fetchSeasonRemainingGameCount(seasonId),
+      ]);
+
+      // A tie isn't final until the regular season is. Hiding the button in the UI
+      // isn't an invariant — a mid-season group passes signature validation fine.
+      const phase = resolveCoinTossPhase({
+        coinTossConfigured: data.tiebreakers.some((tb) => tb.code === "coin_toss"),
+        completedGames: data.games.length,
+        remainingGames,
+      });
+      if (phase !== "final") {
+        return res.status(409).json({
+          error: "The regular season isn't complete — a coin toss can't be recorded yet",
+        });
+      }
+
       const check = validateCoinTossSubmission(
         groupSig,
         order,

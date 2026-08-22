@@ -1,6 +1,6 @@
 import { detectCoinTossGroups, groupSignature } from "./coinToss";
 import { fetchCoinTossResults, type CoinTossScope } from "./index";
-import type { GameRecord, SeasonConfig, TeamRecord, TiebreakerConfig } from "./types";
+import type { CoinTossPhase, GameRecord, SeasonConfig, TeamRecord, TiebreakerConfig } from "./types";
 
 export type CoinTossTeam = {
   teamid: number;
@@ -14,6 +14,35 @@ export type CoinTossGroup = {
   resolved: boolean; // every member has a saved seed_order
   teams: CoinTossTeam[]; // sorted by seedOrder when resolved, else by teamid
 };
+
+/**
+ * Decide how actionable a coin toss is — the single source of truth for both the
+ * UI affordance and the server-side guard on saving a result.
+ *
+ * A coin toss only decides anything once every game is settled: before then any
+ * "tie" is just the current state of play (on day one every team is 0-0-0 and the
+ * whole league is one tied group). Ties are still surfaced mid-season, but purely
+ * as a heads-up.
+ *
+ * `completedGames` must be the size of the game set the standings were actually
+ * computed from (`data.games.length`), not a global count — otherwise an as-of
+ * date before opening day reports a full season of games against a table of
+ * 0-0-0 teams.
+ */
+export function resolveCoinTossPhase(args: {
+  coinTossConfigured: boolean; // tiebreakers include code "coin_toss"
+  completedGames: number;
+  remainingGames: number;
+  asOfDate?: string | null;
+}): CoinTossPhase {
+  if (!args.coinTossConfigured) return "none";
+  if (args.completedGames === 0) return "none";
+  // Historical snapshot: resolving isn't meaningful, and the PUT validates against
+  // final data so it would 409 anyway.
+  if (args.asOfDate) return "provisional";
+  if (args.remainingGames > 0) return "provisional";
+  return "final";
+}
 
 /**
  * Detect coin-toss groups, scoping by pool group when one is provided.

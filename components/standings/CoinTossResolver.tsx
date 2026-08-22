@@ -16,6 +16,7 @@ import {
   ArrowUp, ArrowDown, GripVertical, Coins, Loader2, CheckCircle2, RotateCcw, AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { CoinTossPhase } from "@/lib/standings/types";
 
 export type CoinTossTeam = { teamid: number; team: string; seedOrder: number | null };
 export type CoinTossGroup = {
@@ -29,6 +30,10 @@ type Props = {
   scope: "season" | "tournament";
   scopeId: number;
   groups: CoinTossGroup[];
+  /** Whether a coin toss is actionable yet — see lib/standings/types.ts */
+  phase: CoinTossPhase;
+  /** Games still to be played, for the mid-season note. */
+  remainingGames: number;
   canEdit: boolean;
   onSaved: () => void;
 };
@@ -100,11 +105,12 @@ function SortableTeamRow({
 
 /* ── One group: its own ordered list + Save / Reset ─────────────────── */
 function GroupEditor({
-  scope, scopeId, group, canEdit, onSaved,
+  scope, scopeId, group, isFinal, canEdit, onSaved,
 }: {
   scope: Props["scope"];
   scopeId: number;
   group: CoinTossGroup;
+  isFinal: boolean;
   canEdit: boolean;
   onSaved: () => void;
 }) {
@@ -195,15 +201,19 @@ function GroupEditor({
           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-success">
             <CheckCircle2 className="w-3 h-3" /> Resolved
           </span>
-        ) : (
+        ) : isFinal ? (
           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 dark:text-yellow-300">
             <AlertTriangle className="w-3 h-3" /> Needs coin toss
           </span>
+        ) : (
+          <span className="text-[11px] font-medium text-muted-foreground">Currently tied</span>
         )}
       </div>
       <p className="text-xs text-muted-foreground mb-3">
-        {group.teams.length} teams tied after all other tiebreakers. Drag into the finishing
-        order from the real coin toss (top = best seed).
+        {group.teams.length} teams tied after all other tiebreakers.
+        {canEdit
+          ? " Drag into the finishing order from the real coin toss (top = best seed)."
+          : ""}
       </p>
 
       {error && (
@@ -283,7 +293,9 @@ function GroupEditor({
 }
 
 /* ── Banner + modal entry point ─────────────────────────────────────── */
-export default function CoinTossResolver({ scope, scopeId, groups, canEdit, onSaved }: Props) {
+export default function CoinTossResolver({
+  scope, scopeId, groups, phase, remainingGames, canEdit, onSaved,
+}: Props) {
   const [open, setOpen] = useState(false);
   // Hold the last non-empty groups so a transient refetch (which can briefly empty
   // `groups`) doesn't unmount the open modal or make the banner flicker.
@@ -292,23 +304,36 @@ export default function CoinTossResolver({ scope, scopeId, groups, canEdit, onSa
   const view = groups && groups.length > 0 ? groups : open ? lastGroups.current : [];
 
   if (view.length === 0) return null;
+  if (phase === "none") return null;
 
   const unresolved = view.filter((g) => !g.resolved).length;
   const allResolved = unresolved === 0;
+
+  // Until every game is settled a "tie" is just the current state of play, so the
+  // banner stays informational: muted rather than amber, and read-only throughout.
+  const isFinal = phase === "final";
+  const alert = isFinal && !allResolved;
+  const scopeNoun = scope === "season" ? "the season" : "pool play";
 
   return (
     <>
       <div
         className={cn(
           "mb-4 flex items-center gap-3 px-4 py-3 rounded-lg border",
-          allResolved
-            ? "border-border bg-muted/40"
-            : "border-amber-300 bg-amber-50 dark:border-yellow-500/30 dark:bg-yellow-500/10"
+          alert
+            ? "border-amber-300 bg-amber-50 dark:border-yellow-500/30 dark:bg-yellow-500/10"
+            : "border-border bg-muted/40"
         )}
       >
-        <Coins className={cn("w-4 h-4 shrink-0", allResolved ? "text-muted-foreground" : "text-amber-700 dark:text-yellow-300")} />
+        <Coins className={cn("w-4 h-4 shrink-0", alert ? "text-amber-700 dark:text-yellow-300" : "text-muted-foreground")} />
         <div className="flex-1 min-w-0 text-sm">
-          {allResolved ? (
+          {!isFinal ? (
+            <span className="text-muted-foreground">
+              {unresolved} unresolved tie{unresolved !== 1 ? "s" : ""}
+              {remainingGames > 0 && ` · ${remainingGames} game${remainingGames !== 1 ? "s" : ""} left`}
+              . Coin tosses can be recorded once {scopeNoun} is complete.
+            </span>
+          ) : allResolved ? (
             <span className="text-muted-foreground">
               Coin toss applied to {view.length} tie{view.length !== 1 ? "s" : ""}.
             </span>
@@ -322,12 +347,12 @@ export default function CoinTossResolver({ scope, scopeId, groups, canEdit, onSa
           onClick={() => setOpen(true)}
           className={cn(
             "shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all",
-            allResolved
-              ? "border border-border text-foreground hover:bg-muted"
-              : "bg-primary text-primary-foreground hover:opacity-90"
+            alert
+              ? "bg-primary text-primary-foreground hover:opacity-90"
+              : "border border-border text-foreground hover:bg-muted"
           )}
         >
-          {canEdit ? (allResolved ? "Edit" : "Resolve") : "View"}
+          {canEdit && isFinal ? (allResolved ? "Edit" : "Resolve") : "View"}
         </button>
       </div>
 
@@ -338,8 +363,9 @@ export default function CoinTossResolver({ scope, scopeId, groups, canEdit, onSa
               <Coins className="w-5 h-5 text-primary" /> Coin Toss Results
             </DialogTitle>
             <DialogDescription>
-              These teams are tied after every other tiebreaker. Enter the finishing order
-              from the real-world coin toss. Each group is independent.
+              {!isFinal
+                ? `These teams are currently tied after every other tiebreaker. Nothing to do yet — ties are settled by coin toss once ${scopeNoun} is complete, and they may well break on their own before then.`
+                : "These teams are tied after every other tiebreaker. Enter the finishing order from the real-world coin toss. Each group is independent."}
             </DialogDescription>
           </DialogHeader>
 
@@ -350,7 +376,8 @@ export default function CoinTossResolver({ scope, scopeId, groups, canEdit, onSa
                 scope={scope}
                 scopeId={scopeId}
                 group={g}
-                canEdit={canEdit}
+                isFinal={isFinal}
+                canEdit={canEdit && isFinal}
                 onSaved={onSaved}
               />
             ))}
