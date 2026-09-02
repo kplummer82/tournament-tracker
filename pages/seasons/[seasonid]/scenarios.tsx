@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import SeasonProvider, { useSeason } from "@/components/seasons/SeasonProvider";
 import SeasonShell from "@/components/seasons/SeasonShell";
 import SegmentedControl from "@/components/ui/SegmentedControl";
-import { Dices, Trash2, RotateCw, ChevronDown, ChevronUp } from "lucide-react";
+import { Dices, Trash2, RotateCw, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
+import ScenarioTimeline from "@/components/scenarios/ScenarioTimeline";
 import { cn } from "@/lib/utils";
 
 type TeamRow = { id: number; name: string };
@@ -44,6 +45,10 @@ type ScenarioRow = {
   status: "pending" | "running" | "completed" | "error";
   error_message: string | null;
   created_at: string;
+  // Populated by the LEFT JOIN on scenario_timelines; null until one is plotted.
+  timeline_status: "pending" | "running" | "completed" | "error" | null;
+  timeline_points_done: number | null;
+  timeline_points_total: number | null;
 };
 
 /* ─── Sample Path ─── */
@@ -735,6 +740,7 @@ function ScenarioCard({
 }) {
   const [deleting, setDeleting] = useState(false);
   const [rerunning, setRerunning] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(scenario.timeline_status === "running");
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Poll while running
@@ -816,6 +822,18 @@ function ScenarioCard({
           </p>
         </div>
         <div className="flex gap-1.5 shrink-0">
+          {scenario.status === "completed" && (
+            <button
+              onClick={() => setShowTimeline((v) => !v)}
+              className={cn(
+                "p-1.5 rounded hover:bg-elevated transition-colors",
+                showTimeline ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              )}
+              title="Plot this scenario over time"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             onClick={handleRerun}
             disabled={rerunning || scenario.status === "running"}
@@ -952,6 +970,18 @@ function ScenarioCard({
 
       {scenario.status === "pending" && (
         <p className="text-xs text-muted-foreground">Pending…</p>
+      )}
+
+      {scenario.status === "completed" && showTimeline && (
+        <div className="pt-3 border-t border-border">
+          <p
+            className="text-[10px] font-bold tracking-[0.1em] uppercase text-muted-foreground mb-2"
+            style={{ fontFamily: "var(--font-display)" }}
+          >
+            Over Time
+          </p>
+          <ScenarioTimeline seasonId={seasonId} scenario={scenario} />
+        </div>
       )}
     </div>
   );

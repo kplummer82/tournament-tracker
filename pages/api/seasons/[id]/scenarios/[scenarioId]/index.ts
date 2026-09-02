@@ -19,10 +19,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (req.method === "GET") {
       const rows = await sql`
         SELECT
-          sq.*, t1.name AS team_name, t2.name AS opponent_team_name
+          sq.*, t1.name AS team_name, t2.name AS opponent_team_name,
+          tl.status AS timeline_status,
+          tl.points_done AS timeline_points_done,
+          tl.points_total AS timeline_points_total
         FROM scenario_questions sq
         LEFT JOIN teams t1 ON t1.teamid = sq.team_id
         LEFT JOIN teams t2 ON t2.teamid = sq.opponent_team_id
+        LEFT JOIN scenario_timelines tl ON tl.scenario_id = sq.id
         WHERE sq.id = ${scenarioId}
           AND sq.entity_type = 'season'
           AND sq.entity_id = ${seasonId}

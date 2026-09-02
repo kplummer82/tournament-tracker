@@ -26,10 +26,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           sq.as_of_date,
           sq.simulation_method,
           sq.status, sq.error_message,
-          sq.created_at, sq.updated_at
+          sq.created_at, sq.updated_at,
+          -- Lets a scenario card render its "plot over time" state without a second request.
+          tl.status AS timeline_status,
+          tl.points_done AS timeline_points_done,
+          tl.points_total AS timeline_points_total
         FROM scenario_questions sq
         LEFT JOIN teams t1 ON t1.teamid = sq.team_id
         LEFT JOIN teams t2 ON t2.teamid = sq.opponent_team_id
+        LEFT JOIN scenario_timelines tl ON tl.scenario_id = sq.id
         WHERE sq.entity_type = 'season' AND sq.entity_id = ${seasonId}
         ORDER BY sq.created_at DESC
       `;

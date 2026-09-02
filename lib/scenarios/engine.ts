@@ -361,9 +361,10 @@ async function runMonteCarloAnalysis(
   seedMode: SeedMode,
   maxRunDiff: number | null,
   callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  simBudget?: number
 ): Promise<EngineResult> {
-  let budget = await getMaxSimulations();
+  let budget = simBudget ?? (await getMaxSimulations());
   let simulationsRun = 0;
 
   // Compute current standings once to get team names (not counted as a sim).
@@ -534,9 +535,10 @@ async function runMatchupMonteCarlo(
   bracketSlices: BracketSlice[],
   maxRunDiff: number | null,
   callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  simBudget?: number
 ): Promise<EngineResult> {
-  const budget = await getMaxSimulations();
+  const budget = simBudget ?? (await getMaxSimulations());
   let simulationsRun = 0;
 
   if (bracketSlices.length === 0 || bracketSlices.every((s) => s.size < 2)) {
@@ -668,9 +670,10 @@ async function runMostLikelySeedMonteCarlo(
   teamId: number,
   maxRunDiff: number | null,
   callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  simBudget?: number
 ): Promise<EngineResult> {
-  const budget = await getMaxSimulations();
+  const budget = simBudget ?? (await getMaxSimulations());
   let simulationsRun = 0;
   const seedCounts = new Map<number, number>();
 
@@ -787,9 +790,10 @@ async function runMostLikelyMatchupMonteCarlo(
   bracketSlices: BracketSlice[],
   maxRunDiff: number | null,
   callStandingsFn: (simulated: SimulatedOutcome[]) => Promise<StandingsRow[]>,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  simBudget?: number
 ): Promise<EngineResult> {
-  const budget = await getMaxSimulations();
+  const budget = simBudget ?? (await getMaxSimulations());
   let simulationsRun = 0;
   const matchupCounts = new Map<number, number>();
 
@@ -873,7 +877,8 @@ export async function runScenarioAnalysis(
   seedMode: SeedMode,
   onProgress?: ProgressCallback,
   asOfDate?: string,
-  simulationMethod?: "monte_carlo" | "pythagorean"
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  simBudget?: number
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
@@ -896,7 +901,7 @@ export async function runScenarioAnalysis(
       )
     );
 
-  return runMonteCarloAnalysis(remainingGames, teamId, targetSeed, seedMode, maxRunDiff, callFn, onProgress);
+  return runMonteCarloAnalysis(remainingGames, teamId, targetSeed, seedMode, maxRunDiff, callFn, onProgress, simBudget);
 }
 
 export async function runTournamentScenarioAnalysis(
@@ -939,7 +944,8 @@ export async function runFirstRoundMatchupAnalysis(
   opponentTeamId: number,
   onProgress?: ProgressCallback,
   asOfDate?: string,
-  simulationMethod?: "monte_carlo" | "pythagorean"
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  simBudget?: number
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
@@ -963,7 +969,7 @@ export async function runFirstRoundMatchupAnalysis(
       )
     );
 
-  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSlices, maxRunDiff, callFn, onProgress);
+  return runMatchupMonteCarlo(remainingGames, teamId, opponentTeamId, bracketSlices, maxRunDiff, callFn, onProgress, simBudget);
 }
 
 export async function runTournamentFirstRoundMatchupAnalysis(
@@ -1005,7 +1011,8 @@ export async function runMostLikelySeedAnalysis(
   teamId: number,
   onProgress?: ProgressCallback,
   asOfDate?: string,
-  simulationMethod?: "monte_carlo" | "pythagorean"
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  simBudget?: number
 ): Promise<EngineResult> {
   const [remainingGames, standingsData] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
@@ -1028,7 +1035,7 @@ export async function runMostLikelySeedAnalysis(
       )
     );
 
-  return runMostLikelySeedMonteCarlo(remainingGames, teamId, maxRunDiff, callFn, onProgress);
+  return runMostLikelySeedMonteCarlo(remainingGames, teamId, maxRunDiff, callFn, onProgress, simBudget);
 }
 
 export async function runTournamentMostLikelySeedAnalysis(
@@ -1068,7 +1075,8 @@ export async function runMostLikelyMatchupAnalysis(
   teamId: number,
   onProgress?: ProgressCallback,
   asOfDate?: string,
-  simulationMethod?: "monte_carlo" | "pythagorean"
+  simulationMethod?: "monte_carlo" | "pythagorean",
+  simBudget?: number
 ): Promise<EngineResult> {
   const [remainingGames, standingsData, bracketSlices] = await Promise.all([
     getRemainingGames(seasonId, asOfDate),
@@ -1092,7 +1100,7 @@ export async function runMostLikelyMatchupAnalysis(
       )
     );
 
-  return runMostLikelyMatchupMonteCarlo(remainingGames, teamId, bracketSlices, maxRunDiff, callFn, onProgress);
+  return runMostLikelyMatchupMonteCarlo(remainingGames, teamId, bracketSlices, maxRunDiff, callFn, onProgress, simBudget);
 }
 
 export async function runTournamentMostLikelyMatchupAnalysis(
