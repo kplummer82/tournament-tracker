@@ -1,0 +1,98 @@
+{
+  "$comment": [
+    "Drift manifest for the Learn guides. `reviewed` is the date a human last",
+    "verified the guide against the app; it is also the date rendered as",
+    "'Updated' on the guide page (registry.ts reads it from here).",
+    "`watch` lists the source files/directories the guide documents — when git",
+    "sees a commit touching them after `reviewed`, `npm run learn:drift` flags",
+    "the guide. Paths are matched literally, so bracketed route names are fine.",
+    "`deck` marks a guide that also ships a built PDF needing a rebuild.",
+    "After re-verifying a guide, bump its `reviewed` to today."
+  ],
+  "guides": {
+    "getting-started": {
+      "reviewed": "2026-07-10",
+      "watch": [
+        "pages/sign-up.tsx",
+        "pages/login.tsx",
+        "pages/index.tsx",
+        "pages/invite",
+        "pages/welcome",
+        "pages/account.tsx",
+        "pages/mfa",
+        "components/Header.tsx",
+        "components/AuthGate.tsx",
+        "components/PendingApprovalScreen.tsx",
+        "components/signup",
+        "components/account",
+        "lib/mfa.ts",
+        "lib/invites.ts",
+        "middleware.ts"
+      ]
+    },
+    "follow-your-team": {
+      "reviewed": "2026-07-10",
+      "watch": [
+        "components/FollowButton.tsx",
+        "components/teams/TeamCalendarTab.tsx",
+        "pages/index.tsx",
+        "pages/teams/index.tsx",
+        "pages/api/me/follows.ts",
+        "pages/api/me/follows"
+      ]
+    },
+    "defensive-lineups": {
+      "reviewed": "2026-08-29",
+      "deck": "public/learn/defensive-lineup-guide.pdf",
+      "watch": [
+        "pages/games/[source]/[gameId].tsx",
+        "components/games",
+        "components/lineups",
+        "components/teams/PositionSourcePicker.tsx",
+        "components/teams/TeamLineupsTab.tsx",
+        "lib/lineups",
+        "lib/lineupTemplates.ts",
+        "lib/lineupRules.ts",
+        "lib/lineup-card-pdf.ts",
+        "lib/positionConsensus.ts",
+        "lib/rosterPositions.ts",
+        "lib/hooks/usePositionSource.ts",
+        "pages/api/games",
+        "pages/api/teams/[teamId]/lineup-templates"
+      ]
+    },
+    "first-season": {
+      "reviewed": "2026-07-10",
+      "watch": [
+        "pages/leagues",
+        "pages/seasons",
+        "components/seasons",
+        "components/AddTeamsModal.tsx",
+        "components/TiebreakersPanel.tsx",
+        "lib/seasons",
+        "lib/standings",
+        "lib/scheduling",
+        "lib/auto-schedule.ts"
+      ]
+    },
+    "team-roster": {
+      "reviewed": "2026-07-22",
+      "watch": [
+        "pages/teams/[teamId].tsx",
+        "pages/teams/[teamId]/roster/[rosterId].tsx",
+        "pages/api/teams/[teamId]/roster.ts",
+        "pages/api/teams/[teamId]/roster",
+        "components/teams/PlayerPositionsCard.tsx",
+        "components/teams/PositionChips.tsx",
+        "components/teams/PositionSourcePicker.tsx",
+        "components/teams/WalkupSongInput.tsx",
+        "components/CreateTeamModal.tsx",
+        "lib/roster",
+        "lib/rosterPositions.ts",
+        "lib/positionConsensus.ts",
+        "lib/positions.ts",
+        "lib/hooks/usePositionSource.ts"
+      ]
+    }
+  }
+}

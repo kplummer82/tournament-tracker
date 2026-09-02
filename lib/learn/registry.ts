@@ -4,6 +4,7 @@ import FollowYourTeam, { sections as followYourTeamSections } from "@/components
 import DefensiveLineups, { sections as defensiveLineupsSections } from "@/components/learn/guides/defensive-lineups";
 import FirstSeason, { sections as firstSeasonSections } from "@/components/learn/guides/first-season";
 import TeamRoster, { sections as teamRosterSections } from "@/components/learn/guides/team-roster";
+import guideSources from "./guide-sources.json";
 
 export type LearnPersona = "follower" | "coach" | "league-operator" | "tournament-organizer";
 
@@ -29,7 +30,8 @@ export interface GuideMeta {
   personas: LearnPersona[];   // hub filter chips
   category: GuideCategory;
   order: number;              // hub sort
-  updated?: string;           // ISO date shown on the guide
+  updated?: string;           // ISO date shown on the guide — derived from
+                              // guide-sources.json `reviewed`, not set by hand
   heroImage?: string;         // /learn/*.png — og:image + hub card
   pdfHref?: string;           // optional downloadable deck
   relatedRoutes?: string[];   // phase 2: contextual links from feature pages
@@ -45,7 +47,14 @@ export interface GuideEntry extends GuideMeta {
   sections?: GuideSection[];
 }
 
-export const GUIDES: GuideEntry[] = [
+/* When a guide is verified against the app, bump its `reviewed` date in
+   lib/learn/guide-sources.json — that single date both drives the "Updated"
+   line below and silences `npm run learn:drift` for that guide. */
+const REVIEWED: Record<string, string | undefined> = Object.fromEntries(
+  Object.entries(guideSources.guides).map(([slug, meta]) => [slug, (meta as { reviewed?: string }).reviewed])
+);
+
+const GUIDE_DEFS: Omit<GuideEntry, "updated">[] = [
   {
     slug: "getting-started",
     title: "Getting started with Stacked Bench",
@@ -53,7 +62,6 @@ export const GUIDES: GuideEntry[] = [
     personas: ["follower", "coach", "league-operator", "tournament-organizer"],
     category: "getting-started",
     order: 1,
-    updated: "2026-07-10",
     heroImage: "/learn/signup.png",
     Component: GettingStarted,
     sections: gettingStartedSections,
@@ -65,7 +73,6 @@ export const GUIDES: GuideEntry[] = [
     personas: ["follower"],
     category: "getting-started",
     order: 2,
-    updated: "2026-07-10",
     heroImage: "/learn/follow-team.png",
     relatedRoutes: ["/teams"],
     Component: FollowYourTeam,
@@ -78,7 +85,6 @@ export const GUIDES: GuideEntry[] = [
     personas: ["coach"],
     category: "lineups",
     order: 3,
-    updated: "2026-07-10",
     heroImage: "/learn/defense-grid.png",
     pdfHref: "/learn/defensive-lineup-guide.pdf",
     relatedRoutes: ["/games"],
@@ -92,7 +98,6 @@ export const GUIDES: GuideEntry[] = [
     personas: ["league-operator"],
     category: "leagues",
     order: 4,
-    updated: "2026-07-10",
     heroImage: "/learn/season-overview.png",
     relatedRoutes: ["/leagues"],
     Component: FirstSeason,
@@ -105,13 +110,14 @@ export const GUIDES: GuideEntry[] = [
     personas: ["coach"],
     category: "teams",
     order: 5,
-    updated: "2026-07-22",
     heroImage: "/learn/roster.png",
     relatedRoutes: ["/teams"],
     Component: TeamRoster,
     sections: teamRosterSections,
   },
 ];
+
+export const GUIDES: GuideEntry[] = GUIDE_DEFS.map((g) => ({ ...g, updated: REVIEWED[g.slug] }));
 
 export function getGuide(slug: string): GuideEntry | undefined {
   return GUIDES.find((g) => g.slug === slug);

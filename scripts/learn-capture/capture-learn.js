@@ -17,11 +17,13 @@ const settle = async (page, ms = 900) => {
   await page.evaluate(() => document.querySelectorAll("nextjs-portal").forEach((e) => e.remove()));
 };
 
+// `target` is optional: a CSS/xpath selector string, a Locator, or omitted for
+// a full-page shot.
 const shoot = (page, name, theme, target) => {
   const file = `${OUT}/${name}${theme === "light" ? "-light" : ""}.png`;
-  return target
-    ? page.locator(target).screenshot({ path: file })
-    : page.screenshot({ path: file });
+  if (!target) return page.screenshot({ path: file });
+  const loc = typeof target === "string" ? page.locator(target) : target;
+  return loc.screenshot({ path: file });
 };
 
 (async () => {
@@ -105,6 +107,9 @@ const shoot = (page, name, theme, target) => {
     // Defense: empty grid → picker open → duplicate (unsaved, discarded)
     await page.getByRole("tab", { name: "Defense" }).click();
     await settle(page, 600);
+    // The Positions picker renders only once the position-authors fetch lands;
+    // without this wait it's a coin flip whether the toolbar shots include it.
+    await page.locator("#defense-position-source").waitFor({ state: "visible", timeout: 10000 });
     await shoot(page, "defense-grid", theme);
     await page.locator('[data-cell="1-P"] input').click();
     await page.waitForTimeout(400);
@@ -140,6 +145,22 @@ const shoot = (page, name, theme, target) => {
       { gameId: IDS.demoGameId, teamId: IDS.hawks, lineup }
     );
     console.log("lineup+rules seeded", status);
+
+    // One saved lineup so the Import dialog has something to show. 409 = it
+    // survived from a previous run, which is just as good.
+    const tpl = await page.evaluate(
+      async ({ teamId, defense }) => {
+        const res = await fetch(`/api/teams/${teamId}/lineup-templates`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: "Opening Day", defense }),
+        });
+        return res.status;
+      },
+      { teamId: IDS.hawks, defense: inning }
+    );
+    console.log("lineup template seeded", tpl, tpl === 409 ? "(already existed)" : "");
     await ctx.close();
   }
 
@@ -151,7 +172,36 @@ const shoot = (page, name, theme, target) => {
     await settle(page);
     await page.getByRole("tab", { name: "Defense" }).click();
     await settle(page, 600);
+    // The Positions picker renders only once the position-authors fetch lands;
+    // without this wait it's a coin flip whether the toolbar shots include it.
+    await page.locator("#defense-position-source").waitFor({ state: "visible", timeout: 10000 });
     await shoot(page, "defense-warnings", theme);
+
+    /* The Defense toolbar: the Positions source picker and Import lineup both
+       live here. Shot as a strip rather than opening the picker — it's a native
+       <select>, so its menu is drawn by the OS and never lands in a screenshot.
+       Narrowed first so the flex-wrap toolbar wraps onto a few rows: at full
+       width it's a 50:1 slice that renders unreadably small in the guide. */
+    await page.setViewportSize({ width: 820, height: 900 });
+    await settle(page, 500);
+    await shoot(page, "defense-controls", theme, 'xpath=//label[@for="defense-position-source"]/../..');
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await settle(page, 500);
+
+    // Import dialog, with a lineup selected (auto-picks the first) and two
+    // innings chosen so Apply is live.
+    await page.getByRole("button", { name: /import lineup/i }).click();
+    await page.waitForTimeout(500);
+    const dialog = page.locator('[role="dialog"]');
+    for (const inn of ["1", "2"]) {
+      await dialog.getByRole("button", { name: inn, exact: true }).click();
+    }
+    await page.waitForTimeout(300);
+    await page.evaluate(() => document.querySelectorAll("nextjs-portal").forEach((e) => e.remove()));
+    await shoot(page, "defense-import", theme, dialog);
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await page.waitForTimeout(300);
+
     if (theme === "dark") {
       await shoot(page, "deck-bench", theme, 'div[data-slot="card"]:has-text("Bench / Unassigned")');
       await shoot(page, "deck-banner", theme, "css=.border-warning\\/40");

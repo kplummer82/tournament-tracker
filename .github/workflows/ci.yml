@@ -24,6 +24,18 @@ jobs:
       - run: npm ci
       - run: npm run build
 
+  # Reports Learn guides whose documented source changed since the guide was
+  # last reviewed (lib/learn/guide-sources.json). Advisory only — it emits
+  # ::warning:: annotations and always exits 0, so stale docs surface in the
+  # checks UI without ever blocking a code deploy.
+  learn-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # `git log --since` needs real history, not a shallow clone
+      - run: node scripts/learn-drift.js
+
   # End-to-end tests (RBAC/IDOR regression + smoke). Gated OFF by default so it
   # never breaks CI before it's configured. To activate:
   #   1. Add repository secrets: E2E_DATABASE_URL, E2E_NEON_AUTH_BASE_URL,

@@ -7,7 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "learn:drift": "node scripts/learn-drift.js",
+    "learn:seed": "node scripts/learn-capture/seed-demo.js",
+    "learn:preflight": "node scripts/learn-capture/ensure-demo-game.js",
+    "learn:capture": "npm run learn:preflight && node scripts/learn-capture/capture-learn.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.4",
