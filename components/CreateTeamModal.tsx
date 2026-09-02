@@ -11,6 +11,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus } from "lucide-react";
+import TeamLocationInput, {
+  EMPTY_TEAM_LOCATION,
+  isTeamLocationComplete,
+  teamLocationPayload,
+  type TeamLocation,
+} from "@/components/TeamLocationInput";
 
 type LookupRow = { id: number; name: string };
 
@@ -24,6 +30,12 @@ type TeamCreatePayload = {
   sport?: string;
   leagueId?: number;
   leagueDivisionId?: number;
+  locationType?: "home_field" | "city" | null;
+  homeLocationId?: number | null;
+  city?: string | null;
+  state?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 const SEASONS = ["Spring", "Summer", "Fall", "Winter"] as const;
@@ -85,6 +97,7 @@ export default function CreateTeamModal({
   const [leagueId, setLeagueId] = useState<string>("");
   const [divisionId, setDivisionId] = useState<string>("");
   const [sportId, setSportId] = useState<string>("");
+  const [location, setLocation] = useState<TeamLocation>(EMPTY_TEAM_LOCATION);
   const [submitting, setSubmitting] = useState(false);
 
   // League-specific divisions, loaded on demand
@@ -142,17 +155,20 @@ export default function CreateTeamModal({
     setLeagueId("");
     setDivisionId("");
     setSportId("");
+    setLocation(EMPTY_TEAM_LOCATION);
     setLeagueDivisions([]);
   };
 
   const buildPayload = (): TeamCreatePayload | null => {
     if (!name || !year || !season || !divisionId || !sportId) return null;
+    if (!isTeamLocationComplete(location)) return null;
     const base = {
       name,
       year,
       season,
       sportId: Number(sportId),
       sport: selectedSport?.name,
+      ...teamLocationPayload(location),
     };
     if (isLeagueTeam) {
       return {
@@ -196,7 +212,7 @@ export default function CreateTeamModal({
     }
   };
 
-  const canSubmit = !!(name && year && season && divisionId && sportId);
+  const canSubmit = !!(name && year && season && divisionId && sportId) && isTeamLocationComplete(location);
 
   // Division picker is disabled while league divisions are loading, or while global lookups load
   const divisionDisabled = loading || (!!isLeagueTeam && leagueDivisionsLoading);
@@ -236,7 +252,7 @@ export default function CreateTeamModal({
           </div>
         ) : null}
 
-        <div className="grid gap-4 py-2">
+        <div className="grid gap-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
           {/* Team Name */}
           <div className="grid gap-2">
             <Label htmlFor="team-name" className="label-section">Team name</Label>
@@ -333,6 +349,12 @@ export default function CreateTeamModal({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Location — a home field from the directory, or a city */}
+          <div className="grid gap-2">
+            <Label className="label-section">Location</Label>
+            <TeamLocationInput value={location} onChange={setLocation} idPrefix="create-team-location" />
           </div>
         </div>
 

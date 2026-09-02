@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { sql } from '@/lib/db';
 import { requireTeamAccess } from '@/lib/auth/requireSession';
+import { parseTeamLocation, teamLocationLabel } from '@/lib/teams/location';
 
 export type TeamDetail = {
   id: number;
@@ -15,6 +16,15 @@ export type TeamDetail = {
   league_division_id: number | null;
   league_division_name: string | null;
   notes: string | null;
+  location_type: 'home_field' | 'city' | null;
+  home_location_id: number | null;
+  home_location_name: string | null;
+  /** Effective city — the team's own, or the home field's. */
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  location_label: string | null;
 };
 
 export type TeamTournament = {
@@ -48,12 +58,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           l.name                AS league_name,
           t.league_division_id  AS league_division_id,
           ld.name               AS league_division_name,
-          t.notes               AS notes
+          t.notes               AS notes,
+          t.location_type       AS location_type,
+          t.home_location_id    AS home_location_id,
+          hl.name               AS home_location_name,
+          COALESCE(t.city,      hl.city)      AS city,
+          COALESCE(t.state,     hl.state)     AS state,
+          COALESCE(t.latitude,  hl.latitude)  AS latitude,
+          COALESCE(t.longitude, hl.longitude) AS longitude
         FROM teams t
         LEFT JOIN divisions        d  ON d.id  = t.division
         LEFT JOIN sport            s  ON s.id  = t.sportid
         LEFT JOIN leagues          l  ON l.id  = t.league_id
         LEFT JOIN league_divisions ld ON ld.id = t.league_division_id
+        LEFT JOIN locations        hl ON hl.id = t.home_location_id
         WHERE t.teamid = ${id}
         LIMIT 1
       `) as TeamDetail[];
@@ -89,6 +107,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         league_division_id: teamRows[0].league_division_id ?? null,
         league_division_name: teamRows[0].league_division_name ?? null,
         notes: teamRows[0].notes ?? null,
+        location_type: teamRows[0].location_type ?? null,
+        home_location_id: teamRows[0].home_location_id ?? null,
+        home_location_name: teamRows[0].home_location_name ?? null,
+        city: teamRows[0].city ?? null,
+        state: teamRows[0].state ?? null,
+        latitude: teamRows[0].latitude != null ? Number(teamRows[0].latitude) : null,
+        longitude: teamRows[0].longitude != null ? Number(teamRows[0].longitude) : null,
+        location_label: teamLocationLabel(teamRows[0]),
       };
 
       const tournaments: TeamTournament[] = tournamentRows.map((r) => ({
@@ -114,6 +140,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const notesValue =
         typeof notes === 'string' && notes.trim() !== '' ? notes.trim() : null;
 
+      // Omitting `locationType` leaves the location untouched; sending it null
+      // clears it. Either way all six columns move together so the two shapes
+      // can never mix (see the teams_location_shape CHECK).
+      const parsedLocation = parseTeamLocation(body);
+      if (parsedLocation.error) {
+        res.status(400).json({ error: parsedLocation.error });
+        return;
+      }
+      const location = parsedLocation.value;
+      const hasLocation = location !== null;
+
       const updated = await sql`
         UPDATE teams
         SET
@@ -133,6 +170,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           notes = CASE WHEN ${hasNotes}
                         THEN ${notesValue}::text
                         ELSE notes
+                      END,
+          location_type = CASE WHEN ${hasLocation}
+                        THEN ${location?.locationType ?? null}::text
+                        ELSE location_type
+                      END,
+          home_location_id = CASE WHEN ${hasLocation}
+                        THEN ${location?.homeLocationId ?? null}::int
+                        ELSE home_location_id
+                      END,
+          city = CASE WHEN ${hasLocation}
+                        THEN ${location?.city ?? null}::text
+                        ELSE city
+                      END,
+          state = CASE WHEN ${hasLocation}
+                        THEN ${location?.state ?? null}::text
+                        ELSE state
+                      END,
+          latitude = CASE WHEN ${hasLocation}
+                        THEN ${location?.latitude ?? null}::numeric
+                        ELSE latitude
+                      END,
+          longitude = CASE WHEN ${hasLocation}
+                        THEN ${location?.longitude ?? null}::numeric
+                        ELSE longitude
                       END
         WHERE teamid = ${id}
         RETURNING teamid AS id

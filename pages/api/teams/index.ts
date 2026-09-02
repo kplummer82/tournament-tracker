@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { neon } from "@neondatabase/serverless";
 import { requireSession } from "@/lib/auth/requireSession";
 import { assignRole } from "@/lib/auth/permissions";
+import { parseTeamLocation, teamLocationLabel } from "@/lib/teams/location";
 
 const sql = neon(process.env.DATABASE_URL!);
 
@@ -109,6 +110,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         LEFT JOIN divisions      d  ON d.id  = t.division
         LEFT JOIN leagues        l  ON l.id  = t.league_id
         LEFT JOIN league_divisions ld ON ld.id = t.league_division_id
+        LEFT JOIN locations      hl ON hl.id = t.home_location_id
         ${whereSQL};
         `,
         params
@@ -131,12 +133,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           t.league_id       AS league_id,
           l.name            AS league_name,
           t.league_division_id   AS league_division_id,
-          ld.name                AS league_division_name
+          ld.name                AS league_division_name,
+          t.location_type        AS location_type,
+          t.home_location_id     AS home_location_id,
+          hl.name                AS home_location_name,
+          COALESCE(t.city,  hl.city)  AS city,
+          COALESCE(t.state, hl.state) AS state
         FROM teams t
         LEFT JOIN sport          s  ON s.id  = t.sportid
         LEFT JOIN divisions      d  ON d.id  = t.division
         LEFT JOIN leagues        l  ON l.id  = t.league_id
         LEFT JOIN league_divisions ld ON ld.id = t.league_division_id
+        LEFT JOIN locations      hl ON hl.id = t.home_location_id
         ${whereSQL}
         ${orderBySQL}
         LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length};
@@ -229,6 +237,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           league_name: r.league_name ?? null,
           league_division_id: r.league_division_id ?? null,
           league_division_name: r.league_division_name ?? null,
+          location_type: r.location_type ?? null,
+          home_location_id: r.home_location_id ?? null,
+          home_location_name: r.home_location_name ?? null,
+          city: r.city ?? null,
+          state: r.state ?? null,
+          location_label: teamLocationLabel(r),
           record: rec,
         };
       });
@@ -241,8 +255,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const session = await requireSession(req, res);
       if (!session) return;
 
-      const { name, divisionId, divisionLabel, season, year, sportId, leagueId, leagueDivisionId } = req.body || {};
+      const body = req.body || {};
+      const { name, divisionId, divisionLabel, season, year, sportId, leagueId, leagueDivisionId } = body;
       const isLeagueTeam = !!leagueId;
+
+      // Location is optional here: the UI's Create Team form requires it, but
+      // programmatic creates (season quick-add, seeds) leave it to be set later.
+      const parsedLocation = parseTeamLocation(body);
+      if (parsedLocation.error) {
+        res.status(400).json({ error: parsedLocation.error });
+        return;
+      }
+      const location = parsedLocation.value;
 
       // League team requires leagueDivisionId; independent team requires divisionId or divisionLabel
       if (!name || !season || !year) {
@@ -300,8 +324,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const insertRes = await sql.query(
         `
-        INSERT INTO teams (name, division, season, year, sportid, league_id, league_division_id, created_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO teams (
+          name, division, season, year, sportid, league_id, league_division_id, created_by,
+          location_type, home_location_id, city, state, latitude, longitude
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING teamid AS id;
         `,
         [
@@ -313,6 +340,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           leagueId ? Number(leagueId) : null,
           leagueDivisionId ? Number(leagueDivisionId) : null,
           session.user.id,
+          location?.locationType ?? null,
+          location?.homeLocationId ?? null,
+          location?.city ?? null,
+          location?.state ?? null,
+          location?.latitude ?? null,
+          location?.longitude ?? null,
         ]
       );
 

@@ -5,7 +5,7 @@ import Link from "next/link";
 import Header from "@/components/Header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Check, Loader2, Pencil, Plus, Star, Trash2, X } from "lucide-react";
+import { Check, Loader2, MapPin, Pencil, Plus, Star, Trash2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -21,6 +21,11 @@ import TeamLineupsTab from "@/components/teams/TeamLineupsTab";
 import { WalkupSongInput, WalkupSongLink } from "@/components/teams/WalkupSongInput";
 import { usePermissions } from "@/lib/hooks/usePermissions";
 import FollowButton from "@/components/FollowButton";
+import TeamLocationInput, {
+  isTeamLocationComplete,
+  teamLocationPayload,
+  type TeamLocation,
+} from "@/components/TeamLocationInput";
 import ManageAccessPanel from "@/components/ManageAccessPanel";
 import PositionChips, { type ChipEntry } from "@/components/teams/PositionChips";
 import PositionSourcePicker, { authorLabel } from "@/components/teams/PositionSourcePicker";
@@ -1071,6 +1076,15 @@ function EditTeamModal({
   const [divisionId, setDivisionId] = useState("");
   const [sportId, setSportId] = useState("");
   const [notes, setNotes] = useState(team.notes ?? "");
+  const [location, setLocation] = useState<TeamLocation>(() => ({
+    locationType: team.location_type,
+    homeLocationId: team.home_location_id,
+    homeLocationName: team.home_location_name,
+    city: team.location_type === "city" ? team.city : null,
+    state: team.location_type === "city" ? team.state : null,
+    latitude: team.location_type === "city" ? team.latitude : null,
+    longitude: team.location_type === "city" ? team.longitude : null,
+  }));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1166,7 +1180,8 @@ function EditTeamModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [leagueId, isLeagueTeam]);
 
-  const canSubmit = !!(name && year && season && divisionId && sportId);
+  const canSubmit =
+    !!(name && year && season && divisionId && sportId) && isTeamLocationComplete(location);
 
   const handleSave = async () => {
     if (!canSubmit) return;
@@ -1179,6 +1194,7 @@ function EditTeamModal({
         season,
         sportId: Number(sportId),
         notes: notes.trim() || null,
+        ...teamLocationPayload(location),
       };
       if (isLeagueTeam) {
         body.leagueId = Number(leagueId);
@@ -1234,7 +1250,7 @@ function EditTeamModal({
           </div>
         )}
 
-        <div className="grid gap-4 py-2">
+        <div className="grid gap-4 py-2 max-h-[65vh] overflow-y-auto pr-1">
           {/* Team Name */}
           <div className="grid gap-2">
             <Label htmlFor="edit-team-name" className="label-section">Team name</Label>
@@ -1335,6 +1351,12 @@ function EditTeamModal({
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          {/* Location — a home field from the directory, or a city */}
+          <div className="grid gap-2">
+            <Label className="label-section">Location</Label>
+            <TeamLocationInput value={location} onChange={setLocation} idPrefix="edit-team-location" />
           </div>
 
           {/* Notes */}
@@ -1533,6 +1555,26 @@ export default function TeamDetailPage() {
                   <div>
                     <dt className="text-muted-foreground">League</dt>
                     <dd className="font-medium">{team.league_name ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">
+                      {team.location_type === "home_field" ? "Home field" : "Location"}
+                    </dt>
+                    <dd className="font-medium">
+                      {team.location_label ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                          {team.location_label}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                    {team.location_type === "home_field" && team.city && (
+                      <dd className="text-xs text-muted-foreground">
+                        {[team.city, team.state].filter(Boolean).join(", ")}
+                      </dd>
+                    )}
                   </div>
                   <div className="sm:col-span-2">
                     <dt className="text-muted-foreground">Notes</dt>

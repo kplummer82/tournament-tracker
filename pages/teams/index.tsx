@@ -4,7 +4,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Search, X, ArrowRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, X, ArrowRight, MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import Header from "@/components/Header";
@@ -21,6 +21,7 @@ type Team = {
   sport: string;
   league_name: string | null;
   league_division_name: string | null;
+  location_label: string | null;
   record?: TeamRecord;
 };
 type TeamsResponse = { rows: Team[]; total: number };
@@ -103,6 +104,12 @@ function TeamRow({ t }: { t: Team }) {
         className="hidden sm:flex items-center gap-3 text-muted-foreground shrink-0"
         style={{ fontFamily: "var(--font-body)", fontSize: "12px" }}
       >
+        {t.location_label && (
+          <span className="inline-flex items-center gap-1">
+            <MapPin className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+            {t.location_label}
+          </span>
+        )}
         {t.league_name && <span>{t.league_name}</span>}
         {(t.league_division_name || t.division) && (
           <span className="border border-border/60 px-2 py-0.5 text-[10px] uppercase tracking-wider">
@@ -272,7 +279,7 @@ export default function TeamsIndexPage() {
 
   const clearFilters = () => setFilters({ q: "", year: undefined, division: undefined, season: undefined, sport: undefined });
 
-  const handleCreate = async (t: Partial<Team>): Promise<{ id: number }> => {
+  const handleCreate = async (t: Record<string, unknown>): Promise<{ id: number }> => {
     const res = await fetch("/api/teams", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
