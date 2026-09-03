@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { ALL_GAME_SOURCES, type GameSource } from "@/lib/teams/gameSources";
 
 /**
- * Which kinds of games count toward the records and predictions a tournament
- * shows. Persisted globally rather than per tournament so the choice follows
+ * Which kinds of games count toward the projections a tournament shows.
+ * Persisted globally rather than per tournament so the choice follows
  * the viewer between the Pool, Standings and Bracket tabs — each of those is a
  * separate Pages-Router page, so without this the toggles would reset on every
  * tab click.

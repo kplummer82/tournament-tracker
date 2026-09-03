@@ -16,9 +16,9 @@
  */
 
 import { sql } from "@/lib/db";
-import type { GameSource, SourceAggregate } from "./gameSources";
+import type { GameSource, SourceAggregate, TeamWLT } from "./gameSources";
 
-export type { GameSource, SourceAggregate };
+export type { GameSource, SourceAggregate, TeamWLT };
 
 /**
  * Per-team, per-source totals for every completed game these teams have played.
@@ -172,4 +172,52 @@ export function groupAggregatesByTeam(
     else byTeam.set(a.team_id, [a]);
   }
   return byTeam;
+}
+
+/**
+ * W-L-T for every team inside a single tournament — pool and bracket games
+ * alike. Same "Final with both scores" rule as `fetchTeamGameAggregates`, so a
+ * team's showing in this tournament can be read straight against its all-time
+ * record without the two counting games differently.
+ */
+export async function fetchTournamentTeamRecords(
+  tournamentId: number
+): Promise<Map<number, TeamWLT>> {
+  const rows = (await sql`
+    WITH results AS (
+      SELECT tg.home AS team_id,
+             CASE WHEN tg.homescore > tg.awayscore THEN 'W'
+                  WHEN tg.homescore < tg.awayscore THEN 'L'
+                  ELSE 'T' END AS result
+      FROM tournamentgames tg
+      LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+      WHERE tg.tournamentid = ${tournamentId}
+        AND gs.gamestatus = 'Final'
+        AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+
+      UNION ALL
+
+      SELECT tg.away AS team_id,
+             CASE WHEN tg.awayscore > tg.homescore THEN 'W'
+                  WHEN tg.awayscore < tg.homescore THEN 'L'
+                  ELSE 'T' END AS result
+      FROM tournamentgames tg
+      LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
+      WHERE tg.tournamentid = ${tournamentId}
+        AND gs.gamestatus = 'Final'
+        AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
+    )
+    SELECT
+      team_id,
+      COUNT(*) FILTER (WHERE result = 'W')::int AS w,
+      COUNT(*) FILTER (WHERE result = 'L')::int AS l,
+      COUNT(*) FILTER (WHERE result = 'T')::int AS t
+    FROM results
+    WHERE team_id IS NOT NULL
+    GROUP BY team_id
+  `) as { team_id: number; w: number; l: number; t: number }[];
+
+  return new Map(
+    rows.map((r) => [Number(r.team_id), { w: Number(r.w), l: Number(r.l), t: Number(r.t) }])
+  );
 }

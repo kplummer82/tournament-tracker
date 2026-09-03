@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
 import type { TournamentStandingsRow as StandingsRow } from "@/pages/api/tournaments/[tournamentid]/standings";
-import type { TournamentTeamStats } from "@/pages/api/tournaments/[tournamentid]/team-stats";
 import { Trophy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import CoinTossResolver, { type CoinTossGroup } from "@/components/standings/CoinTossResolver";
@@ -11,7 +10,6 @@ import type { CoinTossPhase } from "@/lib/standings/types";
 import GameSourceToggles from "@/components/tournaments/GameSourceToggles";
 import PredictTournamentButton, { PredictionBanner } from "@/components/tournaments/PredictTournamentButton";
 import { useGameSources } from "@/lib/hooks/useGameSources";
-import { formatRecord, sumRecord, type TeamWLT } from "@/lib/teams/gameSources";
 import { fetchTournamentPrediction, type TournamentPrediction } from "@/lib/tournaments/prediction";
 
 const formatWLPct = (wltpct: unknown, games: number): string => {
@@ -37,12 +35,10 @@ function StandingsTable({
   rows,
   advancesPerGroup,
   unresolvedTeamIds,
-  records,
 }: {
   rows: StandingsRow[];
   advancesPerGroup: number | null;
   unresolvedTeamIds?: Set<number>;
-  records: Map<number, TeamWLT>;
 }) {
   return (
     <div className="border border-border overflow-x-auto">
@@ -51,7 +47,6 @@ function StandingsTable({
           <tr className="border-b border-border bg-surface">
             <th className="p-3 pl-4 text-left label-section w-14">Rank</th>
             <th className="p-3 text-left label-section">Team</th>
-            <th className="p-3 text-left label-section w-24">Record</th>
             <th className="p-3 text-right label-section">W</th>
             <th className="p-3 text-right label-section">G</th>
             <th className="p-3 text-right label-section">Pct</th>
@@ -110,13 +105,6 @@ function StandingsTable({
                   {r.team ?? "—"}
                   {unresolvedTeamIds?.has(r.teamid) && <CoinTossPill />}
                 </td>
-                <td
-                  className="p-3 tabular-nums text-muted-foreground"
-                  style={{ fontFamily: "var(--font-body)" }}
-                  title="Overall record from the selected game sources"
-                >
-                  {formatRecord(records.get(r.teamid))}
-                </td>
                 <td className="p-3 text-right tabular-nums" style={{ fontFamily: "var(--font-body)" }}>{r.wins}</td>
                 <td className="p-3 text-right tabular-nums text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>{r.games}</td>
                 <td className="p-3 text-right tabular-nums font-medium" style={{ fontFamily: "var(--font-body)" }}>
@@ -163,12 +151,10 @@ function TournamentStandingsCardList({
   rows,
   advancesPerGroup,
   unresolvedTeamIds,
-  records,
 }: {
   rows: StandingsRow[];
   advancesPerGroup: number | null;
   unresolvedTeamIds?: Set<number>;
-  records: Map<number, TeamWLT>;
 }) {
   return (
     <div className="border border-border divide-y divide-border/50">
@@ -213,10 +199,6 @@ function TournamentStandingsCardList({
                 </span>
               </div>
               <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground" style={{ fontFamily: "var(--font-body)" }}>
-                <span className="tabular-nums font-medium text-foreground/80" title="Overall record from the selected game sources">
-                  {formatRecord(records.get(r.teamid))}
-                </span>
-                <span className="text-muted-foreground/40">·</span>
                 <span className="tabular-nums">{r.wins}W</span>
                 <span>({r.games}G)</span>
                 {advances && (
@@ -252,20 +234,18 @@ function ResponsiveStandings({
   rows,
   advancesPerGroup,
   unresolvedTeamIds,
-  records,
 }: {
   rows: StandingsRow[];
   advancesPerGroup: number | null;
   unresolvedTeamIds?: Set<number>;
-  records: Map<number, TeamWLT>;
 }) {
   return (
     <>
       <div className="hidden md:block">
-        <StandingsTable rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} records={records} />
+        <StandingsTable rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
       </div>
       <div className="md:hidden">
-        <TournamentStandingsCardList rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} records={records} />
+        <TournamentStandingsCardList rows={rows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
       </div>
     </>
   );
@@ -283,34 +263,11 @@ function StandingsBody() {
   const [includeInProgress, setIncludeInProgress] = useState(false);
 
   const { sources, toggleSource } = useGameSources();
-  const [teamStats, setTeamStats] = useState<TournamentTeamStats[]>([]);
   const [prediction, setPrediction] = useState<TournamentPrediction | null>(null);
   const [predicting, setPredicting] = useState(false);
   const [predictError, setPredictError] = useState<string | null>(null);
 
   const advancesPerGroup = t?.advances_per_group ?? null;
-
-  // Cross-source game history for every enrolled team. Fetched once — changing
-  // the source toggles re-sums it locally rather than hitting the network.
-  useEffect(() => {
-    if (!tid) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/tournaments/${tid}/team-stats`, { cache: "no-store" });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (!cancelled) setTeamStats(Array.isArray(data?.teams) ? data.teams : []);
-      } catch {
-        if (!cancelled) setTeamStats([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [tid]);
-
-  const records = new Map<number, TeamWLT>(
-    teamStats.map((ts) => [ts.teamid, sumRecord(Object.values(ts.bySource), sources)])
-  );
 
   // A projection is only valid for the inputs it was run with.
   const sourceKey = sources.join(",");
@@ -440,7 +397,7 @@ function StandingsBody() {
       </div>
 
       <div className="mb-4">
-        <GameSourceToggles value={sources} onToggle={toggleSource} />
+        <GameSourceToggles value={sources} onToggle={toggleSource} label="Predict from" />
       </div>
 
       {predictError && (
@@ -510,7 +467,7 @@ function StandingsBody() {
                     {gRows.length} team{gRows.length !== 1 ? "s" : ""}
                   </span>
                 </div>
-                <ResponsiveStandings rows={gRows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} records={records} />
+                <ResponsiveStandings rows={gRows} advancesPerGroup={advancesPerGroup} unresolvedTeamIds={unresolvedTeamIds} />
               </div>
             );
           })}
@@ -537,14 +494,13 @@ function StandingsBody() {
                 rows={displayRows.filter((r) => !r.pool_group).map((r, idx) => ({ ...r, rank_final: idx + 1 }))}
                 advancesPerGroup={null}
                 unresolvedTeamIds={unresolvedTeamIds}
-                records={records}
               />
             </div>
           )}
         </div>
       ) : (
         // No-groups mode: existing flat table
-        <ResponsiveStandings rows={displayRows} advancesPerGroup={null} unresolvedTeamIds={unresolvedTeamIds} records={records} />
+        <ResponsiveStandings rows={displayRows} advancesPerGroup={null} unresolvedTeamIds={unresolvedTeamIds} />
       )}
     </div>
   );

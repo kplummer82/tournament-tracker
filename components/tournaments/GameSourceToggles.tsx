@@ -2,15 +2,14 @@ import { ALL_GAME_SOURCES, GAME_SOURCE_LABELS, type GameSource } from "@/lib/tea
 import { cn } from "@/lib/utils";
 
 /**
- * Which game sources feed the records shown on screen — and, on the tournament
- * tabs, the strength estimates a prediction is built from. The last active
- * source can't be turned off: an empty selection would leave nothing to
- * compute from.
+ * Which game sources feed the strength estimates a tournament prediction is
+ * built from. The last active source can't be turned off: an empty selection
+ * would leave nothing to compute from.
  */
 export default function GameSourceToggles({
   value,
   onToggle,
-  label = "Record from",
+  label = "Predict from",
 }: {
   value: GameSource[];
   onToggle: (source: GameSource) => void;

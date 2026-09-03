@@ -24,7 +24,67 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import type { TournamentTeamStats } from "@/pages/api/tournaments/[tournamentid]/team-stats";
+import { ALL_GAME_SOURCES, formatRecord, sumRecord, type TeamWLT } from "@/lib/teams/gameSources";
+
 type TeamRow = { id?: number; name: string; season: string; pool_group: string | null };
+
+/** Which games the Record column counts. */
+type RecordMode = "overall" | "tournament";
+
+const RECORD_MODE_LABELS: Record<RecordMode, string> = {
+  overall: "Overall",
+  tournament: "This Tournament",
+};
+
+const RECORD_MODE_HINTS: Record<RecordMode, string> = {
+  overall: "W-L-T across every tournament, league game and scrimmage",
+  tournament: "W-L-T in this tournament only",
+};
+
+/**
+ * Overall vs. tournament-only record. Two mutually exclusive chips rather than
+ * the per-source toggles used for prediction — here the question is simply
+ * "this tournament, or everything".
+ */
+function RecordModeToggle({
+  value,
+  onChange,
+}: {
+  value: RecordMode;
+  onChange: (mode: RecordMode) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="label-section shrink-0" style={{ fontFamily: "var(--font-body)" }}>
+        Record
+      </span>
+      <div className="flex items-center gap-1 flex-wrap">
+        {(Object.keys(RECORD_MODE_LABELS) as RecordMode[]).map((mode) => {
+          const active = mode === value;
+          return (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={active}
+              title={RECORD_MODE_HINTS[mode]}
+              onClick={() => onChange(mode)}
+              className={cn(
+                "px-2.5 py-1 text-[11px] border transition-colors duration-100 leading-none",
+                active
+                  ? "border-primary bg-primary text-primary-foreground font-semibold"
+                  : "border-border bg-input-bg text-muted-foreground hover:border-primary/60 hover:text-foreground"
+              )}
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
+            >
+              {RECORD_MODE_LABELS[mode]}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function TeamBadge({ name }: { name: string }) {
   const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -76,7 +136,7 @@ function GroupPicker({
   );
 }
 
-function GroupSectionHeader({ label, count, colSpan = 3 }: { label: string; count: number; colSpan?: number }) {
+function GroupSectionHeader({ label, count, colSpan = 4 }: { label: string; count: number; colSpan?: number }) {
   return (
     <tr>
       <td colSpan={colSpan} className="px-4 pt-4 pb-1.5 bg-surface border-b border-border">
@@ -110,6 +170,8 @@ function TeamsBody() {
   const [err, setErr] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [localGroups, setLocalGroups] = useState<Record<number, string | null>>({});
+  const [teamStats, setTeamStats] = useState<TournamentTeamStats[]>([]);
+  const [recordMode, setRecordMode] = useState<RecordMode>("overall");
   
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [teamToRemove, setTeamToRemove] = useState<TeamRow | null>(null);
@@ -140,6 +202,24 @@ function TeamsBody() {
         if (!cancelled) setErr((e as Error).message || "Failed to load teams");
       } finally {
         if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [tid, version]);
+
+  // Cross-source game history for every enrolled team, plus this tournament’s own
+  // W-L-T. Both arrive in one payload, so flipping the toggle is local.
+  useEffect(() => {
+    if (!tid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/tournaments/${tid}/team-stats`, { cache: "no-store" });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled) setTeamStats(Array.isArray(data?.teams) ? data.teams : []);
+      } catch {
+        if (!cancelled) setTeamStats([]);
       }
     })();
     return () => { cancelled = true; };
@@ -228,6 +308,15 @@ function TeamsBody() {
       : r
   );
 
+  const records = new Map<number, TeamWLT>(
+    teamStats.map((ts) => [
+      ts.teamid,
+      recordMode === "tournament"
+        ? ts.tournamentRecord
+        : sumRecord(Object.values(ts.bySource), ALL_GAME_SOURCES),
+    ])
+  );
+
   const existingGroups = Array.from(
     new Set(mergedRows.map((r) => r.pool_group).filter(Boolean) as string[])
   ).sort();
@@ -273,6 +362,10 @@ function TeamsBody() {
         </p>
       )}
 
+      <div className="mb-4">
+        <RecordModeToggle value={recordMode} onChange={setRecordMode} />
+      </div>
+
       {loading ? (
         <div className="space-y-1">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -293,10 +386,11 @@ function TeamsBody() {
         </div>
       ) : (
         <div className="border border-border overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[660px] text-sm">
             <thead>
               <tr className="border-b border-border bg-surface">
                 <th className="text-left p-3 pl-4 label-section">Team</th>
+                <th className="text-left p-3 label-section w-24" title={RECORD_MODE_HINTS[recordMode]}>Record</th>
                 <th className="text-left p-3 label-section">Season</th>
                 {numGroups != null && (
                   <th className="text-left p-3 label-section w-28">Group</th>
@@ -312,7 +406,7 @@ function TeamsBody() {
                       key={`hdr-${section.key}`}
                       label={section.label}
                       count={section.rows.length}
-                      colSpan={numGroups != null ? 4 : 3}
+                      colSpan={numGroups != null ? 5 : 4}
                     />
                   )}
                   {section.rows.map((r, i) => (
@@ -338,6 +432,13 @@ function TeamsBody() {
                             <span className="font-medium" style={{ fontFamily: "var(--font-body)" }}>{r.name}</span>
                           )}
                         </div>
+                      </td>
+                      <td
+                        className="p-3 tabular-nums text-muted-foreground text-xs"
+                        style={{ fontFamily: "var(--font-body)" }}
+                        title={RECORD_MODE_HINTS[recordMode]}
+                      >
+                        {r.id != null ? formatRecord(records.get(r.id)) : "—"}
                       </td>
                       <td className="p-3 text-muted-foreground text-xs" style={{ fontFamily: "var(--font-body)" }}>{r.season}</td>
                       {numGroups != null && (
