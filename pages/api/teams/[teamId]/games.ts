@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { sql } from "@/lib/db";
+import { fetchTeamGameAggregates } from "@/lib/teams/gameHistory";
+import { ALL_GAME_SOURCES, sumRecord } from "@/lib/teams/gameSources";
 
 export type CalendarGameRow = {
   uid: string;
@@ -176,99 +178,15 @@ export default async function handler(
       ),
     ];
 
+    // Records span every source (scrimmage + league + tournament) — the calendar
+    // shows a team's overall record, not just the games listed above.
     const teamRecords: Record<number, TeamRecord> = {};
 
     if (allTeamIds.length > 0) {
-      const recRows = await sql`
-        WITH all_results AS (
-          -- Season games — home perspective
-          SELECT sg.home AS team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND sg.homescore > sg.awayscore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND sg.homescore < sg.awayscore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND sg.homescore = sg.awayscore THEN 'T'
-                      ELSE NULL END AS result
-          FROM season_games sg
-          LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
-          WHERE sg.home = ANY(${allTeamIds})
-            AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
-
-          UNION ALL
-
-          -- Season games — away perspective
-          SELECT sg.away AS team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND sg.awayscore > sg.homescore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND sg.awayscore < sg.homescore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND sg.awayscore = sg.homescore THEN 'T'
-                      ELSE NULL END AS result
-          FROM season_games sg
-          LEFT JOIN gamestatusoptions gs ON gs.id = sg.gamestatusid
-          WHERE sg.away = ANY(${allTeamIds})
-            AND sg.homescore IS NOT NULL AND sg.awayscore IS NOT NULL
-
-          UNION ALL
-
-          -- Tournament games — home perspective
-          SELECT tg.home AS team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND tg.homescore > tg.awayscore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND tg.homescore < tg.awayscore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND tg.homescore = tg.awayscore THEN 'T'
-                      ELSE NULL END AS result
-          FROM tournamentgames tg
-          LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
-          WHERE tg.home = ANY(${allTeamIds})
-            AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
-
-          UNION ALL
-
-          -- Tournament games — away perspective
-          SELECT tg.away AS team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND tg.awayscore > tg.homescore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND tg.awayscore < tg.homescore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND tg.awayscore = tg.homescore THEN 'T'
-                      ELSE NULL END AS result
-          FROM tournamentgames tg
-          LEFT JOIN gamestatusoptions gs ON gs.id = tg.gamestatusid
-          WHERE tg.away = ANY(${allTeamIds})
-            AND tg.homescore IS NOT NULL AND tg.awayscore IS NOT NULL
-
-          UNION ALL
-
-          -- Scrimmages — home (team_id) perspective
-          SELECT sc.team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND sc.homescore > sc.awayscore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND sc.homescore < sc.awayscore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND sc.homescore = sc.awayscore THEN 'T'
-                      ELSE NULL END AS result
-          FROM scrimmages sc
-          LEFT JOIN gamestatusoptions gs ON gs.id = sc.gamestatusid
-          WHERE sc.team_id = ANY(${allTeamIds})
-            AND sc.homescore IS NOT NULL AND sc.awayscore IS NOT NULL
-
-          UNION ALL
-
-          -- Scrimmages — away (opponent_team_id) perspective
-          SELECT sc.opponent_team_id AS team_id,
-                 CASE WHEN gs.gamestatus = 'Final' AND sc.awayscore > sc.homescore THEN 'W'
-                      WHEN gs.gamestatus = 'Final' AND sc.awayscore < sc.homescore THEN 'L'
-                      WHEN gs.gamestatus = 'Final' AND sc.awayscore = sc.homescore THEN 'T'
-                      ELSE NULL END AS result
-          FROM scrimmages sc
-          LEFT JOIN gamestatusoptions gs ON gs.id = sc.gamestatusid
-          WHERE sc.opponent_team_id = ANY(${allTeamIds})
-            AND sc.homescore IS NOT NULL AND sc.awayscore IS NOT NULL
-        )
-        SELECT
-          team_id,
-          COUNT(*) FILTER (WHERE result = 'W')::int AS w,
-          COUNT(*) FILTER (WHERE result = 'L')::int AS l,
-          COUNT(*) FILTER (WHERE result = 'T')::int AS t
-        FROM all_results
-        WHERE result IS NOT NULL
-        GROUP BY team_id
-      `;
-
-      for (const r of recRows as { team_id: number; w: number; l: number; t: number }[]) {
-        teamRecords[r.team_id] = { w: r.w, l: r.l, t: r.t };
+      const aggregates = await fetchTeamGameAggregates(allTeamIds);
+      for (const teamId of allTeamIds) {
+        const own = aggregates.filter((a) => a.team_id === teamId);
+        if (own.length > 0) teamRecords[teamId] = sumRecord(own, ALL_GAME_SOURCES);
       }
     }
 

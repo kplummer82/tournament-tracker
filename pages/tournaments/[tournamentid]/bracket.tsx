@@ -24,8 +24,22 @@ import {
   X,
   Pencil,
   Check,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import GameSourceToggles from "@/components/tournaments/GameSourceToggles";
+import PredictTournamentButton, { PredictionBanner } from "@/components/tournaments/PredictTournamentButton";
+import { useGameSources } from "@/lib/hooks/useGameSources";
+import {
+  fetchTournamentPrediction,
+  statsMapFrom,
+  type TournamentPrediction,
+} from "@/lib/tournaments/prediction";
+import {
+  predictBracketPythagorean,
+  type ActualGameResult,
+  type BracketPredictionResult,
+} from "@/lib/bracket-prediction";
 
 type TeamOpt = { id: number; name: string };
 
@@ -158,6 +172,8 @@ function BracketPanel({
   onUpdated,
   canEdit,
   hasPoolPlay,
+  prediction,
+  predictedSeedOrder,
 }: {
   bracket: TournamentBracket;
   tournamentId: number;
@@ -175,6 +191,10 @@ function BracketPanel({
   canEdit: boolean;
   /** When false, the tournament skips pool play — seed manually/randomly instead of from standings. */
   hasPoolPlay: boolean;
+  /** Active tournament projection, or null when none is running. Never persisted. */
+  prediction: TournamentPrediction | null;
+  /** Seed ordering implied by the projected standings, same shape as `standingsOrder`. */
+  predictedSeedOrder: number[];
 }) {
   const [structure, setStructure] = useState<BracketStructure | null>(bracket.structure ?? null);
   const [templateId, setTemplateId] = useState<number | null>(bracket.template_id ?? null);
@@ -393,6 +413,69 @@ function BracketPanel({
     if (game) setScheduleGame(game);
   };
 
+  // ---- Bracket projection (display only) ----
+  //
+  // Seeds come from the *projected* pool finish when one is available, so the
+  // bracket reflects where teams would land, not where they sit mid-pool. These
+  // seeds are computed inline and never written to `assignments` — that state is
+  // auto-persisted, and a projection must not be able to reseed the tournament.
+  const bracketPrediction: BracketPredictionResult | null = (() => {
+    if (!prediction || !structure) return null;
+
+    let seeds: Record<number, number> = assignments;
+    if (hasPoolPlay && predictedSeedOrder.length > 0) {
+      const projected: Record<number, number> = {};
+      for (let seed = 1; seed <= structure.numTeams; seed++) {
+        const teamId = predictedSeedOrder[seedOffset + seed - 1];
+        if (teamId != null) projected[seed] = teamId;
+      }
+      if (Object.keys(projected).length > 0) seeds = projected;
+    }
+    if (Object.keys(seeds).length === 0) return null;
+
+    const teamNames: Record<number, string> = {};
+    for (const tm of teams) teamNames[tm.id] = tm.name;
+
+    // Bracket games already played are kept — the walk resumes from there.
+    const actualResults: Record<string, ActualGameResult> = {};
+    for (const g of bracketGames) {
+      if (
+        g.bracket_game_id &&
+        g.homescore != null && g.awayscore != null &&
+        g.home != null && g.away != null
+      ) {
+        actualResults[g.bracket_game_id] = {
+          home: g.home,
+          away: g.away,
+          homescore: g.homescore,
+          awayscore: g.awayscore,
+          gamestatusid: g.gamestatusid,
+        };
+      }
+    }
+
+    return predictBracketPythagorean(
+      structure,
+      seeds,
+      teamNames,
+      actualResults,
+      statsMapFrom(prediction.stats),
+      prediction.leagueAvgRaPerG,
+      prediction.warning
+    );
+  })();
+
+  // Show projected seed labels alongside the projected bracket.
+  const predictedSeedLabels = (() => {
+    if (!bracketPrediction || !structure || !hasPoolPlay || predictedSeedOrder.length === 0) return null;
+    const projected: Record<number, number> = {};
+    for (let seed = 1; seed <= structure.numTeams; seed++) {
+      const teamId = predictedSeedOrder[seedOffset + seed - 1];
+      if (teamId != null) projected[seed] = teamId;
+    }
+    return Object.keys(projected).length > 0 ? seedLabelsFromAssignments(projected, teams) : null;
+  })();
+
   return (
     <div className="space-y-5">
       {scheduleGame && (
@@ -522,13 +605,31 @@ function BracketPanel({
               <p className="label-section mb-3">Preview</p>
               <BracketPreview
                 structure={structure}
-                seedLabels={seedLabels}
+                seedLabels={predictedSeedLabels ?? seedLabels}
                 seedOffset={seedOffset}
                 editable={false}
                 onGameClick={bracketGames.length > 0 ? handleGameClick : undefined}
                 gameDetails={bracketGames.length > 0 ? gameDetailsMap : undefined}
+                predictionOverlay={bracketPrediction?.games}
               />
-              {atLeastOneFinal && !allFinal && (
+              {bracketPrediction && bracketPrediction.championId != null && (
+                <div className="mt-3 flex items-center gap-3 px-4 py-3 border border-amber-500/40 bg-amber-500/10 rounded">
+                  <Sparkles className="h-5 w-5 text-amber-500 shrink-0" />
+                  <div>
+                    <p
+                      className="text-sm font-bold"
+                      style={{ fontFamily: "var(--font-display)", textTransform: "uppercase" }}
+                    >
+                      Predicted Champion: {bracketPrediction.championName}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Pythagorean expectation
+                      {predictedSeedLabels ? " · seeded from the projected pool finish" : ""}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {!bracketPrediction && atLeastOneFinal && !allFinal && (
                 <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-400">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                   At least one pool game has not been finalized — bracket seeding is tentative.
@@ -607,6 +708,41 @@ function BracketPanel({
   );
 }
 
+/**
+ * Flatten a standings table into the order brackets draw seeds from.
+ *
+ * With pool groups and an advancement cutoff, seeds interleave by finishing
+ * slot — every group's winner first (ordered among themselves by overall rank),
+ * then every runner-up, and so on — so a bracket doesn't stack one group's
+ * teams into the same half. Without groups it's just the ranked order.
+ */
+function buildStandingsOrder(rows: StandingsRow[], advancesPerGroup: number | null): number[] {
+  const hasGroups = rows.some((r) => r.pool_group != null);
+  if (!hasGroups || !advancesPerGroup) {
+    return rows.map((r) => r.teamid);
+  }
+  const groups = Array.from(
+    new Set(rows.map((r) => r.pool_group).filter(Boolean) as string[])
+  ).sort();
+  const byGroup: Record<string, StandingsRow[]> = {};
+  for (const g of groups) {
+    byGroup[g] = rows.filter((r) => r.pool_group === g);
+  }
+  const order: number[] = [];
+  for (let slot = 0; slot < advancesPerGroup; slot++) {
+    const slotTeams: StandingsRow[] = [];
+    for (const g of groups) {
+      const team = byGroup[g]?.[slot];
+      if (team) slotTeams.push(team);
+    }
+    slotTeams.sort((a, b) => a.rank_final - b.rank_final);
+    for (const team of slotTeams) {
+      order.push(team.teamid);
+    }
+  }
+  return order;
+}
+
 // ---------- Main body ----------
 function BracketBody() {
   const { tid, t, canEdit, unscheduledBracketGames } = useTournament();
@@ -620,6 +756,31 @@ function BracketBody() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [includeInProgress, setIncludeInProgress] = useState(false);
+
+  const { sources, toggleSource } = useGameSources();
+  const [prediction, setPrediction] = useState<TournamentPrediction | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  const [predictError, setPredictError] = useState<string | null>(null);
+
+  // A projection is only valid for the inputs it was run with.
+  const sourceKey = sources.join(",");
+  useEffect(() => {
+    setPrediction(null);
+    setPredictError(null);
+  }, [sourceKey, includeInProgress]);
+
+  const handlePredict = useCallback(async () => {
+    if (!tid) return;
+    setPredicting(true);
+    setPredictError(null);
+    try {
+      setPrediction(await fetchTournamentPrediction(tid, sources, includeInProgress));
+    } catch (e: unknown) {
+      setPredictError(e instanceof Error ? e.message : "Prediction failed");
+    } finally {
+      setPredicting(false);
+    }
+  }, [tid, sources, includeInProgress]);
 
   const loadBrackets = useCallback(async () => {
     if (!tid) return;
@@ -675,33 +836,10 @@ function BracketBody() {
 
   // Build standingsOrder — group-aware when groups + advances_per_group are set
   const advancesPerGroup = t?.advances_per_group ?? null;
-  const hasGroups = standingsRows.some((r) => r.pool_group != null);
-
-  const standingsOrder: number[] = (() => {
-    if (!hasGroups || !advancesPerGroup) {
-      return standingsRows.map((r) => r.teamid);
-    }
-    const groups = Array.from(
-      new Set(standingsRows.map((r) => r.pool_group).filter(Boolean) as string[])
-    ).sort();
-    const byGroup: Record<string, StandingsRow[]> = {};
-    for (const g of groups) {
-      byGroup[g] = standingsRows.filter((r) => r.pool_group === g);
-    }
-    const order: number[] = [];
-    for (let slot = 0; slot < advancesPerGroup; slot++) {
-      const slotTeams: StandingsRow[] = [];
-      for (const g of groups) {
-        const team = byGroup[g]?.[slot];
-        if (team) slotTeams.push(team);
-      }
-      slotTeams.sort((a, b) => a.rank_final - b.rank_final);
-      for (const team of slotTeams) {
-        order.push(team.teamid);
-      }
-    }
-    return order;
-  })();
+  const standingsOrder = buildStandingsOrder(standingsRows, advancesPerGroup);
+  const predictedSeedOrder = prediction
+    ? buildStandingsOrder(prediction.standings as unknown as StandingsRow[], advancesPerGroup)
+    : [];
 
   const handleBracketCreated = (b: TournamentBracket) => {
     setBrackets((prev) => [...prev, b].sort((a, x) => a.sort_order - x.sort_order));
@@ -750,6 +888,32 @@ function BracketBody() {
 
   return (
     <div className="space-y-0">
+      {/* Prediction controls */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <GameSourceToggles value={sources} onToggle={toggleSource} label="Predict from" />
+        <PredictTournamentButton
+          active={!!prediction}
+          loading={predicting}
+          disabled={brackets.length === 0}
+          disabledReason="Add a bracket first"
+          onPredict={handlePredict}
+          onClear={() => setPrediction(null)}
+        />
+      </div>
+
+      {predictError && (
+        <div className="border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive mb-3">
+          {predictError}
+        </div>
+      )}
+
+      {prediction && (
+        <PredictionBanner
+          projectedGamesCount={prediction.projectedGamesCount}
+          warning={prediction.warning}
+        />
+      )}
+
       {/* Tab bar */}
       <div className="flex items-end gap-0 border-b border-border/60 mb-6">
         {brackets.map((b) => {
@@ -854,6 +1018,8 @@ function BracketBody() {
           onUpdated={handleBracketUpdated}
           canEdit={canEdit}
           hasPoolPlay={hasPoolPlay}
+          prediction={prediction}
+          predictedSeedOrder={predictedSeedOrder}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 // pages/tournaments/[tournamentid]/pool.tsx
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import TournamentProvider, { useTournament } from "@/components/tournaments/TournamentProvider";
 import TournamentShell from "@/components/tournaments/TournamentShell";
@@ -9,6 +9,18 @@ import AddGameModal from "@/components/AddGameModal";
 import PoolGameDeleteButton from "@/components/PoolGameDeleteButton";
 import { formatMMDDYY, formatHHMMAMPM } from "@/lib/datetime";
 import { cn } from "@/lib/utils";
+import GameSourceToggles from "@/components/tournaments/GameSourceToggles";
+import PredictTournamentButton, {
+  PredictionBanner,
+  ProjectedPill,
+} from "@/components/tournaments/PredictTournamentButton";
+import { useGameSources } from "@/lib/hooks/useGameSources";
+import {
+  fetchTournamentPrediction,
+  projectedGamesById,
+  type ProjectedPoolGame,
+  type TournamentPrediction,
+} from "@/lib/tournaments/prediction";
 
 type PoolGameRow = {
   id: number;
@@ -44,11 +56,28 @@ function venueDirectionsUrl(g: PoolGameRow): string | null {
 
 type TournamentTeamRow = { id: number; name: string; pool_group: string | null };
 
-function ScoreCell({ score, isWinner }: { score: number | null; isWinner?: boolean }) {
+function ScoreCell({
+  score,
+  isWinner,
+  projected,
+}: {
+  score: number | null;
+  isWinner?: boolean;
+  projected?: boolean;
+}) {
   if (score == null) return <span className="text-muted-foreground/40">—</span>;
   return (
     <span
-      className={cn("tabular-nums", isWinner ? "text-primary" : "text-foreground/60")}
+      className={cn(
+        "tabular-nums",
+        projected
+          ? isWinner
+            ? "text-amber-600 dark:text-amber-400 italic"
+            : "text-amber-600/60 dark:text-amber-400/60 italic"
+          : isWinner
+            ? "text-primary"
+            : "text-foreground/60"
+      )}
       style={{
         fontFamily: "var(--font-display)",
         fontWeight: isWinner ? 800 : 600,
@@ -72,6 +101,37 @@ function PoolBody() {
   const [addOpen, setAddOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editInit, setEditInit] = useState<PoolGameRow | undefined>(undefined);
+
+  const { sources, toggleSource } = useGameSources();
+  const [prediction, setPrediction] = useState<TournamentPrediction | null>(null);
+  const [predicting, setPredicting] = useState(false);
+  const [predictError, setPredictError] = useState<string | null>(null);
+
+  // A projection is only valid for the sources it was run with.
+  const sourceKey = sources.join(",");
+  useEffect(() => {
+    setPrediction(null);
+    setPredictError(null);
+  }, [sourceKey]);
+
+  const handlePredict = useCallback(async () => {
+    if (!tid) return;
+    setPredicting(true);
+    setPredictError(null);
+    try {
+      // The Pool tab has no in-progress toggle; projections here treat only
+      // finalized games as settled, matching the default standings view.
+      setPrediction(await fetchTournamentPrediction(tid, sources, false));
+    } catch (e: unknown) {
+      setPredictError(e instanceof Error ? e.message : "Prediction failed");
+    } finally {
+      setPredicting(false);
+    }
+  }, [tid, sources]);
+
+  const projectedById: Map<number, ProjectedPoolGame> = prediction
+    ? projectedGamesById(prediction.projectedGames)
+    : new Map();
 
   const openEdit = (g: PoolGameRow) => {
     setEditInit({ ...g, gamedate: g.gamedate ? g.gamedate.slice(0, 10) : "" });
@@ -148,9 +208,16 @@ function PoolBody() {
 
   const renderGameRows = (gameList: PoolGameRow[]) =>
     gameList.map((g) => {
-      const hasScore = g.homescore != null && g.awayscore != null;
-      const homeWon = hasScore && g.homescore! > g.awayscore!;
-      const awayWon = hasScore && g.awayscore! > g.homescore!;
+      // The projection payload decides what counts as unplayed, rather than
+      // "has a score" — a game can carry a typed-in score while still sitting at
+      // Scheduled, and standings don't count those either. Deferring to the same
+      // predicate keeps this tab and the Standings tab telling the same story.
+      const projected = projectedById.get(g.id);
+      const homescore = projected ? projected.homescore : g.homescore;
+      const awayscore = projected ? projected.awayscore : g.awayscore;
+      const hasScore = homescore != null && awayscore != null;
+      const homeWon = hasScore && homescore! > awayscore!;
+      const awayWon = hasScore && awayscore! > homescore!;
       return (
         <tr key={g.id} className="border-b border-border/50 last:border-0 hover:bg-elevated transition-colors duration-100">
           <td className="p-3 text-xs text-muted-foreground whitespace-nowrap" style={{ fontFamily: "var(--font-body)", fontVariantNumeric: "tabular-nums" }}>
@@ -175,9 +242,10 @@ function PoolBody() {
           </td>
           <td className="p-3">
             <span className="inline-flex items-baseline gap-2">
-              <ScoreCell score={g.homescore} isWinner={homeWon} />
+              <ScoreCell score={homescore} isWinner={homeWon} projected={!!projected} />
               {hasScore && <span className="text-muted-foreground/30 text-xs">–</span>}
-              <ScoreCell score={g.awayscore} isWinner={awayWon} />
+              <ScoreCell score={awayscore} isWinner={awayWon} projected={!!projected} />
+              {projected && <ProjectedPill className="ml-1" />}
             </span>
           </td>
           <td className="p-3">
@@ -248,7 +316,7 @@ function PoolBody() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h2 style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "20px", textTransform: "uppercase", letterSpacing: "-0.01em" }}>
             Pool Play
@@ -260,17 +328,42 @@ function PoolBody() {
             </p>
           )}
         </div>
-        {canEdit && (
-          <Button
-            onClick={() => setAddOpen(true)}
-            className="gap-2 bg-primary text-primary-foreground hover:opacity-90 border-0 rounded-none text-[11px] uppercase tracking-[0.08em] h-8 px-4"
-            style={{ fontFamily: "var(--font-body)" }}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Add Game
-          </Button>
-        )}
+        <div className="flex items-center gap-3 flex-wrap">
+          <PredictTournamentButton
+            active={!!prediction}
+            loading={predicting}
+            onPredict={handlePredict}
+            onClear={() => setPrediction(null)}
+          />
+          {canEdit && (
+            <Button
+              onClick={() => setAddOpen(true)}
+              className="gap-2 bg-primary text-primary-foreground hover:opacity-90 border-0 rounded-none text-[11px] uppercase tracking-[0.08em] h-8 px-4"
+              style={{ fontFamily: "var(--font-body)" }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Add Game
+            </Button>
+          )}
+        </div>
       </div>
+
+      <div className="mb-4">
+        <GameSourceToggles value={sources} onToggle={toggleSource} label="Predict from" />
+      </div>
+
+      {predictError && (
+        <div className="border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive mb-3">
+          {predictError}
+        </div>
+      )}
+
+      {prediction && (
+        <PredictionBanner
+          projectedGamesCount={prediction.projectedGamesCount}
+          warning={prediction.warning}
+        />
+      )}
 
       {loading ? (
         <div className="space-y-1">
